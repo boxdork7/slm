@@ -1,0 +1,74 @@
+/**
+ * 国际化翻译组合式函数 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 语言包中函数值改为 {0},{1} 占位符的字符串模板
+ * - translate 函数支持传入替换参数数组
+ * - 移除 isFunction 判断（语言包不含函数）
+ * - 参数改为 args: string[] 数组
+ *
+ * 使用模式：
+ * ```
+ * const { translate } = useTranslate('button')
+ * translate('text')                    // 翻译 'button.text'
+ * translate('weekFormat', ['2026', '3'])  // '2026 第 3 周'
+ * ```
+ */
+import { camelCase, getPropByPath, isDef } from '../components/common/util'
+import { Locale } from '../locale/index'
+
+/** useTranslate 返回值类型 */
+export type UseTranslateReturn = {
+  translate : (key : string, args ?: string[]) => string
+}
+
+/**
+ * 替换字符串中的 {0}, {1}, ... 占位符
+ */
+const replacePlaceholders = (template : string, args : string[]) : string => {
+  let result = template
+  for (let i = 0; i < args.length; i++) {
+    result = result.replace(`{${i}}`, args[i])
+  }
+  return result
+}
+
+/**
+ * 国际化翻译
+ * @param name - 组件名称，用作翻译键的前缀
+ */
+export const useTranslate = (name ?: string | null) : UseTranslateReturn => {
+  /** 生成翻译键前缀 */
+  const prefix = name != null ? `${camelCase(name!)}.` : ''
+
+  /**
+   * 翻译函数
+   * @param key - 翻译键名
+   * @param args - 用于替换 {0},{1},... 占位符的参数数组
+   */
+  const translate = (key : string, args ?: string[]) : string => {
+    /** 获取当前语言的翻译消息 */
+    const msgFn = Locale.messages
+    if (msgFn == null) return `${prefix}${key}`
+    const currentMessages = msgFn()
+
+    /** 根据前缀和键名获取翻译文本 */
+    const message = getPropByPath(currentMessages, prefix + key)
+
+    /** 处理翻译结果 */
+    if (isDef(message)) {
+      const text = `${message}`
+      /** 如果有参数，替换占位符 */
+      if (args != null && args!.length > 0) {
+        return replacePlaceholders(text, args!)
+      }
+      return text
+    }
+    /** 否则返回完整的键名作为降级处理 */
+    return `${prefix}${key}`
+  }
+
+  return {
+    translate,
+  }
+}

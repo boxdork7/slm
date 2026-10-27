@@ -1,0 +1,362 @@
+/**
+ * MessageBox 消息弹窗 Composable
+ *
+ * UniApp X 版本
+ * - 移除 import type { InputType }（定义为 string）
+ * - 移除 export type / export interface
+ * - .substr(2, 9) → .substring(2, 11)
+ * - 联合类型 → string
+ * - 移除 as MessageOptions 类型断言
+ * - Promise<MessageResult> 保留
+ */
+import { type Ref, ref } from 'vue'
+import { deepMerge } from '../common/util'
+
+/**
+ * 消息类型
+ * 可选值：'alert' | 'confirm' | 'prompt'
+ */
+/* export type MessageType = string */
+
+/**
+ * 操作类型
+ * 可选值：'confirm' | 'cancel' | 'modal'
+ */
+/* export type ActionType = string */
+
+/**
+ * 输入验证函数
+ */
+export type InputValidate = (inputValue : string) => boolean
+
+/**
+ * 确认前回调选项
+ */
+export type MessageBeforeConfirmOption = {
+  resolve : (pass : boolean) => void
+}
+
+/**
+ * 消息弹窗结果
+ */
+export type MessageResult = {
+  /** 用户操作类型 */
+  action : string
+  /** 输入框的值（prompt 模式） */
+  value ?: string
+}
+
+/**
+ * 消息弹窗配置项
+ */
+export type MessageOptions = {
+  /** 弹窗类型 */
+  type ?: string
+  /** 标题 */
+  title ?: string
+  /** 消息内容 */
+  msg ?: string
+  /** 关闭时是否显示动画 */
+  closeOnClickModal ?: boolean
+  /** 是否显示取消按钮 */
+  showCancelButton ?: boolean
+  /** 是否显示关闭按钮 */
+  showConfirmButton ?: boolean
+  /** 确认按钮文字 */
+  confirmButtonText ?: string
+  /** 取消按钮文字 */
+  cancelButtonText ?: string
+  /** 是否显示 */
+  show ?: boolean
+  /** 层级 */
+  zIndex ?: number
+  /** 延迟渲染 */
+  lazyRender ?: boolean
+  /** 输入框类型 */
+  inputType ?: string
+  /** 输入框的值 */
+  inputValue ?: string
+  /** 输入框占位文本 */
+  inputPlaceholder ?: string
+  /** 输入框正则验证 */
+  inputPattern ?: RegExp | null
+  /** 输入框自定义验证 */
+  inputValidate ?: InputValidate | null
+  /** 输入框验证错误信息 */
+  inputError ?: string
+  /** 确认前回调 */
+  beforeConfirm ?: ((option : MessageBeforeConfirmOption) => void) | null
+  /** 选择器 */
+  selector ?: string
+  /** 确认回调 */
+  onConfirm ?: ((result : MessageResult) => void) | null
+  /** 取消回调 */
+  onCancel ?: ((result : MessageResult) => void) | null
+}
+
+/** 全局消息选项缓存 */
+const messageOptionsCache = new Map<string, Ref<MessageOptions>>()
+
+/** 消息弹窗 resolve 缓存 */
+const messageResolveCache = new Map<string, (result : MessageResult) => void>()
+
+/** 默认配置 */
+const defaultOptions : MessageOptions = {
+  type: 'alert',
+  title: '',
+  msg: '',
+  closeOnClickModal: true,
+  showCancelButton: false,
+  showConfirmButton: true,
+  confirmButtonText: '确定',
+  cancelButtonText: '取消',
+  show: false,
+  zIndex: 2000,
+  lazyRender: true,
+  inputType: 'text',
+  inputValue: '',
+  inputPlaceholder: '请输入',
+  inputPattern: null,
+  inputValidate: null,
+  inputError: '输入的数据不合规范',
+  beforeConfirm: null,
+  selector: '',
+  onConfirm: null,
+  onCancel: null,
+}
+
+/**
+ * 获取 Message 选项（带缓存）
+ */
+export const getMessageOption = (selector : string) : Ref<MessageOptions> => {
+  const key = selector != '' ? selector : 'default'
+
+  if (!messageOptionsCache.has(key)) {
+    const opts : MessageOptions = {
+      type: 'alert',
+      title: '',
+      msg: '',
+      closeOnClickModal: true,
+      showCancelButton: false,
+      showConfirmButton: true,
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      show: false,
+      zIndex: 2000,
+      lazyRender: true,
+      inputType: 'text',
+      inputValue: '',
+      inputPlaceholder: '请输入',
+      inputPattern: null,
+      inputValidate: null,
+      inputError: '输入的数据不合规范',
+      beforeConfirm: null,
+      selector: '',
+      onConfirm: null,
+      onCancel: null,
+    }
+    messageOptionsCache.set(key, ref(opts))
+  }
+
+  return messageOptionsCache.get(key)!
+}
+
+/**
+ * useMessage 组合式函数
+ */
+export const useMessage = (selector : string = '') : {
+  show : (option : MessageOptions) => Promise<MessageResult>
+  alert : (option : MessageOptions) => Promise<MessageResult>
+  confirm : (option : MessageOptions) => Promise<MessageResult>
+  prompt : (option : MessageOptions) => Promise<MessageResult>
+  close : () => void
+} => {
+  const messageOption = getMessageOption(selector)
+  const instanceKey = selector != '' ? selector : 'default'
+
+  /**
+   * 显示弹窗
+   */
+  const show = (option : MessageOptions) : Promise<MessageResult> => {
+    return new Promise<MessageResult>((resolve : (value : MessageResult) => void) => {
+      const merged = deepMerge(deepMerge({} as UTSJSONObject, defaultOptions as UTSJSONObject), option as UTSJSONObject)
+      const opts = merged as MessageOptions
+      opts.show = true
+
+      /* 存储 resolve */
+      messageResolveCache.set(instanceKey, resolve)
+
+      /* 设置回调 */
+      opts.onConfirm = (result : MessageResult) => {
+        if (messageResolveCache.has(instanceKey)) {
+          const r = messageResolveCache.get(instanceKey)!
+          r(result)
+          messageResolveCache.delete(instanceKey)
+        }
+      }
+      opts.onCancel = (result : MessageResult) => {
+        if (messageResolveCache.has(instanceKey)) {
+          const r = messageResolveCache.get(instanceKey)!
+          r(result)
+          messageResolveCache.delete(instanceKey)
+        }
+      }
+
+      messageOption.value = opts
+    })
+  }
+
+  /**
+   * Alert 弹窗（仅确认按钮）
+   */
+  const alert = (option : MessageOptions) : Promise<MessageResult> => {
+    const merged = deepMerge({ type: 'alert', showCancelButton: false, closeOnClickModal: false } as UTSJSONObject, option as UTSJSONObject)
+    return show(merged as MessageOptions)
+  }
+
+  /**
+   * Confirm 弹窗（确认 + 取消）
+   */
+  const confirm = (option : MessageOptions) : Promise<MessageResult> => {
+    const merged = deepMerge({ type: 'confirm', showCancelButton: true } as UTSJSONObject, option as UTSJSONObject)
+    return show(merged as MessageOptions)
+  }
+
+  /**
+   * Prompt 弹窗（带输入框）
+   */
+  const prompt = (option : MessageOptions) : Promise<MessageResult> => {
+    const merged = deepMerge({ type: 'prompt', showCancelButton: true } as UTSJSONObject, option as UTSJSONObject)
+    return show(merged as MessageOptions)
+  }
+
+  /**
+   * 关闭弹窗
+   */
+  const close = () => {
+    const resetOpts : MessageOptions = {
+      type: 'alert',
+      title: '',
+      msg: '',
+      closeOnClickModal: true,
+      showCancelButton: false,
+      showConfirmButton: true,
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      show: false,
+      zIndex: 2000,
+      lazyRender: true,
+      inputType: 'text',
+      inputValue: '',
+      inputPlaceholder: '请输入',
+      inputPattern: null,
+      inputValidate: null,
+      inputError: '输入的数据不合规范',
+      beforeConfirm: null,
+      selector: '',
+      onConfirm: null,
+      onCancel: null,
+    }
+    messageOption.value = resetOpts
+    messageResolveCache.delete(instanceKey)
+  }
+
+  return {
+    show,
+    alert,
+    confirm,
+    prompt,
+    close,
+  }
+}
+
+/**
+ * useMessageInternal 内部组合函数（供组件使用）
+ */
+export const useMessageInternal = (selector : string = '') : {
+  handleConfirm : (value : string) => void
+  handleCancel : (action : string) => void
+} => {
+  const messageOption = getMessageOption(selector)
+
+  /**
+   * 处理确认操作
+   */
+  const handleConfirm = (value : string) => {
+    const opts = messageOption.value
+    const result : MessageResult = { action: 'confirm', value: value }
+
+    if (opts.onConfirm != null) {
+      opts.onConfirm!(result)
+    }
+
+    /* 关闭弹窗 */
+    const resetOpts : MessageOptions = {
+      type: 'alert',
+      title: '',
+      msg: '',
+      closeOnClickModal: true,
+      showCancelButton: false,
+      showConfirmButton: true,
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      show: false,
+      zIndex: 2000,
+      lazyRender: true,
+      inputType: 'text',
+      inputValue: '',
+      inputPlaceholder: '请输入',
+      inputPattern: null,
+      inputValidate: null,
+      inputError: '输入的数据不合规范',
+      beforeConfirm: null,
+      selector: '',
+      onConfirm: null,
+      onCancel: null,
+    }
+    messageOption.value = resetOpts
+  }
+
+  /**
+   * 处理取消操作
+   */
+  const handleCancel = (action : string) => {
+    const opts = messageOption.value
+    const result : MessageResult = { action: action }
+
+    if (opts.onCancel != null) {
+      opts.onCancel!(result)
+    }
+
+    /* 关闭弹窗 */
+    const resetOpts : MessageOptions = {
+      type: 'alert',
+      title: '',
+      msg: '',
+      closeOnClickModal: true,
+      showCancelButton: false,
+      showConfirmButton: true,
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      show: false,
+      zIndex: 2000,
+      lazyRender: true,
+      inputType: 'text',
+      inputValue: '',
+      inputPlaceholder: '请输入',
+      inputPattern: null,
+      inputValidate: null,
+      inputError: '输入的数据不合规范',
+      beforeConfirm: null,
+      selector: '',
+      onConfirm: null,
+      onCancel: null,
+    }
+    messageOption.value = resetOpts
+  }
+
+  return {
+    handleConfirm,
+    handleCancel,
+  }
+}

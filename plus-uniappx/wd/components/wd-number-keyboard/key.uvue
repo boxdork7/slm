@@ -1,0 +1,198 @@
+<!--
+  迁移说明：从 plus-app 迁移到 plus-uniappx
+  主要变更：
+  1. <script lang="ts" setup> → <script lang="uts" setup>
+  2. 移除 defineOptions
+  3. TouchEvent → UniTouchEvent
+  4. 移除手动组件导入（easycom）
+  5. 显式标注计算属性返回类型
+-->
+<template>
+  <view
+    :class="`wd-key-wrapper ${wider ? 'wd-key-wrapper--wider' : ''}`"
+    @touchstart="onTouchStart"
+    @touchmove="onTouchMove"
+    @touchend="onTouchEnd"
+  >
+    <view
+      :class="`wd-key ${large ? 'wd-key--large' : ''} ${type === 'delete' ? 'wd-key--delete' : ''} ${type === 'close' ? 'wd-key--close' : ''} ${active ? 'wd-key--active' : ''}`"
+    >
+      <wd-loading v-if="loading" custom-class="wd-key__loading-icon" />
+      <template v-if="type === 'delete'">
+        <template v-if="text">
+          {{ text }}
+        </template>
+        <wd-icon v-else custom-class="wd-key__icon" name="keyboard-delete" size="44rpx" />
+      </template>
+      <template v-else-if="type === 'extra'">
+        <template v-if="text">
+          {{ text }}
+        </template>
+        <wd-icon v-else custom-class="wd-key__icon" name="keyboard-collapse" size="44rpx" />
+      </template>
+      <template v-else>{{ text }}</template>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+/**
+ * 数字键盘按键类型
+ */
+type NumberKeyType = '' | 'delete' | 'extra' | 'close'
+
+/**
+ * 数字键盘按键组件属性接口
+ */
+type WdKeyProps = {
+  /** 按键类型 */
+  type?: string
+  /** 按键文本 */
+  text?: string | number
+  /** 是否为宽按键 */
+  wider?: boolean
+  /** 是否为大按键 */
+  large?: boolean
+  /** 是否显示加载状态 */
+  loading?: boolean
+}
+
+/**
+ * 数字键盘按键组件事件接口
+ */
+type WdKeyEmits = {
+  (event: 'press', text: string | number, type: string): void
+}
+
+// 使用 withDefaults 定义组件属性和默认值
+const props = withDefaults(defineProps<WdKeyProps>(), {
+  type: '',
+  text: '',
+  wider: false,
+  large: false,
+  loading: false,
+})
+
+// 定义组件事件
+const emit = defineEmits<WdKeyEmits>()
+
+// 触摸处理
+const touch = useTouch()
+// 按键激活状态
+const active = ref<boolean>(false)
+
+/**
+ * 触摸开始事件处理
+ */
+const onTouchStart = (event: UniTouchEvent) => {
+  touch.touchStart(event)
+  active.value = true
+}
+
+/**
+ * 触摸移动事件处理
+ */
+const onTouchMove = (event: UniTouchEvent) => {
+  touch.touchMove(event)
+  if (touch.direction.value) {
+    active.value = false
+  }
+}
+
+/**
+ * 触摸结束事件处理
+ */
+const onTouchEnd = () => {
+  if (active.value) {
+    active.value = false
+    emit('press', props.text, props.type)
+  }
+}
+</script>
+
+<style lang="scss">
+// 引入外部样式文件
+@import '../common/abstracts/mixin';
+@import '../common/abstracts/variable';
+
+// 暗色主题样式
+.wot-theme-dark {
+  .wd-key {
+    background: $-dark-background2;
+    color: $-dark-color;
+
+    &:active {
+      background-color: $-dark-background4;
+    }
+
+    &.wd-key--active {
+      background-color: $-dark-background4;
+    }
+  }
+}
+
+// 按键包装器样式
+.wd-key-wrapper {
+  position: relative;
+  flex: 1;
+  flex-basis: 33%;
+  box-sizing: border-box;
+  padding: 0 12rpx 12rpx 0;
+
+  &.wd-key-wrapper--wider {
+    flex-basis: 66%;
+  }
+}
+
+// 按键样式
+.wd-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: $-number-keyboard-key-height;
+  font-size: $-number-keyboard-key-font-size;
+  line-height: 1.5;
+  background: $-number-keyboard-key-background;
+  border-radius: $-number-keyboard-key-border-radius;
+
+  &:active {
+    background-color: $-number-keyboard-key-active-color;
+  }
+
+  &.wd-key--large {
+    position: absolute;
+    top: 0;
+    right: 12rpx;
+    bottom: 12rpx;
+    left: 0;
+    height: auto;
+  }
+
+  &.wd-key--delete,
+  &.wd-key--close {
+    font-size: $-number-keyboard-delete-font-size;
+  }
+
+  &.wd-key--active {
+    background-color: $-number-keyboard-key-active-color;
+  }
+
+  &.wd-key--close {
+    color: $-number-keyboard-button-text-color;
+    background: $-number-keyboard-button-background;
+
+    &:active {
+      background: $-number-keyboard-button-background;
+      opacity: $-number-keyboard-button-active-opacity;
+    }
+  }
+
+  .wd-key__loading-icon {
+    color: $-number-keyboard-button-text-color;
+  }
+
+  .wd-key__icon {
+    font-size: $-number-keyboard-icon-size;
+  }
+}
+</style>

@@ -1,0 +1,371 @@
+<!--
+Popup 弹出层 弹出层组件，用于展示弹窗、信息提示等内容
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type PopupType
+- 移除 import type { TransitionName }
+- 移除手动 wdIcon/wdOverlay/wdTransition 导入（easycom 自动注册）
+- TransitionName → string
+- PopupType → string
+- duration: number | boolean → number
+- edeep → e（UniApp X mixin）
+- mdeep → m（UniApp X mixin）
+- :deep() → 直接类选择器
+- 条件编译简化（UniApp X 统一用 safeAreaInsets）
+-->
+<template>
+  <view class="wd-popup-wrapper">
+    <wd-overlay
+      v-if="modal"
+      :show="modelValue"
+      :z-index="zIndex"
+      :lock-scroll="lockScroll"
+      :duration="duration"
+      :custom-style="modalStyle"
+      @click="handleClickModal"
+    />
+    <wd-transition
+      :lazy-render="lazyRender"
+      :custom-class="`wd-popup wd-popup--${position} ${!transition && position == 'center' ? 'is-deep' : ''} ${customClass}`"
+      :custom-style="`z-index:${zIndex}; padding-bottom: ${addUnit(pxToRpx(safeBottom))}; border-radius: ${getBorderRadius};${customStyle}`"
+      :duration="duration"
+      :show="modelValue"
+      :name="transitionName"
+      :destroy="hideWhenClose"
+      @before-enter="emit('before-enter')"
+      @enter="emit('enter')"
+      @after-enter="emit('after-enter')"
+      @before-leave="emit('before-leave')"
+      @leave="emit('leave')"
+      @after-leave="emit('after-leave')"
+    >
+      <!-- 标题区域 -->
+      <view
+        v-if="title != ''"
+        :class="`wd-popup__header wd-popup__header--${position} ${customHeaderClass}`"
+      >
+        {{ title }}
+        <!-- 关闭按钮在标题内 -->
+        <wd-icon
+          v-if="closable"
+          custom-class="wd-popup__close-in-header"
+          name="add"
+          size="40"
+          @click="close"
+        />
+      </view>
+
+      <!-- 插槽内容 -->
+      <view :class="`wd-popup__content ${title != '' ? 'wd-popup__content--with-title' : ''}`">
+        <slot />
+      </view>
+
+      <!-- 没有标题时的关闭按钮 -->
+      <wd-icon
+        v-if="closable && title == ''"
+        custom-class="wd-popup__close"
+        name="add"
+        size="40"
+        @click="close"
+      />
+    </wd-transition>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, onBeforeMount, ref } from 'vue'
+import { addUnit, pxToRpx } from '../common/util'
+
+/**
+ * 弹出层组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 自定义标题区域样式类 */
+  customHeaderClass ?: string
+  /** 标题文本 */
+  title ?: string
+  /** 圆角大小 */
+  radius ?: string | number
+  /** 动画类型 */
+  transition ?: string
+  /** 关闭按钮 */
+  closable ?: boolean
+  /** 弹出框的位置，可选值：center / top / right / bottom / left */
+  position ?: string
+  /** 点击遮罩是否关闭 */
+  closeOnClickModal ?: boolean
+  /** 动画持续时间 */
+  duration ?: number
+  /** 是否显示遮罩 */
+  modal ?: boolean
+  /** 设置层级 */
+  zIndex ?: number
+  /** 是否当关闭时将弹出层隐藏 */
+  hideWhenClose ?: boolean
+  /** 遮罩样式 */
+  modalStyle ?: string
+  /** 弹出面板是否设置底部安全距离 */
+  safeAreaInsetBottom ?: boolean
+  /** 弹出层是否显示 */
+  modelValue ?: boolean
+  /** 弹层内容懒渲染 */
+  lazyRender ?: boolean
+  /** 是否锁定滚动 */
+  lockScroll ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  customHeaderClass: '',
+  title: '',
+  radius: '16',
+  transition: '',
+  closable: false,
+  position: 'center',
+  closeOnClickModal: true,
+  duration: 300,
+  modal: true,
+  zIndex: 100,
+  hideWhenClose: true,
+  modalStyle: '',
+  safeAreaInsetBottom: false,
+  modelValue: false,
+  lazyRender: true,
+  lockScroll: true,
+})
+
+/** 组件事件 */
+const emit = defineEmits([
+  'update:modelValue',
+  'before-enter',
+  'enter',
+  'after-enter',
+  'before-leave',
+  'leave',
+  'after-leave',
+  'click-modal',
+  'close',
+])
+
+/** 底部安全距离 */
+const safeBottom = ref(0)
+
+/**
+ * 根据位置计算圆角样式
+ */
+const getBorderRadius = computed(() : string => {
+  const radiusValue = addUnit(props.radius)
+
+  if (props.position == 'center') return radiusValue
+  if (props.position == 'top') return `0 0 ${radiusValue} ${radiusValue}`
+  if (props.position == 'bottom') return `${radiusValue} ${radiusValue} 0 0`
+  if (props.position == 'left') return `0 ${radiusValue} ${radiusValue} 0`
+  if (props.position == 'right') return `${radiusValue} 0 0 ${radiusValue}`
+  return radiusValue
+})
+
+/**
+ * 计算过渡动画名称
+ */
+const transitionName = computed(() : string => {
+  if (props.transition != '') {
+    return props.transition
+  }
+
+  if (props.position == 'center') return 'zoom-in,fade'
+  if (props.position == 'left') return 'slide-left'
+  if (props.position == 'right') return 'slide-right'
+  if (props.position == 'bottom') return 'slide-up'
+  if (props.position == 'top') return 'slide-down'
+  return 'slide-up'
+})
+
+/** 关闭弹出层 */
+const close = () => {
+  emit('close')
+  emit('update:modelValue', false)
+}
+
+/** 处理点击遮罩事件 */
+const handleClickModal = () => {
+  emit('click-modal')
+  if (props.closeOnClickModal) {
+    close()
+  }
+}
+
+/** 组件挂载前处理底部安全距离 */
+onBeforeMount(() => {
+  if (props.safeAreaInsetBottom) {
+    const systemInfo = uni.getSystemInfoSync()
+    const safeAreaInsets = systemInfo.safeAreaInsets
+    if (safeAreaInsets != null) {
+      safeBottom.value = safeAreaInsets!.bottom
+    } else {
+      safeBottom.value = 0
+    }
+  }
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  .wd-popup {
+    background: $-dark-background2;
+  }
+
+  .wd-popup__close {
+    color: $-dark-color;
+  }
+
+  .wd-popup__close-in-header {
+    color: $-dark-color;
+  }
+
+  .wd-popup__header {
+    background: $-dark-background2;
+    color: $-dark-color;
+  }
+}
+
+/* 弹出层基础样式 */
+.wd-popup {
+  position: fixed;
+  max-height: 100%;
+  background: #fff;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@include b(popup) {
+  /* 标题区域样式 */
+  @include e(header) {
+    position: relative;
+    background: #fff;
+    font-size: 32rpx;
+    font-weight: 500;
+    color: rgba(0, 0, 0, 0.85);
+    flex-shrink: 0;
+    z-index: 2;
+
+    @include m(bottom) {
+      height: $-action-sheet-title-height;
+      line-height: $-action-sheet-title-height;
+      text-align: center;
+    }
+
+    @include m(top) {
+      height: $-action-sheet-title-height;
+      line-height: $-action-sheet-title-height;
+      text-align: center;
+    }
+
+    @include m(left) {
+      height: $-action-sheet-title-height;
+      line-height: $-action-sheet-title-height;
+      padding: 0 32rpx;
+    }
+
+    @include m(right) {
+      height: $-action-sheet-title-height;
+      line-height: $-action-sheet-title-height;
+      padding: 0 32rpx;
+    }
+
+    @include m(center) {
+      height: $-action-sheet-title-height;
+      line-height: $-action-sheet-title-height;
+      text-align: center;
+    }
+  }
+
+  /* 内容区域样式 */
+  @include e(content) {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 标题内的关闭按钮样式 */
+  @include e(close-in-header) {
+    position: absolute;
+    top: 50%;
+    right: 32rpx;
+    transform: translateY(-50%) rotate(-45deg);
+    color: $-popup-close-color;
+    font-size: $-popup-close-size;
+    z-index: 1;
+  }
+
+  /* 关闭按钮样式（没有标题时） */
+  @include e(close) {
+    position: absolute;
+    top: 20rpx;
+    right: 20rpx;
+    color: $-popup-close-color;
+    font-size: $-popup-close-size;
+    transform: rotate(-45deg);
+    z-index: 3;
+  }
+}
+
+/* 居中位置样式 */
+.wd-popup--center {
+  left: 50%;
+  top: 50%;
+  transform: translate3d(-50%, -50%, 0);
+  transform-origin: 0 0;
+
+  /* 缩放动画 */
+  &.wd-zoom-in-enter,
+  &.wd-zoom-in-leave-to {
+    transform: scale(0.8) translate3d(-50%, -50%, 0) !important;
+  }
+
+  /* 深度缩放效果 */
+  &.is-deep {
+    &.wd-zoom-in-enter,
+    &.wd-zoom-in-leave-to {
+      transform: scale(0.1) translate3d(-50%, -50%, 0) !important;
+    }
+  }
+}
+
+/* 左侧位置样式 */
+.wd-popup--left {
+  top: 0;
+  bottom: 0;
+  left: 0;
+}
+
+/* 右侧位置样式 */
+.wd-popup--right {
+  top: 0;
+  right: 0;
+  bottom: 0;
+}
+
+/* 顶部位置样式 */
+.wd-popup--top {
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+/* 底部位置样式 */
+.wd-popup--bottom {
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+</style>

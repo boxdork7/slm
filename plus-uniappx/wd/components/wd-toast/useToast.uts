@@ -1,0 +1,320 @@
+/**
+ * Toast 轻提示 Composable
+ *
+ * UniApp X 版本
+ * - 移除 export type ToastOptionRef
+ * - ReturnType<typeof setTimeout> → number
+ * - 移除 as ToastOptions 类型断言
+ * - 联合类型 → string
+ * - ToastOptions / Toast 接口从 wd-toast.vue 移到此处
+ */
+import { type Ref, ref } from 'vue'
+import { deepMerge } from '../common/util'
+
+/**
+ * Toast 图标类型
+ * 可选值：'success' | 'warning' | 'info' | 'error' | 'loading'
+ */
+/* export type ToastIconType = string */
+
+/**
+ * Toast 位置类型
+ * 可选值：'top' | 'middle' | 'bottom'
+ */
+/* export type ToastPositionType = string */
+
+/**
+ * Toast 方向
+ * 可选值：'vertical' | 'horizontal'
+ */
+/* export type ToastDirection = string */
+
+/**
+ * Toast 加载类型
+ * 可选值：'outline' | 'ring'
+ */
+/* export type ToastLoadingType = string */
+
+/**
+ * Toast 配置项
+ */
+export type ToastOptions = {
+  /** 提示信息 */
+  msg ?: string
+  /** 持续时间（毫秒） */
+  duration ?: number
+  /** 图标类型 */
+  iconName ?: string
+  /** 自定义图标类名 */
+  iconClass ?: string
+  /** 图标大小 */
+  iconSize ?: number
+  /** 加载类型 */
+  loadingType ?: string
+  /** 加载颜色 */
+  loadingColor ?: string
+  /** 自定义图标 URL */
+  customIcon ?: string
+  /** 位置 */
+  position ?: string
+  /** 是否显示 */
+  show ?: boolean
+  /** 层级 */
+  zIndex ?: number
+  /** 关闭回调 */
+  onClose ?: (() => void) | null
+  /** 是否覆盖模式（显示遮罩） */
+  cover ?: boolean
+  /** 方向 */
+  direction ?: string
+  /** ID 标识 */
+  id ?: string
+  /** 偏移量 */
+  offsetY ?: number
+}
+
+/**
+ * Toast 实例方法
+ */
+export type Toast = {
+  show : (option : ToastOptions | string) => void
+  loading : (option ?: ToastOptions | string) => void
+  success : (option ?: ToastOptions | string) => void
+  error : (option ?: ToastOptions | string) => void
+  warning : (option ?: ToastOptions | string) => void
+  info : (option ?: ToastOptions | string) => void
+  close : () => void
+}
+
+/** Toast 高度常量 */
+const TOAST_HEIGHT = 60
+/** 基础层级 */
+const BASE_Z_INDEX = 1000
+
+/**
+ * Toast 实例信息
+ */
+type ToastInstance = {
+  id : string
+  selector : string
+  option : Ref<ToastOptions>
+  zIndex : number
+  offsetY : number
+  timer : number
+}
+
+/** 全局 Toast 选项缓存 */
+const toastOptionsCache = new Map<string, Ref<ToastOptions>>()
+
+/** 活动 Toast 实例缓存 */
+const activeToastInstances = new Map<string, ToastInstance>()
+
+/** 默认配置 */
+const defaultOptions : ToastOptions = {
+  msg: '',
+  duration: 2000,
+  iconName: '',
+  iconClass: '',
+  iconSize: 42,
+  loadingType: 'outline',
+  loadingColor: '#4D80F0',
+  customIcon: '',
+  position: 'middle',
+  show: false,
+  zIndex: BASE_Z_INDEX,
+  onClose: null,
+  cover: false,
+  direction: 'vertical',
+  id: '',
+  offsetY: 0,
+}
+
+/**
+ * 生成 Toast ID
+ */
+const generateToastId = () : string => {
+  return 'toast_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now().toString(36)
+}
+
+/**
+ * 计算 Toast 偏移量（根据活动实例和位置）
+ */
+const calculateToastOffset = (position : string) : number => {
+  let offset = 0
+  activeToastInstances.forEach((instance : ToastInstance) => {
+    const opt = instance.option.value
+    if (opt.show == true && opt.position == position) {
+      offset += TOAST_HEIGHT + 16
+    }
+  })
+  return offset
+}
+
+/**
+ * 获取 Toast 选项（带缓存）
+ */
+export const getToastOption = (selector : string) : Ref<ToastOptions> => {
+  const key = selector != '' ? selector : 'default'
+
+  if (!toastOptionsCache.has(key)) {
+    const opts : ToastOptions = {
+      msg: '',
+      duration: 2000,
+      iconName: '',
+      iconClass: '',
+      iconSize: 42,
+      loadingType: 'outline',
+      loadingColor: '#4D80F0',
+      customIcon: '',
+      position: 'middle',
+      show: false,
+      zIndex: BASE_Z_INDEX,
+      onClose: null,
+      cover: false,
+      direction: 'vertical',
+      id: '',
+      offsetY: 0,
+    }
+    toastOptionsCache.set(key, ref(opts))
+  }
+
+  return toastOptionsCache.get(key)!
+}
+
+/**
+ * useToast 组合式函数
+ */
+export const useToast = (selector : string = '') : Toast => {
+  const toastOption = getToastOption(selector)
+  const instanceKey = selector != '' ? selector : 'default'
+
+  /**
+   * 显示 Toast
+   */
+  const show = (option : ToastOptions | string) => {
+    let opts : ToastOptions
+    if (typeof option == 'string') {
+      const merged = deepMerge(deepMerge({} as UTSJSONObject, defaultOptions as UTSJSONObject), { msg: option } as UTSJSONObject)
+      opts = merged as ToastOptions
+    } else {
+      const merged = deepMerge(deepMerge({} as UTSJSONObject, defaultOptions as UTSJSONObject), option as UTSJSONObject)
+      opts = merged as ToastOptions
+    }
+
+    /* 清除之前的定时器 */
+    if (activeToastInstances.has(instanceKey)) {
+      const prevInstance = activeToastInstances.get(instanceKey)!
+      if (prevInstance.timer > 0) {
+        clearTimeout(prevInstance.timer)
+      }
+    }
+
+    /* 生成 ID 和层级 */
+    const toastId = generateToastId()
+    const zIndex = BASE_Z_INDEX + activeToastInstances.size
+    const offsetY = calculateToastOffset(opts.position ?? 'middle')
+
+    opts.show = true
+    opts.id = toastId
+    opts.zIndex = zIndex
+    opts.offsetY = offsetY
+
+    /* 创建实例 */
+    const instance : ToastInstance = {
+      id: toastId,
+      selector: instanceKey,
+      option: toastOption,
+      zIndex: zIndex,
+      offsetY: offsetY,
+      timer: 0,
+    }
+
+    activeToastInstances.set(instanceKey, instance)
+    toastOption.value = opts
+
+    /* 自动关闭 */
+    const duration = opts.duration ?? 2000
+    if (duration > 0 && opts.iconName != 'loading') {
+      instance.timer = setTimeout(() => {
+        close()
+      }, duration) as number
+    }
+  }
+
+  /**
+   * 关闭 Toast
+   */
+  const close = () => {
+    if (activeToastInstances.has(instanceKey)) {
+      const instance = activeToastInstances.get(instanceKey)!
+      if (instance.timer > 0) {
+        clearTimeout(instance.timer)
+        instance.timer = 0
+      }
+      activeToastInstances.delete(instanceKey)
+    }
+
+    const current = toastOption.value
+    const onCloseCallback = current.onClose
+
+    /* 重置选项 */
+    const resetOpts : ToastOptions = {
+      msg: '',
+      duration: 2000,
+      iconName: '',
+      iconClass: '',
+      iconSize: 42,
+      loadingType: 'outline',
+      loadingColor: '#4D80F0',
+      customIcon: '',
+      position: 'middle',
+      show: false,
+      zIndex: BASE_Z_INDEX,
+      onClose: null,
+      cover: false,
+      direction: 'vertical',
+      id: '',
+      offsetY: 0,
+    }
+    toastOption.value = resetOpts
+
+    if (onCloseCallback != null) {
+      onCloseCallback!()
+    }
+  }
+
+  /**
+   * 创建预设方法
+   */
+  const createMethod = (toastOptions : ToastOptions) : ((option ?: ToastOptions | string) => void) => {
+    return (option ?: ToastOptions | string) => {
+      if (option == null) {
+        show(toastOptions)
+      } else if (typeof option == 'string') {
+        const merged = deepMerge(deepMerge({} as UTSJSONObject, toastOptions as UTSJSONObject), { msg: option } as UTSJSONObject)
+        show(merged as ToastOptions)
+      } else {
+        const merged = deepMerge(deepMerge({} as UTSJSONObject, toastOptions as UTSJSONObject), option as UTSJSONObject)
+        show(merged as ToastOptions)
+      }
+    }
+  }
+
+  const loading = createMethod({ iconName: 'loading', duration: 0 })
+  const success = createMethod({ iconName: 'success', duration: 1500 })
+  const error = createMethod({ iconName: 'error', duration: 1500 })
+  const warning = createMethod({ iconName: 'warning', duration: 1500 })
+  const info = createMethod({ iconName: 'info', duration: 1500 })
+
+  const toast : Toast = {
+    show,
+    loading,
+    success,
+    error,
+    warning,
+    info,
+    close,
+  }
+
+  return toast
+}

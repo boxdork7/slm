@@ -1,0 +1,141 @@
+/**
+ * wd-picker-view-utils.uts
+ * UniApp X 版本工具函数
+ *
+ * 改动点：
+ * - .ts → .uts
+ * - import type → 移除（UTS 不支持）
+ * - ColumnItem 接口定义移至此文件
+ * - PickerViewValue 类型定义移至此文件
+ * - Record<string, any> → UTSJSONObject
+ * - Set → 数组去重实现
+ * - hasOwnProperty → Object.prototype.hasOwnProperty.call
+ */
+
+import { getType, isArray, isDef } from '../common/util'
+
+/**
+ * 列选项数据项接口
+ */
+export type ColumnItem = UTSJSONObject
+
+/**
+ * 选择器值类型 - 支持混合数组
+ */
+export type PickerViewValue = string | number | boolean | Array<string | number | boolean>
+
+/**
+ * 格式化传入的列数据
+ * 列数据统一格式化为二维数组
+ * @param array 列数据
+ * @param valueKey 值键名
+ * @param labelKey 标签键名
+ * @returns 格式化后的二维数组
+ */
+export const formatArray = (
+  array : Array<any>,
+  valueKey : string,
+  labelKey : string,
+) : ColumnItem[][] => {
+  let tempArray : Array<any> = isArray(array) ? array : [array]
+
+  // 判断数组第一层的数据类型，如果存在多种类型，则抛错
+  const firstLevelTypes : string[] = []
+  for (let i = 0; i < array.length; i++) {
+    const t = getType(array[i])
+    if (!firstLevelTypes.includes(t)) {
+      firstLevelTypes.push(t)
+    }
+  }
+
+  /**
+   * 存在三种类型的合法数据
+   * 1.数组是一维元素，所有元素都是原始值
+   * 2.数组是一维元素，所有元素都是object
+   * 3.数组是二维元素，二维元素可以是任意内容
+   */
+  if (firstLevelTypes.length !== 1 && firstLevelTypes.includes('object')) {
+    // 原始值和引用类型不用混用
+    throw new Error('The columns are correct')
+  }
+
+  /**
+   * 简单处理，如果数组第一项不是数组则认为它是一个一维数组
+   * 所以需要把一维的转成二维，这样方便统一处理
+   */
+  if (!isArray(array[0])) {
+    tempArray = [tempArray]
+  }
+
+  // 转化为二维数组后需要将每一项包装成ColumnItem
+  const result : Array<Array<ColumnItem>> = []
+
+  for (let colIdx = 0; colIdx < tempArray.length; colIdx++) {
+    const col = tempArray[colIdx] as Array<any>
+    const formattedCol : ColumnItem[] = []
+
+    for (let rowIdx = 0; rowIdx < col.length; rowIdx++) {
+      const row = col[rowIdx]
+
+      // 非对象类型直接将值作为label和value
+      if (!isArray(row) && typeof row !== 'object') {
+        const item : ColumnItem = {}
+        item[valueKey] = row
+        item[labelKey] = row
+        formattedCol.push(item)
+        continue
+      }
+
+      /**
+       * 针对已经是object的，修补成{valueKey,labelKey}
+       * 如果没有labelKey，用valueKey代替
+       * 如果没有valueKey，用labelKey代替
+       * valueKey,labelKey都没有，直接抛错
+       */
+      const item = row as UTSJSONObject
+      const hasValueKey = Object.prototype.hasOwnProperty.call(item, valueKey)
+      const hasLabelKey = Object.prototype.hasOwnProperty.call(item, labelKey)
+
+      if (!hasValueKey && !hasLabelKey) {
+        throw new Error(`Can't find valueKey and labelKey in columns`)
+      }
+
+      if (!hasLabelKey) {
+        item[labelKey] = item[valueKey]
+      }
+
+      if (!hasValueKey) {
+        item[valueKey] = item[labelKey]
+      }
+
+      formattedCol.push(item)
+    }
+
+    result.push(formattedCol)
+  }
+
+  return result
+}
+
+/**
+ * 解析传入的值，支持字符串、数组等多种格式
+ * @param value 原始值
+ * @returns 解析后的数组
+ */
+export const parseInputValue = (value : PickerViewValue) : (string | number | boolean)[] => {
+  if (!isDef(value) || value === '') {
+    return []
+  }
+
+  if (isArray(value)) {
+    return value as Array<string | number | boolean>
+  }
+
+  // 如果是字符串且包含逗号，解析为数组
+  if (typeof value === 'string' && (value as string).includes(',')) {
+    return (value as string).split(',').map((item : string) : string => item.trim())
+  }
+
+  // 否则作为单个值处理
+  return [value as string | number | boolean]
+}

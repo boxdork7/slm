@@ -1,0 +1,266 @@
+<!--
+Toast 轻提示 用于消息通知、加载提示、操作结果提示等场景。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type / export interface（移到 useToast.uts）
+- 移除手动组件导入（easycom 自动注册）
+- 移除 CSSProperties 导入，使用字符串拼接样式
+- toastIcon 对象通过 if/else 访问（UTS 不支持 keyof typeof）
+- TransitionName → string
+- 联合类型 → string
+- duration: number | boolean → number
+- edeep → e（UniApp X mixin）
+- :deep() → 直接类选择器
+-->
+<template>
+  <view class="wd-toast-wrapper">
+    <!-- 遮罩层（cover 模式） -->
+    <wd-overlay
+      v-if="isCoverShow"
+      :show="true"
+      :z-index="computedZIndex"
+      :lock-scroll="true"
+      custom-style="background: transparent;"
+    />
+
+    <!-- Toast 主体 -->
+    <wd-transition
+      :show="isShow"
+      name="fade"
+      :custom-class="`wd-toast ${computedDirection == 'vertical' ? 'is-vertical' : ''} ${customClass}`"
+      :custom-style="transitionStyleStr"
+    >
+      <!-- 内置图标（SVG） -->
+      <view
+        v-if="computedIconName != '' && computedIconName != 'loading' && svgDataUri != ''"
+        class="wd-toast__icon-wrapper"
+      >
+        <image
+          class="wd-toast__icon-image"
+          :src="svgDataUri"
+          :style="`width: ${computedIconSize}px; height: ${computedIconSize}px;`"
+        />
+      </view>
+
+      <!-- 加载图标 -->
+      <wd-loading
+        v-if="computedIconName == 'loading'"
+        :type="computedLoadingType"
+        :color="computedLoadingColor"
+        :size="`${computedIconSize}px`"
+        custom-class="wd-toast__loading"
+      />
+
+      <!-- 自定义图标 -->
+      <wd-icon
+        v-if="computedCustomIcon != ''"
+        custom-class="wd-toast__icon"
+        :name="computedCustomIcon"
+        :size="`${computedIconSize}px`"
+      />
+
+      <!-- 消息文本 -->
+      <view v-if="computedMsg != ''" class="wd-toast__msg">
+        {{ computedMsg }}
+      </view>
+    </wd-transition>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, watch, ref } from 'vue'
+import { encode } from '../common/base64'
+import { getToastOption, type ToastOptions } from './useToast'
+
+/**
+ * Toast 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 选择器标识 */
+  selector ?: string
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+}>(), {
+  selector: '',
+  customStyle: '',
+  customClass: '',
+})
+
+/* 获取全局选项 */
+const toastOption = getToastOption(props.selector)
+
+/* 本地状态 */
+const isShow = ref(false)
+const isCoverShow = ref(false)
+const computedMsg = ref('')
+const computedIconName = ref('')
+const computedIconSize = ref(42)
+const computedLoadingType = ref('outline')
+const computedLoadingColor = ref('#4D80F0')
+const computedCustomIcon = ref('')
+const computedPosition = ref('middle')
+const computedZIndex = ref(1000)
+const computedDirection = ref('vertical')
+const computedOffsetY = ref(0)
+
+/**
+ * 获取 SVG 图标字符串
+ */
+const getSvgString = (name : string) : string => {
+  if (name == 'success') {
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 6L9 17l-5-5"/></svg>'
+  }
+  if (name == 'warning') {
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></g></svg>'
+  }
+  if (name == 'info') {
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></g></svg>'
+  }
+  if (name == 'error') {
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></g></svg>'
+  }
+  return ''
+}
+
+/**
+ * 构建 SVG Data URI
+ */
+const svgDataUri = computed(() : string => {
+  if (computedIconName.value == '' || computedIconName.value == 'loading') return ''
+  const svgStr = getSvgString(computedIconName.value)
+  if (svgStr == '') return ''
+  return 'data:image/svg+xml;base64,' + encode(svgStr)
+})
+
+/**
+ * 过渡样式字符串
+ */
+const transitionStyleStr = computed(() : string => {
+  let style = `z-index: ${computedZIndex.value};`
+
+  if (computedPosition.value == 'top') {
+    style += ` top: 80px; left: 50%; transform: translateX(-50%);`
+    if (computedOffsetY.value > 0) {
+      style += ` margin-top: ${computedOffsetY.value}px;`
+    }
+  } else if (computedPosition.value == 'bottom') {
+    style += ` bottom: 80px; left: 50%; transform: translateX(-50%);`
+    if (computedOffsetY.value > 0) {
+      style += ` margin-bottom: ${computedOffsetY.value}px;`
+    }
+  } else {
+    style += ` top: 50%; left: 50%; transform: translate(-50%, -50%);`
+  }
+
+  if (props.customStyle != '') {
+    style += props.customStyle
+  }
+
+  return style
+})
+
+/**
+ * 从选项同步到本地状态
+ */
+const syncFromOption = (opt : ToastOptions) => {
+  isShow.value = opt.show ?? false
+  isCoverShow.value = (opt.cover ?? false) && (opt.show ?? false)
+  computedMsg.value = opt.msg ?? ''
+  computedIconName.value = opt.iconName ?? ''
+  computedIconSize.value = opt.iconSize ?? 42
+  computedLoadingType.value = opt.loadingType ?? 'outline'
+  computedLoadingColor.value = opt.loadingColor ?? '#4D80F0'
+  computedCustomIcon.value = opt.customIcon ?? ''
+  computedPosition.value = opt.position ?? 'middle'
+  computedZIndex.value = opt.zIndex ?? 1000
+  computedDirection.value = opt.direction ?? 'vertical'
+  computedOffsetY.value = opt.offsetY ?? 0
+}
+
+/* 监听选项变化 */
+watch(() => toastOption.value, (newVal : ToastOptions) => {
+  syncFromOption(newVal)
+}, { deep: true, immediate: true })
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  .wd-toast {
+    background: $-dark-background2;
+  }
+}
+
+/* Toast 主体样式 */
+.wd-toast {
+  position: fixed;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  max-width: 70%;
+  min-width: 200rpx;
+  padding: 24rpx 32rpx;
+  border-radius: 16rpx;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  font-size: 28rpx;
+  line-height: 40rpx;
+  box-sizing: border-box;
+}
+
+/* 垂直方向 */
+.wd-toast.is-vertical {
+  flex-direction: column;
+  min-width: 240rpx;
+  padding: 40rpx 32rpx 28rpx;
+}
+
+@include b(toast) {
+  /* 图标包装 */
+  @include e(icon-wrapper) {
+    margin-bottom: 16rpx;
+  }
+
+  /* SVG 图标图片 */
+  @include e(icon-image) {
+    display: block;
+  }
+
+  /* 加载图标 */
+  @include e(loading) {
+    margin-bottom: 16rpx;
+  }
+
+  /* 自定义图标 */
+  @include e(icon) {
+    margin-bottom: 16rpx;
+    color: #fff;
+  }
+
+  /* 消息文本 */
+  @include e(msg) {
+    text-align: center;
+    word-break: break-all;
+    color: #fff;
+    font-size: 28rpx;
+    line-height: 40rpx;
+  }
+}
+
+/* 水平方向图标间距 */
+.wd-toast:not(.is-vertical) {
+  .wd-toast__icon-wrapper,
+  .wd-toast__loading,
+  .wd-toast__icon {
+    margin-bottom: 0;
+    margin-right: 16rpx;
+  }
+}
+</style>

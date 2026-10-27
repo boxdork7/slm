@@ -1,0 +1,54 @@
+import { http } from '@/composables/useHttp'
+import { AsyncResult } from '@/utils/to'
+import type {
+  CreateOrderBo, CreateOrderVo, OrderStatusVo, OrderVo, PaymentRequest, PaymentResponse,
+} from './orderTypes'
+
+/**
+ * 获取支持的支付方式列表
+ */
+export const getSupportedPaymentMethods = (): Promise<AsyncResult> => {
+  return http.get('/app/order/paymentMethods')
+}
+
+/**
+ * 创建订单
+ */
+export const createOrder = (data: CreateOrderBo): Promise<AsyncResult> => {
+  return http.post('/app/order/createOrder', data)
+}
+
+/**
+ * 创建支付
+ */
+export const createPayment = (data: PaymentRequest): Promise<AsyncResult> => {
+  return http.post('/app/order/createPayment', data)
+}
+
+/**
+ * 查询订单状态
+ */
+export const queryOrderStatus = (orderNo: string): Promise<AsyncResult> => {
+  return http.get(`/app/order/status/${orderNo}`)
+}
+
+/**
+ * 获取订单详情
+ */
+export const getOrderByOrderNo = (orderNo: string): Promise<AsyncResult> => {
+  return http.get(`/app/order/getOrder/${orderNo}`)
+}
+
+/**
+ * 获取用户订单列表
+ */
+export const getUserOrderList = (query ?: UTSJSONObject): Promise<AsyncResult> => {
+  return http.get('/app/order/list', query)
+}
+
+/**
+ * 取消订单
+ */
+export const cancelOrder = (orderNo: string): Promise<AsyncResult> => {
+  return http.put(`/app/order/cancel/${orderNo}`)
+}

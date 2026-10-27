@@ -1,0 +1,136 @@
+/**
+ * Tabbar 状态管理 (useTabbarStore) - UniApp X 版本
+ *
+ * 保持与 plus-app/stores/modules/tabbar.ts 相同的导出接口
+ *
+ * UTS 适配说明：
+ * - 不使用 Pinia（UTS 不支持），采用模块级 ref + 导出函数模式
+ * - WdTabbarItemProps → 本地 TabItem 类型（WD UI 未迁移）
+ * - Record<string, any> → UTSJSONObject
+ * - getCurrentPage / objectToQuery / isDef → 内联简化
+ */
+import { ref } from 'vue'
+
+/**
+ * Tab 项数据类型
+ */
+export type TabItem = {
+	title : string
+	icon : string
+	isDot : boolean
+	value : number
+	loaded : boolean
+}
+
+/* ==================== 模块级状态（单例） ==================== */
+
+/** Tabbar 页面路径 */
+const TABBAR_PAGE_PATH = 'pages/index/index'
+
+/** 当前激活的标签页索引 */
+const currentTab = ref(0)
+
+/**
+ * 标签页列表
+ */
+const tabs = ref<TabItem[]>([
+	{ title: '首页', icon: 'home', isDot: false, value: 0, loaded: true } as TabItem,
+	{ title: '点餐', icon: 'shop', isDot: false, value: 0, loaded: false } as TabItem,
+	{ title: '我的', icon: 'user', isDot: false, value: 0, loaded: false } as TabItem,
+])
+
+/* ==================== 方法 ==================== */
+
+/**
+ * 清除标签页徽标
+ */
+const clearBadge = (index : number) => {
+	if (index < 0 || index >= tabs.value.length) return
+
+	tabs.value[index].value = 0
+	tabs.value[index].isDot = false
+}
+
+/**
+ * 跳转到指定标签页
+ */
+const toTab = async (index : number, params ?: UTSJSONObject) => {
+	if (index < 0 || index >= tabs.value.length) return
+
+	/* 更新当前标签页状态 */
+	currentTab.value = index
+	/* 标记目标页面为已加载 */
+	tabs.value[index].loaded = true
+
+	/* 检查是否在 tabbar 页面 */
+	const pages = getCurrentPages()
+	let isInTabbar = false
+	if (pages.length > 0) {
+		const lastPage = pages[pages.length - 1]
+		isInTabbar = lastPage.route == TABBAR_PAGE_PATH
+	}
+
+	if (!isInTabbar) {
+		/* 不在 tabbar 页面，需要跳转 */
+		let url = `/${TABBAR_PAGE_PATH}?tab=${index}`
+
+		if (params != null) {
+			const keys = Object.keys(params!)
+			for (let i = 0; i < keys.length; i++) {
+				const key = keys[i]
+				const value = params![key]
+				if (value != null) {
+					url += `&${encodeURIComponent(key)}=${encodeURIComponent(`${value!}`)}`
+				}
+			}
+		}
+
+		uni.navigateTo({ url: url })
+	}
+
+	/* 清除徽标 */
+	clearBadge(index)
+}
+
+/**
+ * 更新标签页小红点状态
+ */
+const updateDot = (index : number, isDot : boolean) => {
+	if (index < 0 || index >= tabs.value.length) return
+
+	tabs.value[index].isDot = isDot
+	if (isDot) {
+		tabs.value[index].value = 0
+	}
+}
+
+/**
+ * 更新标签页徽章数值
+ */
+const updateBadge = (index : number, value : number) => {
+	if (index < 0 || index >= tabs.value.length) return
+
+	tabs.value[index].value = Math.max(0, value)
+	if (value > 0) {
+		tabs.value[index].isDot = false
+	}
+}
+
+/* ==================== Store 导出 ==================== */
+
+/**
+ * 获取 Tabbar Store 实例
+ */
+export function useTabbarStore() {
+	return {
+		/* 状态 */
+		currentTab,
+		tabs,
+
+		/* 方法 */
+		toTab,
+		updateDot,
+		updateBadge,
+		clearBadge,
+	}
+}

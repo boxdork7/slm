@@ -1,0 +1,234 @@
+/**
+ * 事件总线组合函数 (useEventBus) - UTS 版本
+ * 从 plus-app/composables/useEventBus.ts 迁移
+ *
+ * 提供组件间的事件通信功能，支持发布订阅模式的事件管理。
+ * 此组合函数集成了 Vue 生命周期，自动处理事件监听器的清理，避免内存泄漏。
+ *
+ * 包含以下功能：
+ * - 事件监听: 监听指定事件并执行回调函数 (on)
+ * - 一次性监听: 监听事件仅执行一次后自动移除 (once)
+ * - 事件发送: 向指定事件发送数据 (emit)
+ * - 事件移除: 手动移除事件监听器 (off)
+ * - 自动清理: 组件卸载时自动清理所有监听器
+ * - 调试功能: 获取事件监听器数量 (getListenerCount)
+ */
+
+import { onUnmounted } from 'vue'
+
+/** 事件回调函数类型 */
+type EventCallback = (data : UTSJSONObject | null) => void
+
+class EventBus {
+  /** 事件映射表 */
+  private events : Map<string, Array<EventCallback>> = new Map()
+
+  /**
+   * 监听事件
+   * @param event 事件名称
+   * @param callback 事件回调函数
+   * @returns 返回取消监听的函数
+   */
+  on(event : string, callback : EventCallback) : () => void {
+    let callbacks = this.events.get(event)
+    if (callbacks == null) {
+      callbacks = [] as Array<EventCallback>
+      this.events.set(event, callbacks)
+    }
+    callbacks.push(callback)
+    return () : void => {
+      this.off(event, callback)
+    }
+  }
+
+  /**
+   * 移除事件监听
+   * @param event 事件名称
+   * @param callback 可选，指定的回调函数，不传则移除该事件的所有监听器
+   */
+  off(event : string, callback : EventCallback | null = null) : void {
+    const callbacks = this.events.get(event)
+    if (callbacks == null) return
+
+    if (callback != null) {
+      const index = callbacks.indexOf(callback)
+      if (index > -1) {
+        callbacks.splice(index, 1)
+        if (callbacks.length == 0) {
+          this.events.delete(event)
+        }
+      }
+    } else {
+      this.events.delete(event)
+    }
+  }
+
+  /**
+   * 触发事件
+   * @param event 事件名称
+   * @param data 传递给监听器的数据
+   * @returns 返回是否成功执行（无错误）
+   */
+  emit(event : string, data : UTSJSONObject | null = null) : boolean {
+    const callbacks = this.events.get(event)
+    if (callbacks == null || callbacks.length == 0) {
+      return false
+    }
+
+    const callbacksCopy = callbacks.slice(0)
+    let hasError = false
+
+    for (let i = 0; i < callbacksCopy.length; i++) {
+      try {
+        callbacksCopy[i](data)
+      } catch (error) {
+        console.error(`事件 ${event} 的回调执行出错:`, error)
+        hasError = true
+      }
+    }
+
+    return !hasError
+  }
+
+  /**
+   * 只监听一次事件
+   * @param event 事件名称
+   * @param callback 事件回调函数
+   * @returns 返回取消监听的函数
+   */
+  once(event : string, callback : EventCallback) : () => void {
+    const onceWrapper : EventCallback = (data : UTSJSONObject | null) : void => {
+      callback(data)
+      this.off(event, onceWrapper)
+    }
+    return this.on(event, onceWrapper)
+  }
+
+  /**
+   * 获取指定事件的监听器数量
+   * @param event 事件名称
+   * @returns 监听器数量
+   */
+  getListenerCount(event : string) : number {
+    const callbacks = this.events.get(event)
+    if (callbacks != null) {
+      return callbacks.length
+    }
+    return 0
+  }
+
+  /**
+   * 清除所有事件监听器
+   */
+  clear() : void {
+    this.events.clear()
+  }
+}
+
+// 全局事件总线实例
+const eventBus = new EventBus()
+
+/**
+ * 事件名称常量
+ * 定义所有可用的事件名称，避免拼写错误和提供代码提示
+ */
+export const EventNames = {
+  // 页面相关事件
+  /** 页面返回 */
+  PAGE_BACK: 'pageBack',
+  /** Tab 切换 */
+  TAB_CHANGED: 'tabChanged',
+  /** 页面刷新 */
+  PAGE_REFRESH: 'pageRefresh',
+
+  // 用户相关事件
+  /** 用户登录成功 */
+  USER_LOGIN: 'userLogin',
+  /** 用户退出登录 */
+  USER_LOGOUT: 'userLogout',
+  /** 用户信息更新 */
+  USER_PROFILE_UPDATED: 'userProfileUpdated',
+
+  // 网络和系统事件
+  /** 网络状态变更 */
+  NETWORK_STATUS_CHANGED: 'networkStatusChanged',
+  /** API 请求错误 */
+  API_ERROR: 'apiError',
+}
+
+/**
+ * 事件总线组合函数
+ * 提供自动清理功能的事件监听，组件卸载时自动移除所有监听器
+ */
+export function useEventBus() : UseEventBusResult {
+  const unsubscribers : Array<() => void> = []
+
+  /**
+   * 自动清理版本的事件监听
+   * @param event 事件名称
+   * @param callback 事件回调函数
+   * @returns 返回取消监听的函数
+   */
+  const on = (event : string, callback : EventCallback) : () => void => {
+    const unsubscribe = eventBus.on(event, callback)
+    unsubscribers.push(unsubscribe)
+    return unsubscribe
+  }
+
+  /**
+   * 自动清理版本的一次性事件监听
+   * @param event 事件名称
+   * @param callback 事件回调函数
+   * @returns 返回取消监听的函数
+   */
+  const once = (event : string, callback : EventCallback) : () => void => {
+    const unsubscribe = eventBus.once(event, callback)
+    unsubscribers.push(unsubscribe)
+    return unsubscribe
+  }
+
+  /** 移除事件监听器 */
+  const off = (event : string, callback : EventCallback | null = null) : void => {
+    eventBus.off(event, callback)
+  }
+
+  /** 发送事件 */
+  const emit = (event : string, data : UTSJSONObject | null = null) : boolean => {
+    return eventBus.emit(event, data)
+  }
+
+  /** 获取事件监听器数量 */
+  const getListenerCount = (event : string) : number => {
+    return eventBus.getListenerCount(event)
+  }
+
+  // 组件卸载时自动清理所有监听器
+  onUnmounted(() => {
+    for (let i = 0; i < unsubscribers.length; i++) {
+      unsubscribers[i]()
+    }
+    unsubscribers.length = 0
+  })
+
+  return {
+    on,
+    once,
+    off,
+    emit,
+    getListenerCount,
+  } as UseEventBusResult
+}
+
+/** useEventBus 返回值类型 */
+export type UseEventBusResult = {
+  /** 监听事件（自动清理） */
+  on : (event : string, callback : EventCallback) => () => void
+  /** 一次性监听事件（自动清理） */
+  once : (event : string, callback : EventCallback) => () => void
+  /** 移除事件监听器 */
+  off : (event : string, callback : EventCallback | null) => void
+  /** 发送事件 */
+  emit : (event : string, data : UTSJSONObject | null) => boolean
+  /** 获取事件监听器数量 */
+  getListenerCount : (event : string) => number
+}

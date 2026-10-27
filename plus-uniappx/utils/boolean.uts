@@ -1,0 +1,121 @@
+/**
+ * 布尔值处理工具类 (UniApp X 版本)
+ *
+ * 保持与 plus-app/utils/boolean.ts 完全相同的导出接口
+ *
+ * 包含以下功能：
+ * - 布尔判断：多格式真假值检查 (isTrue, isFalse)
+ * - 类型转换：统一转换为标准布尔格式 (toBool, toBoolString)
+ * - 状态切换：布尔状态切换 (toggleStatus)
+ *
+ * UTS 适配说明：
+ * - 原版使用 any 类型参数，UTS 不支持 any
+ * - 改为接受 string | number | boolean 联合类型
+ * - 提供多个重载方法覆盖不同输入类型
+ */
+
+/**
+ * 检查字符串值是否为真值
+ * 支持：'1', 'true', 'yes', 'on'（不区分大小写）
+ */
+export const isTrueString = (value : string) : boolean => {
+	if (value.length == 0) {
+		return false
+	}
+	const lowerValue = value.toLowerCase().trim()
+	return lowerValue == '1' || lowerValue == 'true' || lowerValue == 'yes' || lowerValue == 'on'
+}
+
+/**
+ * 检查数字值是否为真值（1 为真）
+ */
+export const isTrueNumber = (value : number) : boolean => {
+	return value == 1
+}
+
+/**
+ * 检查布尔值是否为真值（直接返回）
+ */
+export const isTrueBool = (value : boolean) : boolean => {
+	return value
+}
+
+/**
+ * 通用真值检查 - 接受 string | number | boolean | null
+ * 替代原版的 isTrue(value: any)
+ */
+export const isTrue = (value : string | number | boolean | null) : boolean => {
+	if (value == null) {
+		return false
+	}
+	if (typeof value == 'boolean') {
+		return value as boolean
+	}
+	if (typeof value == 'number') {
+		return (value as number) == 1
+	}
+	if (typeof value == 'string') {
+		return isTrueString(value as string)
+	}
+	return false
+}
+
+/**
+ * 检查字符串值是否为假值
+ * 支持：'0', 'false', 'no', 'off'（不区分大小写），空字符串
+ */
+export const isFalseString = (value : string) : boolean => {
+	if (value.length == 0) {
+		return true
+	}
+	const lowerValue = value.toLowerCase().trim()
+	return lowerValue == '0' || lowerValue == 'false' || lowerValue == 'no' || lowerValue == 'off'
+}
+
+/**
+ * 检查数字值是否为假值（0 为假）
+ */
+export const isFalseNumber = (value : number) : boolean => {
+	return value == 0
+}
+
+/**
+ * 通用假值检查 - 接受 string | number | boolean | null
+ * 替代原版的 isFalse(value: any)
+ */
+export const isFalse = (value : string | number | boolean | null) : boolean => {
+	if (value == null) {
+		return true
+	}
+	if (typeof value == 'boolean') {
+		return !(value as boolean)
+	}
+	if (typeof value == 'number') {
+		return (value as number) == 0
+	}
+	if (typeof value == 'string') {
+		return isFalseString(value as string)
+	}
+	return false
+}
+
+/**
+ * 将各种形式的布尔值转换为标准的 '1' 或 '0' 字符串
+ */
+export const toBoolString = (value : string | number | boolean | null) : string => {
+	return isTrue(value) ? '1' : '0'
+}
+
+/**
+ * 将各种形式的布尔值转换为标准的 boolean 类型
+ */
+export const toBool = (value : string | number | boolean | null) : boolean => {
+	return isTrue(value)
+}
+
+/**
+ * 切换布尔值状态，输出标准的 '1'/'0' 字符串
+ */
+export const toggleStatus = (value : string | number | boolean | null) : string => {
+	return isTrue(value) ? '0' : '1'
+}

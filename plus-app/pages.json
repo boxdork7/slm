@@ -1,0 +1,71 @@
+{
+  "globalStyle": {
+    "navigationBarTitleText": "ryplus-uni",
+    "navigationStyle": "custom",
+    "mp-alipay": {
+      "transparentTitle": "always",
+      "titlePenetrate": "YES"
+    },
+    "h5": {
+      "titleNView": false
+    },
+    "app-plus": {
+      "bounce": "none"
+    }
+  },
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^wd-(.*)": "@/wd/components/wd-$1/wd-$1.vue"
+    }
+  },
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "type": "home",
+      "layout": "default"
+    },
+    {
+      "path": "pages/auth/auth",
+      "type": "page",
+      "layout": "default"
+    },
+    {
+      "path": "pages/auth/login",
+      "type": "page",
+      "layout": "default"
+    },
+    {
+      "path": "pages/auth/phoneLogin",
+      "type": "page",
+      "layout": "default"
+    },
+    {
+      "path": "pages/auth/register",
+      "type": "page",
+      "layout": "default"
+    },
+    {
+      "path": "pages/auth/smsVerify",
+      "type": "page",
+      "layout": "default"
+    },
+    {
+      "path": "pages/my/settings",
+      "type": "page",
+      "layout": "default"
+    }
+  ],
+  "subPackages": [
+    {
+      "root": "pages-sub/admin",
+      "pages": [
+        {
+          "path": "user/user",
+          "type": "page",
+          "layout": "default"
+        }
+      ]
+    }
+  ]
+}

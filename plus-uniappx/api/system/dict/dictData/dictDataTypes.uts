@@ -1,0 +1,29 @@
+/**
+ * 字典数据类型定义 - UniApp X 版本
+ *
+ * 从 plus-app/api/system/dict/dictData/dictDataTypes.ts 迁移
+ *
+ * UTS 适配说明：
+ * - interface 改为 type（UTS 推荐）
+ * - 保持与 plus-app 相同的字段结构
+ */
+
+/** 字典数据视图类型 */
+export type SysDictDataVo = {
+	/** 字典编码 */
+	dictDataId : string
+	/** 字典标签 */
+	dictLabel : string
+	/** 字典键值 */
+	dictValue : string
+	/** 样式属性（其他样式扩展） */
+	cssClass : string
+	/** 表格回显样式 */
+	listClass : string
+	/** 字典排序 */
+	dictSort : number
+	/** 状态 */
+	status : string
+	/** 备注 */
+	remark : string
+}

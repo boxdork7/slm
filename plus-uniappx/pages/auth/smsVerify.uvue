@@ -1,0 +1,227 @@
+<template>
+	<view class="sms-verify-page">
+		<!-- 导航栏 -->
+		<wd-navbar show-back />
+
+		<!-- 主要内容区域 -->
+		<view class="content-area">
+			<wd-text text="请输入验证码" size="42" block />
+			<view class="phone-info">
+				<wd-text text="短信已发送至" type="info" size="24" />
+				<wd-text :text="formatPhone" size="30" />
+			</view>
+
+			<!-- 验证码输入框 -->
+			<wd-password-input
+				v-model="verificationCode"
+				custom-class="code-input"
+				:focused="inputFocused"
+				:error-info="errorMessage"
+				@focus="handleInputFocus"
+			/>
+
+			<!-- 登录按钮 -->
+			<wd-button
+				custom-class="login-btn"
+				type="error"
+				:disabled="!isCodeComplete"
+				:loading="isLogging"
+				@click="handleLogin"
+			>
+				{{ isLogging ? '登录中...' : '登录' }}
+			</wd-button>
+
+			<!-- 重新发送 -->
+			<view class="resend-row">
+				<wd-text text="收不到验证码？" type="info" size="24" />
+				<view v-if="countdown > 0" class="countdown-row">
+					<wd-count-down :time="countdown * 1000" format="ss" @finish="handleCountdownFinish" />
+					<text class="countdown-text">秒后重新发送</text>
+				</view>
+				<wd-text v-else text="重新发送" type="primary" size="28" @click="handleResendSms" />
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { ref, computed, watch, onMounted } from 'vue'
+	import { smsCode } from '@/api/system/auth/authApi'
+	import { useUserStore } from '@/stores/modules/user'
+	import { useToast } from '@/wd'
+	import { AsyncResult } from '@/utils/to'
+
+	/**
+	 * 组件属性定义
+	 */
+	const props = defineProps({
+		phone: {
+			type: String,
+			default: ''
+		},
+		type: {
+			type: String,
+			default: 'login'
+		}
+	})
+
+	const toast = useToast()
+	const userStore = useUserStore()
+
+	/* 响应式数据 */
+	const verificationCode = ref('')
+	const countdown = ref(60)
+	const isLogging = ref(false)
+	const inputFocused = ref(true)
+	const errorMessage = ref('')
+
+	/* 计算属性 - 格式化手机号 */
+	const formatPhone = computed(() : string => {
+		const phone = props.phone
+		if (phone.length == 11) {
+			return `+86 ${phone.substring(0, 3)} ${phone.substring(3, 7)} ${phone.substring(7)}`
+		}
+		return phone
+	})
+
+	/* 计算属性 - 验证码是否完整 */
+	const isCodeComplete = computed(() : boolean => {
+		return verificationCode.value.length == 4
+	})
+
+	/** 处理登录 */
+	const handleLogin = () => {
+		if (!isCodeComplete.value || isLogging.value) return
+
+		isLogging.value = true
+
+		const loginParams = {} as UTSJSONObject
+		loginParams['phone'] = props.phone
+		loginParams['smsCode'] = verificationCode.value
+
+		userStore.login('sms', loginParams).then((result : UTSJSONObject) => {
+			const err = result['err'] as Error | null
+
+			if (err == null) {
+				/* 验证成功 */
+				toast.success('登录成功')
+				/* 登录成功后跳转 */
+				setTimeout(() => {
+					uni.redirectTo({
+						url: '/pages/index/index',
+					})
+				}, 1500)
+			} else {
+				/* 验证失败 */
+				toast.error('验证码错误，请重新输入')
+				console.error('登录失败:', err)
+				errorMessage.value = '验证码错误，请重新输入'
+				verificationCode.value = ''
+				inputFocused.value = true
+			}
+
+			isLogging.value = false
+		})
+	}
+
+	/** 输入框聚焦处理 */
+	const handleInputFocus = () => {
+		inputFocused.value = true
+	}
+
+	/** 倒计时结束处理 */
+	const handleCountdownFinish = () => {
+		countdown.value = 0
+	}
+
+	/** 重新发送短信 */
+	const handleResendSms = () => {
+		if (countdown.value > 0) return
+
+		smsCode(props.phone).then((result : AsyncResult) => {
+			if (result.err == null) {
+				toast.success('验证码已发送')
+
+				/* 重新开始倒计时 */
+				countdown.value = 60
+
+				/* 清空之前输入的验证码和错误信息 */
+				verificationCode.value = ''
+				errorMessage.value = ''
+				inputFocused.value = true
+			} else {
+				toast.error('发送失败，请重试')
+			}
+		})
+	}
+
+	/* 监听验证码输入 */
+	watch(() => verificationCode.value, (newVal : string) => {
+		/* 清除错误信息 */
+		if (errorMessage.value.length > 0) {
+			errorMessage.value = ''
+		}
+
+		/* 如果输入完成，自动提交 */
+		if (newVal.length == 6) {
+			setTimeout(() => {
+				handleLogin()
+			}, 500)
+		}
+	})
+
+	/** 组件挂载后的初始化处理 */
+	onMounted(() => {
+		/* 自动聚焦输入框 */
+		setTimeout(() => {
+			inputFocused.value = true
+		}, 500)
+	})
+</script>
+
+<style lang="scss" scoped>
+	.sms-verify-page {
+		display: flex;
+		flex-direction: column;
+		height: 100vh;
+	}
+
+	.content-area {
+		padding: 24rpx 24rpx 0;
+		padding-top: 48rpx;
+	}
+
+	.phone-info {
+		margin-top: 8rpx;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.code-input {
+		margin-top: 32rpx !important;
+	}
+
+	.login-btn {
+		width: 100%;
+		margin-top: 32rpx;
+	}
+
+	.resend-row {
+		margin-top: 8rpx;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.countdown-row {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.countdown-text {
+		font-size: 24rpx;
+	}
+</style>

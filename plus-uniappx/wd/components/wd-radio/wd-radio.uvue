@@ -1,0 +1,362 @@
+<!--
+Radio 单选框 在一组备选项中进行单选。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- useParent(RADIO_GROUP_KEY) → inject(RADIO_GROUP_KEY)
+- import type from .vue → import from .uts key file
+- CSSProperties → string 拼接
+- objToStyle → 手动拼接
+- getPropByPath → 直接访问 provide 扁平数据
+- string | number | boolean → string
+- ::before → view 元素替代
+- transition → 移除
+- border-radius: 50% → 100px
+- vertical-align → 移除
+-->
+<template>
+  <view
+    :class="rootClass"
+    :style="rootStyle"
+    @click="handleClick"
+  >
+    <!-- 图标在左边 -->
+    <view v-if="placement == 'left'" :class="checkClass">
+      <!-- check 形状 -->
+      <wd-icon
+        v-if="currentShape == 'check'"
+        name="check-bold"
+        :size="iconSize"
+        :color="isChecked ? (currentCheckedColor != '' ? currentCheckedColor : '') : 'transparent'"
+        custom-class="wd-radio__check-icon"
+      />
+      <!-- dot 形状 -->
+      <view v-else-if="currentShape == 'dot'" class="wd-radio__dot-wrapper" :style="dotWrapperStyle">
+        <view v-if="isChecked" class="wd-radio__dot" :style="dotStyle" />
+      </view>
+      <!-- button 形状 - 不需要单独的图标 -->
+    </view>
+
+    <!-- 标签内容 -->
+    <view class="wd-radio__label">
+      <slot />
+    </view>
+
+    <!-- 图标在右边 -->
+    <view v-if="placement == 'right'" :class="checkClass">
+      <wd-icon
+        v-if="currentShape == 'check'"
+        name="check-bold"
+        :size="iconSize"
+        :color="isChecked ? (currentCheckedColor != '' ? currentCheckedColor : '') : 'transparent'"
+        custom-class="wd-radio__check-icon"
+      />
+      <view v-else-if="currentShape == 'dot'" class="wd-radio__dot-wrapper" :style="dotWrapperStyle">
+        <view v-if="isChecked" class="wd-radio__dot" :style="dotStyle" />
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, inject, onMounted, onUnmounted } from 'vue'
+import { genChildUid } from '../../composables/useChildren'
+import { RADIO_GROUP_KEY, type RadioGroupProvide } from '../wd-radio-group/wd-radio-group-key'
+
+/**
+ * Radio 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 单选框的值 */
+  value ?: string
+  /** 是否禁用 */
+  disabled ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  value: '',
+  disabled: false,
+})
+
+/* 获取父组件 RadioGroup 的 provide 数据 */
+const radioGroup = inject<RadioGroupProvide | null>(RADIO_GROUP_KEY, null)
+
+/* 生成唯一 ID 并注册到父组件 */
+const uid = genChildUid()
+onMounted(() => {
+  if (radioGroup != null) radioGroup!.addChild(uid)
+})
+onUnmounted(() => {
+  if (radioGroup != null) radioGroup!.removeChild(uid)
+})
+
+/**
+ * 是否选中
+ */
+const isChecked = computed(() : boolean => {
+  if (radioGroup != null) {
+    return radioGroup!.modelValue == props.value
+  }
+  return false
+})
+
+/**
+ * 当前形状（从父组件获取）
+ */
+const currentShape = computed(() : string => {
+  if (radioGroup != null) return radioGroup!.shape
+  return 'check'
+})
+
+/**
+ * 当前选中颜色
+ */
+const currentCheckedColor = computed(() : string => {
+  if (radioGroup != null) return radioGroup!.checkedColor
+  return ''
+})
+
+/**
+ * 图标位置
+ */
+const placement = computed(() : string => {
+  if (radioGroup != null) return radioGroup!.iconPlacement
+  return 'left'
+})
+
+/**
+ * 是否禁用
+ */
+const isDisabled = computed(() : boolean => {
+  if (props.disabled) return true
+  if (radioGroup != null) return radioGroup!.disabled
+  return false
+})
+
+/**
+ * cell 模式
+ */
+const isCell = computed(() : boolean => {
+  if (radioGroup != null) return radioGroup!.cell
+  return false
+})
+
+/**
+ * 同行展示
+ */
+const isInline = computed(() : boolean => {
+  if (radioGroup != null) return radioGroup!.inline
+  return false
+})
+
+/**
+ * 尺寸
+ */
+const currentSize = computed(() : string => {
+  if (radioGroup != null) return radioGroup!.size
+  return ''
+})
+
+/**
+ * 图标大小
+ */
+const iconSize = computed(() : string => {
+  if (currentSize.value == 'large') return '40rpx'
+  return '36rpx'
+})
+
+/**
+ * 根样式类
+ */
+const rootClass = computed(() : string => {
+  const classes : string[] = ['wd-radio']
+  if (isChecked.value) classes.push('is-checked')
+  if (isDisabled.value) classes.push('is-disabled')
+  if (isCell.value) classes.push('is-cell')
+  if (isInline.value) classes.push('is-inline')
+  if (currentShape.value == 'button') classes.push('is-button')
+  if (currentSize.value == 'large') classes.push('is-large')
+  if (props.customClass != '') classes.push(props.customClass)
+  return classes.join(' ')
+})
+
+/**
+ * 根样式
+ */
+const rootStyle = computed(() : string => {
+  let style = props.customStyle
+  if (radioGroup != null && radioGroup!.itemWidth != '') {
+    style = `width: ${radioGroup!.itemWidth}; ${style}`
+  }
+  return style
+})
+
+/**
+ * 图标区域样式类
+ */
+const checkClass = computed(() : string => {
+  const classes : string[] = ['wd-radio__check']
+  if (isChecked.value) classes.push('is-checked')
+  return classes.join(' ')
+})
+
+/**
+ * dot 形状外框样式
+ */
+const dotWrapperStyle = computed(() : string => {
+  let style = ''
+  if (isChecked.value && currentCheckedColor.value != '') {
+    style = `border-color: ${currentCheckedColor.value};`
+  }
+  return style
+})
+
+/**
+ * dot 形状内部样式
+ */
+const dotStyle = computed(() : string => {
+  let style = ''
+  if (currentCheckedColor.value != '') {
+    style = `background-color: ${currentCheckedColor.value};`
+  }
+  return style
+})
+
+/**
+ * 点击处理
+ */
+const handleClick = () => {
+  if (isDisabled.value) return
+  if (radioGroup != null) {
+    radioGroup!.updateValue(props.value)
+  }
+}
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(radio) {
+    @include e(label) {
+      color: $-dark-color;
+    }
+  }
+}
+
+/* 单选框样式 */
+@include b(radio) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 16rpx 0;
+
+  /* 标签 */
+  @include e(label) {
+    flex: 1;
+    font-size: 28rpx;
+    color: $-cell-title-color;
+    margin: 0 16rpx;
+  }
+
+  /* 图标区域 */
+  @include e(check) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40rpx;
+    height: 40rpx;
+  }
+
+  .wd-radio__check-icon {
+    display: flex;
+  }
+
+  /* dot 形状 */
+  @include e(dot-wrapper) {
+    width: 36rpx;
+    height: 36rpx;
+    border-radius: 100px;
+    border: 2rpx solid #c5c5c5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  @include e(dot) {
+    width: 20rpx;
+    height: 20rpx;
+    border-radius: 100px;
+    background-color: $-radio-checked-color;
+  }
+
+  /* 选中状态 */
+  @include when(checked) {
+    .wd-radio__check-icon {
+      color: $-radio-checked-color;
+    }
+
+    .wd-radio__dot-wrapper {
+      border-color: $-radio-checked-color;
+    }
+  }
+
+  /* 禁用状态 */
+  @include when(disabled) {
+    opacity: 0.5;
+  }
+
+  /* cell 模式 */
+  @include when(cell) {
+    padding: 24rpx 32rpx;
+    border-bottom: 1rpx solid $-color-border-light;
+  }
+
+  /* 同行展示 */
+  @include when(inline) {
+    display: flex;
+    flex-direction: row;
+    margin-right: 32rpx;
+  }
+
+  /* button 形状 */
+  @include when(button) {
+    padding: 12rpx 24rpx;
+    border: 1rpx solid #dcdfe6;
+    border-radius: 8rpx;
+    margin: 8rpx;
+
+    .wd-radio__check {
+      display: none;
+    }
+
+    .wd-radio__label {
+      margin: 0;
+      text-align: center;
+    }
+  }
+
+  &.is-button.is-checked {
+    border-color: $-radio-checked-color;
+    background-color: rgba(74, 128, 240, 0.08);
+
+    .wd-radio__label {
+      color: $-radio-checked-color;
+    }
+  }
+
+  /* 大尺寸 */
+  @include when(large) {
+    @include e(label) {
+      font-size: 32rpx;
+    }
+  }
+}
+</style>

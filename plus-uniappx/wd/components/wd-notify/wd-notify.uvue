@@ -1,0 +1,166 @@
+<!--
+Notify 消息通知 在页面顶部展示消息提示。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type / export interface（移到 useNotify.uts）
+- 移除手动组件导入（easycom 自动注册）
+- MouseEvent → any
+- edeep → e（UniApp X mixin）
+- :deep() → 直接类选择器
+- calculateSafeTop 简化（UniApp X 统一用 safeAreaInsets）
+-->
+<template>
+  <wd-popup
+    :model-value="isShow"
+    :z-index="computedZIndex"
+    position="top"
+    :duration="300"
+    :modal="false"
+    :close-on-click-modal="false"
+    :safe-area-inset-bottom="false"
+    :custom-style="`background: ${computedBackground}; color: ${computedColor};`"
+    :custom-class="`wd-notify ${customClass}`"
+    :hide-when-close="false"
+  >
+    <view
+      class="wd-notify__content"
+      :style="`padding-top: ${safeTop}px;`"
+      @click="handleClick"
+    >
+      <text class="wd-notify__text">{{ computedMessage }}</text>
+    </view>
+  </wd-popup>
+</template>
+
+<script lang="uts" setup>
+import { computed, watch, ref, onBeforeMount } from 'vue'
+import { getNotifyOption, type NotifyOptions } from './useNotify'
+
+/** 导航栏默认高度（rpx） */
+const NAVBAR_DEFAULT_HEIGHT = 88
+
+/**
+ * Notify 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 选择器标识 */
+  selector ?: string
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+}>(), {
+  selector: '',
+  customStyle: '',
+  customClass: '',
+})
+
+/* 获取全局选项 */
+const notifyOption = getNotifyOption(props.selector)
+
+/* 本地状态 */
+const isShow = ref(false)
+const computedMessage = ref('')
+const computedColor = ref('#fff')
+const computedBackground = ref('')
+const computedZIndex = ref(1010)
+const safeTop = ref(0)
+const currentOnClick = ref<((event : any) => void) | null>(null)
+
+/**
+ * 获取通知类型的默认背景色
+ */
+const getTypeBackground = (type : string) : string => {
+  if (type == 'primary') return '#4D80F0'
+  if (type == 'success') return '#34d19d'
+  if (type == 'warning') return '#f0883a'
+  if (type == 'danger') return '#fa4350'
+  return '#fa4350'
+}
+
+/**
+ * 计算安全区域顶部高度
+ */
+const calculateSafeTop = () => {
+  const systemInfo = uni.getSystemInfoSync()
+  const safeAreaInsets = systemInfo.safeAreaInsets
+  if (safeAreaInsets != null) {
+    /* 状态栏高度 + 导航栏高度近似 */
+    safeTop.value = safeAreaInsets!.top
+  } else {
+    safeTop.value = 0
+  }
+}
+
+/**
+ * 从选项同步到本地状态
+ */
+const syncFromOption = (opt : NotifyOptions) => {
+  isShow.value = opt.show ?? false
+  computedMessage.value = opt.message ?? ''
+  computedColor.value = opt.color ?? '#fff'
+  computedZIndex.value = opt.zIndex ?? 1010
+
+  /* 背景色：优先使用自定义，否则根据类型 */
+  const bg = opt.background ?? ''
+  if (bg != '') {
+    computedBackground.value = bg
+  } else {
+    computedBackground.value = getTypeBackground(opt.type ?? 'danger')
+  }
+
+  currentOnClick.value = opt.onClick ?? null
+}
+
+/**
+ * 处理点击事件
+ */
+const handleClick = (event : any) => {
+  if (currentOnClick.value != null) {
+    currentOnClick.value!(event)
+  }
+}
+
+/* 监听选项变化 */
+watch(() => notifyOption.value, (newVal : NotifyOptions) => {
+  syncFromOption(newVal)
+}, { deep: true, immediate: true })
+
+/* 组件挂载前计算安全区域 */
+onBeforeMount(() => {
+  calculateSafeTop()
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* Notify 基础样式 */
+.wd-notify {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+@include b(notify) {
+  /* 内容区域 */
+  @include e(content) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 80rpx;
+    padding: 16rpx 32rpx;
+  }
+
+  /* 文本样式 */
+  @include e(text) {
+    font-size: 28rpx;
+    line-height: 40rpx;
+    color: inherit;
+    text-align: center;
+  }
+}
+</style>

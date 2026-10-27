@@ -1,0 +1,85 @@
+/**
+ * 侧边栏容器提供的数据接口 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异:
+ * - 移除 InjectionKey 泛型 (UTS 不支持 Symbol/InjectionKey)
+ * - 改用字符串 key + type 定义
+ * - SidebarItem/SidebarBeforeChange 等类型在此文件统一定义 (不从 .uvue export)
+ * - 子组件管理通过 ChildManager 模式实现
+ */
+
+/**
+ * 侧边栏项配置接口
+ */
+export type SidebarItem = {
+  /** 当前选项标题 */
+  label : string
+  /** 当前选项的值,唯一标识 */
+  value : number | string
+  /** 徽标显示值 */
+  badge ?: string | number | null
+  /** 徽标属性,透传给 Badge 组件 */
+  badgeProps ?: UTSJSONObject | null
+  /** 图标 */
+  icon ?: string
+  /** 是否点状徽标 */
+  isDot ?: boolean
+  /** 徽标最大值 */
+  max ?: number
+  /** 是否禁用 */
+  disabled ?: boolean
+  /** 是否使用自定义内容插槽 */
+  useSlot ?: boolean
+  /** 自定义内容插槽名称,默认为 item-{index} */
+  slotName ?: string
+  /** 是否使用图标插槽 */
+  useIconSlot ?: boolean
+  /** 图标插槽名称,默认为 icon-{index} */
+  iconSlotName ?: string
+}
+
+/**
+ * Sidebar 切换前的选项接口
+ */
+export type SidebarBeforeChangeOption = {
+  /** 目标值 */
+  value : number | string
+  /** 回调函数 */
+  resolve : (pass : boolean) => void
+}
+
+/**
+ * Sidebar 切换前的钩子函数类型
+ */
+export type SidebarBeforeChange = (option : SidebarBeforeChangeOption) => void
+
+/**
+ * 侧边栏组件属性 (业务需要的部分)
+ */
+export type SidebarProps = {
+  /** 当前导航项的索引 */
+  modelValue : number | string
+  /** 在改变前执行的函数 */
+  beforeChange ?: SidebarBeforeChange | null
+}
+
+/**
+ * 侧边栏容器 Provide 接口
+ */
+export type SidebarProvide = {
+  /** 子组件 UID 列表 */
+  childUids : number[]
+  /** 注册子组件 */
+  addChild : (uid : number) => void
+  /** 注销子组件 */
+  removeChild : (uid : number) => void
+  /** 属性 */
+  props : SidebarProps
+  /** 子项状态变更方法 */
+  setChange : (value : number | string, label : string) => void
+}
+
+/**
+ * 侧边栏容器注入键 (字符串 key)
+ */
+export const SIDEBAR_KEY = 'wd-sidebar'

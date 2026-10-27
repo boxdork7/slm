@@ -1,0 +1,13 @@
+/**
+ * phone api types
+ */
+
+export type PhoneBindBo = {
+  phone: string
+  code: string
+}
+
+export type PhoneBindVo = {
+  phone: string
+  bindStatus: string
+}

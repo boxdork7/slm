@@ -1,0 +1,917 @@
+/**
+ * 文件上传组合式函数 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - Record<string, any> → UTSJSONObject
+ * - 泛型 request<T> → 返回 UTSJSONObject，调用处手动提取
+ * - UploadMethod 函数类型简化为 type alias
+ * - 移除 H5/MP-WEIXIN/MP-DINGTALK 条件编译分支（UniApp X 仅 APP）
+ * - import.meta.env → SystemConfig 配置
+ * - UploadFileItem 等类型在此文件内定义（替代 wd-upload 组件导入）
+ * - UPLOAD_STATUS 改为独立常量
+ * - chooseFile 简化为 APP 平台的 chooseImage + chooseVideo
+ * - as any 断言改为显式类型标注
+ */
+import { SystemConfig } from '../../systemConfig'
+import { isDef } from '../components/common/util'
+
+/* ========== 类型定义 ========== */
+
+/** 上传状态类型 */
+export type UploadStatusType = 'pending' | 'loading' | 'success' | 'fail'
+
+/** 上传文件项 */
+export type UploadFileItem = {
+  /** 唯一标识 */
+  uid : number
+  /** 文件 URL */
+  url : string
+  /** 文件名 */
+  name ?: string | null
+  /** 文件类型 */
+  type ?: string | null
+  /** 文件大小 */
+  size ?: number
+  /** 文件路径 */
+  path ?: string | null
+  /** 缩略图路径 */
+  thumb ?: string | null
+  /** 上传状态 */
+  status ?: string | null
+  /** 上传进度 */
+  percent ?: number
+  /** 错误信息 */
+  error ?: string | null
+}
+
+/** 选择文件结果 */
+export type ChooseFile = {
+  /** 文件路径 */
+  path : string
+  /** 文件名 */
+  name ?: string | null
+  /** 文件大小 */
+  size ?: number
+  /** 文件类型 */
+  type : string
+  /** 缩略图路径 */
+  thumb ?: string | null
+  /** 时长（视频） */
+  duration ?: number
+}
+
+/** 选择文件配置 */
+export type ChooseFileOption = {
+  /** 是否多选 */
+  multiple ?: boolean
+  /** 图片尺寸类型 */
+  sizeType ?: string[]
+  /** 来源类型 */
+  sourceType ?: string[]
+  /** 最大选择数量 */
+  maxCount ?: number
+  /** 文件类型: image / video / media / file / all */
+  accept ?: string | null
+  /** 是否压缩 */
+  compressed ?: boolean
+  /** 最大时长 */
+  maxDuration ?: number
+  /** 摄像头类型 */
+  camera ?: string | null
+  /** 文件扩展名过滤 */
+  extension ?: string[]
+}
+
+/** 预签名请求参数 */
+export type PresignedUrlBo = {
+  fileName : string
+  fileType : string
+  moduleName ?: string | null
+  directoryId ?: string | null
+  directoryPath ?: string | null
+}
+
+/** 预签名响应结果 */
+export type PresignedUrlVo = {
+  presignedUrl : string
+  moduleName ?: string | null
+  directoryId ?: string | null
+  directoryPath ?: string | null
+  fileKey : string
+  fileUrl : string
+  expiration : number
+  uploadTip : string
+}
+
+/** 确认直传请求参数 */
+export type ConfirmDirectUploadBo = {
+  fileName : string
+  fileKey : string
+  fileUrl : string
+  moduleName ?: string | null
+  directoryId ?: string | null
+  directoryPath ?: string | null
+  fileSize ?: number
+}
+
+/** 上传结果 */
+export type UploadResult = {
+  fileName : string
+  url : string
+  originalUrl ?: string | null
+  ossId : string
+  updateTime : string
+}
+
+/** 快速上传配置选项 */
+export type FastUploadOptions = {
+  action ?: string | null
+  header ?: UTSJSONObject | null
+  formData ?: UTSJSONObject | null
+  name ?: string | null
+  statusCode ?: number
+  onSuccess ?: ((res : UploadResult, file : UploadFileItem, formData : UTSJSONObject) => void) | null
+  onError ?: ((error : UTSJSONObject, file : UploadFileItem, formData : UTSJSONObject) => void) | null
+  onProgress ?: ((res : UTSJSONObject, file : UploadFileItem) => void) | null
+  abortPrevious ?: boolean
+  enableDirectUpload ?: boolean
+  moduleName ?: string | null
+  directoryId ?: string | null
+  directoryPath ?: string | null
+}
+
+/** 内部上传选项（给 defaultUpload / directUpload 使用） */
+export type UploadMethodInternalOptions = {
+  action : string
+  header ?: UTSJSONObject | null
+  name ?: string | null
+  fileName ?: string | null
+  fileType ?: string | null
+  statusCode ?: number
+  abortPrevious ?: boolean
+  enableDirectUpload ?: boolean
+  onSuccess : (res : UploadResult, file : UploadFileItem, formData : UTSJSONObject) => void
+  onError : (error : UTSJSONObject, file : UploadFileItem, formData : UTSJSONObject) => void
+  onProgress : (res : UTSJSONObject, file : UploadFileItem) => void
+}
+
+/** 上传配置选项 */
+export type UseUploadOptions = {
+  action : string
+  header ?: UTSJSONObject | null
+  name ?: string | null
+  formData ?: UTSJSONObject | null
+  fileType ?: string | null
+  statusCode ?: number
+  statusKey ?: string | null
+  abortPrevious ?: boolean
+  enableDirectUpload ?: boolean
+  moduleName ?: string | null
+  directoryId ?: string | null
+  directoryPath ?: string | null
+  onSuccess ?: ((res : UploadResult, file : UploadFileItem, formData : UTSJSONObject) => void) | null
+  onError ?: ((error : UTSJSONObject, file : UploadFileItem, formData : UTSJSONObject) => void) | null
+  onProgress ?: ((res : UTSJSONObject, file : UploadFileItem) => void) | null
+}
+
+/** useUpload 返回值类型 */
+export type UseUploadReturn = {
+  startUpload : (file : UploadFileItem, options : UseUploadOptions) => void
+  fastUpload : (filePath : string, options ?: FastUploadOptions | null) => void
+  abort : () => void
+  chooseFile : (options : ChooseFileOption) => Promise<ChooseFile[]>
+}
+
+/* ========== 上传状态常量 ========== */
+
+/** 上传状态 */
+export const UPLOAD_STATUS_PENDING = 'pending'
+export const UPLOAD_STATUS_LOADING = 'loading'
+export const UPLOAD_STATUS_SUCCESS = 'success'
+export const UPLOAD_STATUS_FAIL = 'fail'
+
+/* ========== 内部工具函数 ========== */
+
+/**
+ * 从完整URL中提取不带签名的干净URL
+ */
+const extractCleanUrl = (fullUrl : string) : string => {
+  if (fullUrl.length == 0 || !fullUrl.includes('?')) return fullUrl
+  const presignedParams : string[] = [
+    'X-Amz-Algorithm', 'X-Amz-Signature', 'X-Amz-Credential',
+    'X-Amz-Date', 'X-Amz-Expires', 'X-Amz-SignedHeaders',
+    'OSSAccessKeyId', 'Signature', 'Expires',
+    'q-sign-algorithm', 'q-signature', 'q-ak',
+    'q-sign-time', 'q-key-time', 'q-header-list', 'q-url-param-list',
+    'token', 'AWSAccessKeyId',
+  ]
+  let hasPresignedParams = false
+  for (let i = 0; i < presignedParams.length; i++) {
+    const param = presignedParams[i]
+    if (fullUrl.includes(`${param}=`) || fullUrl.includes(`&${param}=`)) {
+      hasPresignedParams = true
+      break
+    }
+  }
+  if (hasPresignedParams) {
+    const parts = fullUrl.split('?')
+    return parts[0]
+  }
+  return fullUrl
+}
+
+/**
+ * 获取基础 API 地址
+ */
+const getBaseApiUrl = () : string => {
+  return SystemConfig.api.baseUrl
+}
+
+/**
+ * 获取 Token
+ */
+const getToken = () : string | null => {
+  const appId = SystemConfig.app.id
+  const prefixedKey = `${appId}:token`
+  const wrapper = uni.getStorageSync(prefixedKey) as UTSJSONObject | null
+
+  if (wrapper == null) {
+    return null
+  }
+
+  /** 检查过期时间 */
+  const expire = wrapper!.getNumber('_expire')
+  if (expire != null && expire! < Date.now()) {
+    uni.removeStorageSync(prefixedKey)
+    return null
+  }
+
+  const data = wrapper!.getString('data')
+  if (data != null) return data
+  return null
+}
+
+/**
+ * 获取认证头部
+ */
+const getAuthHeaders = () : UTSJSONObject => {
+  const token = getToken()
+  if (token == null) {
+    return {} as UTSJSONObject
+  }
+  const headers : UTSJSONObject = {} as UTSJSONObject
+  headers['Authorization'] = `Bearer ${token!}`
+  return headers
+}
+
+/**
+ * 发送 HTTP 请求
+ */
+const sendRequest = (
+  url : string,
+  method : string,
+  data ?: UTSJSONObject | null,
+  header ?: UTSJSONObject | null,
+) : Promise<UTSJSONObject> => {
+  return new Promise((resolve : (value : UTSJSONObject) => void, reject : (reason ?: any) => void) => {
+    /** 构建完整 URL */
+    const fullUrl = url.startsWith('http') ? url : getBaseApiUrl() + url
+
+    /** 合并请求头 */
+    const requestHeader : UTSJSONObject = {} as UTSJSONObject
+    requestHeader['Content-Type'] = 'application/json;charset=utf-8'
+    const authHeaders = getAuthHeaders()
+    const authToken = authHeaders.getString('Authorization')
+    if (authToken != null) {
+      requestHeader['Authorization'] = authToken!
+    }
+    if (header != null) {
+      const keys = header!.toMap().keys()
+      for (const key of keys) {
+        requestHeader[key] = header!.get(key)
+      }
+    }
+
+    uni.request({
+      url: fullUrl,
+      method: method as RequestMethod,
+      data: data as any | null,
+      header: requestHeader as any,
+      timeout: 50000,
+      success: (res : RequestSuccess<any>) => {
+        if (res.statusCode == 200) {
+          const responseData = res.data as UTSJSONObject
+          const code = responseData.getNumber('code')
+          if (code != null && code! == 200) {
+            const resultData = responseData.getJSON('data')
+            if (resultData != null) {
+              resolve(resultData!)
+            } else {
+              resolve({} as UTSJSONObject)
+            }
+          } else {
+            const msg = responseData.getString('msg') ?? '请求失败'
+            reject(msg)
+          }
+        } else {
+          reject(`HTTP状态码错误: ${res.statusCode}`)
+        }
+      },
+      fail: (err : RequestFail) => {
+        reject(err.errMsg)
+      },
+    })
+  })
+}
+
+/**
+ * 获取预签名 URL
+ */
+const getPresignedUrl = (params : PresignedUrlBo) : Promise<PresignedUrlVo> => {
+  return new Promise((resolve : (value : PresignedUrlVo) => void, reject : (reason ?: any) => void) => {
+    const data : UTSJSONObject = {} as UTSJSONObject
+    data['fileName'] = params.fileName
+    data['fileType'] = params.fileType
+    if (params.moduleName != null) data['moduleName'] = params.moduleName!
+    if (params.directoryId != null) data['directoryId'] = params.directoryId!
+    if (params.directoryPath != null) data['directoryPath'] = params.directoryPath!
+
+    sendRequest('/resource/oss/getPresignedUrl', 'POST', data, null).then(
+      (result : UTSJSONObject) => {
+        const vo : PresignedUrlVo = {
+          presignedUrl: result.getString('presignedUrl') ?? '',
+          moduleName: result.getString('moduleName'),
+          directoryId: result.getString('directoryId'),
+          directoryPath: result.getString('directoryPath'),
+          fileKey: result.getString('fileKey') ?? '',
+          fileUrl: result.getString('fileUrl') ?? '',
+          expiration: result.getNumber('expiration') ?? 0,
+          uploadTip: result.getString('uploadTip') ?? '',
+        }
+        resolve(vo)
+      },
+      (error : any) => {
+        reject(error)
+      },
+    )
+  })
+}
+
+/**
+ * 确认直传上传
+ */
+const confirmDirectUpload = (params : ConfirmDirectUploadBo) : Promise<UTSJSONObject> => {
+  return new Promise((resolve : (value : UTSJSONObject) => void, reject : (reason ?: any) => void) => {
+    const data : UTSJSONObject = {} as UTSJSONObject
+    data['fileName'] = params.fileName
+    data['fileKey'] = params.fileKey
+    data['fileUrl'] = params.fileUrl
+    if (params.moduleName != null) data['moduleName'] = params.moduleName!
+    if (params.directoryId != null) data['directoryId'] = params.directoryId!
+    if (params.directoryPath != null) data['directoryPath'] = params.directoryPath!
+    if (params.fileSize != null) data['fileSize'] = params.fileSize!
+
+    sendRequest('/resource/oss/confirmDirectUpload', 'POST', data, null).then(
+      (result : UTSJSONObject) => {
+        resolve(result)
+      },
+      (error : any) => {
+        reject(error)
+      },
+    )
+  })
+}
+
+/* ========== 主函数 ========== */
+
+/**
+ * 文件上传组合函数
+ *
+ * 支持：多平台文件选择、自定义上传方法、快速上传、直传功能、进度监控、任务中断
+ */
+export const useUpload = () : UseUploadReturn => {
+  /** 当前上传任务实例 */
+  let currentTask : UploadTask | null = null
+
+  /** 默认配置 */
+  const defaultAction = `${getBaseApiUrl()}/resource/oss/upload`
+  const defaultHeader = getAuthHeaders()
+  const defaultName = 'file'
+  const defaultStatusCode = 200
+
+  /**
+   * 根据文件路径获取文件扩展名
+   */
+  const getFileExtension = (filePath : string) : string => {
+    const lastDotIndex = filePath.lastIndexOf('.')
+    if (lastDotIndex == -1) return ''
+    return filePath.substring(lastDotIndex + 1).toLowerCase()
+  }
+
+  /**
+   * 根据文件扩展名获取文件类型
+   */
+  const getFileType = (extension : string) : string => {
+    const imageExts : string[] = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg']
+    const videoExts : string[] = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm', '3gp']
+    const audioExts : string[] = ['mp3', 'wav', 'aac', 'ogg', 'flac', 'wma', 'm4a']
+
+    if (imageExts.indexOf(extension) >= 0) return 'image'
+    if (videoExts.indexOf(extension) >= 0) return 'video'
+    if (audioExts.indexOf(extension) >= 0) return 'audio'
+
+    return 'image'
+  }
+
+  /**
+   * 从文件路径获取文件名
+   */
+  const getFileName = (filePath : string) : string => {
+    const lastSlashIndex = filePath.lastIndexOf('/')
+    if (lastSlashIndex == -1) return filePath
+    return filePath.substring(lastSlashIndex + 1)
+  }
+
+  /**
+   * 生成唯一 ID
+   */
+  const generateUID = () : number => {
+    return Date.now() + Math.floor(Math.random() * 1000)
+  }
+
+  /**
+   * 创建文件对象
+   */
+  const createFileFromPath = (filePath : string) : UploadFileItem => {
+    const extension = getFileExtension(filePath)
+    const fileType = getFileType(extension)
+    const fileName = getFileName(filePath)
+
+    return {
+      uid: generateUID(),
+      url: filePath,
+      name: fileName,
+      type: fileType,
+      size: 0,
+      path: filePath,
+      thumb: fileType == 'image' ? filePath : '',
+      status: UPLOAD_STATUS_PENDING,
+      percent: 0,
+    } as UploadFileItem
+  }
+
+  /**
+   * 格式化图片信息
+   */
+  const formatImage = (res : ChooseImageSuccess) : ChooseFile[] => {
+    const result : ChooseFile[] = []
+    const tempFiles = res.tempFiles
+    for (let i = 0; i < tempFiles.length; i++) {
+      const item = tempFiles[i]
+      result.push({
+        path: item.path,
+        name: item.name,
+        size: item.size,
+        type: 'image',
+        thumb: item.path,
+      } as ChooseFile)
+    }
+    return result
+  }
+
+  /**
+   * 格式化视频信息
+   */
+  const formatVideo = (res : ChooseVideoSuccess) : ChooseFile[] => {
+    const result : ChooseFile[] = []
+    result.push({
+      path: res.tempFilePath,
+      name: res.name,
+      size: res.size,
+      type: 'video',
+      thumb: res.tempFilePath,
+      duration: res.duration,
+    } as ChooseFile)
+    return result
+  }
+
+  /**
+   * 中断上传任务
+   */
+  const abort = () : void => {
+    if (currentTask != null) {
+      currentTask!.abort()
+      currentTask = null
+    }
+  }
+
+  /**
+   * 根据文件扩展名获取 MIME 类型
+   */
+  const getMimeType = (extension : string) : string => {
+    const mimeMap = new Map<string, string>()
+    /** 图片 */
+    mimeMap.set('jpg', 'image/jpeg')
+    mimeMap.set('jpeg', 'image/jpeg')
+    mimeMap.set('png', 'image/png')
+    mimeMap.set('gif', 'image/gif')
+    mimeMap.set('bmp', 'image/bmp')
+    mimeMap.set('webp', 'image/webp')
+    mimeMap.set('svg', 'image/svg+xml')
+    /** 视频 */
+    mimeMap.set('mp4', 'video/mp4')
+    mimeMap.set('avi', 'video/x-msvideo')
+    mimeMap.set('mov', 'video/quicktime')
+    mimeMap.set('wmv', 'video/x-ms-wmv')
+    mimeMap.set('flv', 'video/x-flv')
+    mimeMap.set('mkv', 'video/x-matroska')
+    mimeMap.set('webm', 'video/webm')
+    mimeMap.set('3gp', 'video/3gpp')
+    /** 音频 */
+    mimeMap.set('mp3', 'audio/mpeg')
+    mimeMap.set('wav', 'audio/wav')
+    mimeMap.set('aac', 'audio/aac')
+    mimeMap.set('ogg', 'audio/ogg')
+    mimeMap.set('flac', 'audio/flac')
+    mimeMap.set('m4a', 'audio/mp4')
+    /** 文档 */
+    mimeMap.set('pdf', 'application/pdf')
+    mimeMap.set('doc', 'application/msword')
+    mimeMap.set('docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    mimeMap.set('xls', 'application/vnd.ms-excel')
+    mimeMap.set('xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    mimeMap.set('ppt', 'application/vnd.ms-powerpoint')
+    mimeMap.set('pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
+    mimeMap.set('txt', 'text/plain')
+    mimeMap.set('csv', 'text/csv')
+    mimeMap.set('json', 'application/json')
+    mimeMap.set('xml', 'application/xml')
+    /** 压缩 */
+    mimeMap.set('zip', 'application/zip')
+    mimeMap.set('rar', 'application/x-rar-compressed')
+    mimeMap.set('7z', 'application/x-7z-compressed')
+    mimeMap.set('tar', 'application/x-tar')
+    mimeMap.set('gz', 'application/gzip')
+
+    const lowerExt = extension.toLowerCase()
+    const result = mimeMap.get(lowerExt)
+    return result ?? 'application/octet-stream'
+  }
+
+  /**
+   * 默认上传方法（使用 uni.uploadFile）
+   */
+  const defaultUpload = (
+    file : UploadFileItem,
+    formData : UTSJSONObject,
+    options : UploadMethodInternalOptions,
+  ) : void => {
+    if (options.abortPrevious == true) {
+      abort()
+    }
+
+    const uploadTask = uni.uploadFile({
+      url: options.action,
+      header: options.header as any | null,
+      name: options.name ?? 'file',
+      fileType: options.fileType ?? 'image',
+      formData: formData as any,
+      filePath: file.url,
+      success: (res : UploadFileSuccess) => {
+        if (res.statusCode == (options.statusCode ?? 200)) {
+          const responseData = JSON.parse(res.data) as UTSJSONObject
+          const code = responseData.getNumber('code')
+          if (code != null && code! == 200) {
+            const data = responseData.getJSON('data')
+            if (data != null) {
+              const uploadResult : UploadResult = {
+                fileName: data!.getString('fileName') ?? '',
+                url: data!.getString('url') ?? '',
+                originalUrl: data!.getString('originalUrl'),
+                ossId: data!.getString('ossId') ?? '',
+                updateTime: data!.getString('updateTime') ?? '',
+              }
+              options.onSuccess(uploadResult, file, formData)
+            } else {
+              const errorObj : UTSJSONObject = { 'errMsg': '响应数据为空' } as UTSJSONObject
+              options.onError(errorObj, file, formData)
+            }
+          } else {
+            const msg = responseData.getString('msg') ?? '业务处理失败'
+            const errorObj : UTSJSONObject = { 'errMsg': msg } as UTSJSONObject
+            options.onError(errorObj, file, formData)
+          }
+        } else {
+          const errorObj : UTSJSONObject = { 'errMsg': `HTTP状态码错误: ${res.statusCode}` } as UTSJSONObject
+          options.onError(errorObj, file, formData)
+        }
+      },
+      fail: (err : UploadFileFail) => {
+        const errorObj : UTSJSONObject = { 'errMsg': err.errMsg } as UTSJSONObject
+        options.onError(errorObj, file, formData)
+      },
+    })
+
+    currentTask = uploadTask
+
+    uploadTask.onProgressUpdate((res : OnProgressUpdateResult) => {
+      const progressObj : UTSJSONObject = {} as UTSJSONObject
+      progressObj['progress'] = res.progress
+      progressObj['totalBytesWritten'] = res.totalBytesWritten
+      progressObj['totalBytesExpectedToWrite'] = res.totalBytesExpectedToWrite
+      options.onProgress(progressObj, file)
+    })
+  }
+
+  /**
+   * 执行直传上传流程
+   */
+  const executeDirectUpload = (
+    file : UploadFileItem,
+    formData : UTSJSONObject,
+    options : UploadMethodInternalOptions,
+    presignedData : PresignedUrlVo,
+    mimeType : string,
+  ) : void => {
+    const onSuccess = options.onSuccess
+    const onError = options.onError
+    const onProgress = options.onProgress
+
+    /** 读取文件并上传 */
+    const fsManager = uni.getFileSystemManager()
+    fsManager.readFile({
+      filePath: file.url,
+      success: (readRes : ReadFileSuccessResult) => {
+        const fileData = readRes.data as ArrayBuffer
+        const fileSize = fileData.byteLength
+
+        /** 直传到云存储 */
+        const putHeader : UTSJSONObject = {} as UTSJSONObject
+        putHeader['Content-Type'] = mimeType
+
+        uni.request({
+          url: presignedData.presignedUrl,
+          method: 'PUT' as RequestMethod,
+          data: fileData as any,
+          header: putHeader as any,
+          timeout: 60000,
+          success: (putRes : RequestSuccess<any>) => {
+            if (putRes.statusCode == 200) {
+              /** 更新进度到 100% */
+              const progressObj : UTSJSONObject = {} as UTSJSONObject
+              progressObj['progress'] = 100
+              progressObj['totalBytesWritten'] = fileSize
+              progressObj['totalBytesExpectedToWrite'] = fileSize
+              onProgress(progressObj, file)
+
+              /** 确认上传完成 */
+              confirmDirectUpload({
+                fileName: file.name ?? getFileName(file.url),
+                fileKey: presignedData.fileKey,
+                fileUrl: presignedData.fileUrl,
+                moduleName: formData.getString('moduleName'),
+                directoryId: formData.getString('directoryId'),
+                directoryPath: formData.getString('directoryPath'),
+                fileSize: fileSize,
+              } as ConfirmDirectUploadBo).then(
+                (result : UTSJSONObject) => {
+                  const uploadResult : UploadResult = {
+                    fileName: result.getString('fileName') ?? '',
+                    url: result.getString('url') ?? '',
+                    originalUrl: result.getString('originalUrl'),
+                    ossId: result.getString('ossId') ?? '',
+                    updateTime: result.getString('updateTime') ?? '',
+                  }
+                  onSuccess(uploadResult, file, formData)
+                },
+                (error : any) => {
+                  const errorObj : UTSJSONObject = { 'errMsg': `确认上传失败: ${error}` } as UTSJSONObject
+                  onError(errorObj, file, formData)
+                },
+              )
+            } else {
+              const errorObj : UTSJSONObject = { 'errMsg': `直传失败: ${putRes.statusCode}` } as UTSJSONObject
+              onError(errorObj, file, formData)
+            }
+          },
+          fail: (putErr : RequestFail) => {
+            const errorObj : UTSJSONObject = { 'errMsg': putErr.errMsg } as UTSJSONObject
+            onError(errorObj, file, formData)
+          },
+        })
+      },
+      fail: (readErr : IFileSystemManagerFail) => {
+        const errorObj : UTSJSONObject = { 'errMsg': readErr.errMsg } as UTSJSONObject
+        onError(errorObj, file, formData)
+      },
+    })
+  }
+
+  /**
+   * 直传上传方法
+   *
+   * 流程：获取预签名 URL → 判断存储类型 → 直传到云存储 → 确认上传
+   * 如果是本地存储则降级为 defaultUpload
+   */
+  const directUpload = (
+    file : UploadFileItem,
+    formData : UTSJSONObject,
+    options : UploadMethodInternalOptions,
+  ) : void => {
+    const onError = options.onError
+    const extension = getFileExtension(file.url)
+    const mimeType = getMimeType(extension)
+
+    getPresignedUrl({
+      fileName: file.name ?? getFileName(file.url),
+      fileType: mimeType,
+      moduleName: formData.getString('moduleName'),
+      directoryId: formData.getString('directoryId'),
+      directoryPath: formData.getString('directoryPath'),
+    } as PresignedUrlBo).then(
+      (presignedData : PresignedUrlVo) => {
+        if (presignedData.presignedUrl.includes('/resource/oss/upload')) {
+          /** 本地存储，使用默认上传 */
+          defaultUpload(file, formData, options)
+        } else {
+          /** 云存储，执行直传 */
+          executeDirectUpload(file, formData, options, presignedData, mimeType)
+        }
+      },
+      (error : any) => {
+        const errorObj : UTSJSONObject = { 'errMsg': `获取预签名URL失败: ${error}` } as UTSJSONObject
+        onError(errorObj, file, formData)
+      },
+    )
+  }
+
+  /**
+   * 开始上传文件
+   */
+  const startUpload = (file : UploadFileItem, options : UseUploadOptions) : void => {
+    const action = options.action
+    const header = options.header ?? defaultHeader
+    const name = options.name ?? defaultName
+    const fileType = options.fileType ?? 'image'
+    const statusCode = options.statusCode ?? defaultStatusCode
+    const statusKey = options.statusKey ?? 'status'
+    const abortPrevious = options.abortPrevious ?? false
+    const enableDirectUpload = options.enableDirectUpload ?? false
+    const formData = options.formData ?? ({} as UTSJSONObject)
+
+    /** 设置文件状态为上传中 */
+    file.status = UPLOAD_STATUS_LOADING
+
+    /** 准备表单数据 */
+    const uploadFormData : UTSJSONObject = {} as UTSJSONObject
+    const formDataMap = formData.toMap()
+    for (const entry of formDataMap.entries()) {
+      uploadFormData[entry[0]] = entry[1]
+    }
+    if (options.moduleName != null) uploadFormData['moduleName'] = options.moduleName!
+    if (options.directoryId != null) uploadFormData['directoryId'] = options.directoryId!
+    if (options.directoryPath != null) uploadFormData['directoryPath'] = options.directoryPath!
+
+    /** 构建内部上传选项 */
+    const uploadOptions : UploadMethodInternalOptions = {
+      action: action,
+      header: header,
+      name: name,
+      fileName: name,
+      fileType: fileType,
+      statusCode: statusCode,
+      abortPrevious: abortPrevious,
+      enableDirectUpload: enableDirectUpload,
+      onSuccess: (res : UploadResult, f : UploadFileItem, fd : UTSJSONObject) : void => {
+        /** 确保 originalUrl 始终有值 */
+        if (res.originalUrl == null || res.originalUrl!.length == 0) {
+          res.originalUrl = extractCleanUrl(res.url)
+        }
+        f.status = UPLOAD_STATUS_SUCCESS
+        currentTask = null
+        if (options.onSuccess != null) {
+          options.onSuccess!(res, f, fd)
+        }
+      },
+      onError: (error : UTSJSONObject, f : UploadFileItem, fd : UTSJSONObject) : void => {
+        f.status = UPLOAD_STATUS_FAIL
+        f.error = error.getString('errMsg') ?? '上传失败'
+        currentTask = null
+        if (options.onError != null) {
+          options.onError!(error, f, fd)
+        }
+      },
+      onProgress: (res : UTSJSONObject, f : UploadFileItem) : void => {
+        /* Math.floor 替代 .toInt()（UTS 独有方法，Web 运行时不存在） */
+        f.percent = Math.floor(res.getNumber('progress') ?? 0)
+        if (options.onProgress != null) {
+          options.onProgress!(res, f)
+        }
+      },
+    } as UploadMethodInternalOptions
+
+    if (enableDirectUpload) {
+      directUpload(file, uploadFormData, uploadOptions)
+    } else {
+      defaultUpload(file, uploadFormData, uploadOptions)
+    }
+  }
+
+  /**
+   * 快速上传文件
+   */
+  const fastUpload = (filePath : string, options ?: FastUploadOptions | null) : void => {
+    const file = createFileFromPath(filePath)
+    const extension = getFileExtension(filePath)
+    const fileType = getFileType(extension)
+    const opts = options ?? ({} as FastUploadOptions)
+
+    const uploadOptions : UseUploadOptions = {
+      action: opts.action ?? defaultAction,
+      header: opts.header ?? defaultHeader,
+      name: opts.name ?? defaultName,
+      formData: opts.formData,
+      fileType: fileType,
+      statusCode: opts.statusCode ?? defaultStatusCode,
+      abortPrevious: opts.abortPrevious ?? false,
+      enableDirectUpload: opts.enableDirectUpload ?? false,
+      moduleName: opts.moduleName,
+      directoryId: opts.directoryId,
+      directoryPath: opts.directoryPath,
+      onSuccess: opts.onSuccess,
+      onError: (error : UTSJSONObject, f : UploadFileItem, fd : UTSJSONObject) : void => {
+        if (opts.onError != null) {
+          opts.onError!(error, f, fd)
+        }
+      },
+      onProgress: (res : UTSJSONObject, f : UploadFileItem) : void => {
+        if (opts.onProgress != null) {
+          opts.onProgress!(res, f)
+        }
+      },
+    } as UseUploadOptions
+
+    startUpload(file, uploadOptions)
+  }
+
+  /**
+   * 选择文件
+   *
+   * UniApp X 版本简化为 image + video 两种核心类型
+   */
+  const chooseFile = (options : ChooseFileOption) : Promise<ChooseFile[]> => {
+    return new Promise((resolve : (value : ChooseFile[]) => void, reject : (reason ?: any) => void) => {
+      const accept = options.accept ?? 'image'
+      const multiple = options.multiple ?? false
+      const sizeType = options.sizeType ?? ['original', 'compressed']
+      const sourceType = options.sourceType ?? ['album', 'camera']
+
+      if (accept == 'image') {
+        uni.chooseImage({
+          count: multiple ? Math.min(options.maxCount ?? 9, 9) : 1,
+          sizeType: sizeType,
+          sourceType: sourceType as Array<'album' | 'camera'>,
+          success: (res : ChooseImageSuccess) => {
+            resolve(formatImage(res))
+          },
+          fail: (err : ChooseImageFail) => {
+            reject(err.errMsg)
+          },
+        })
+      } else if (accept == 'video') {
+        uni.chooseVideo({
+          sourceType: sourceType as Array<'album' | 'camera'>,
+          compressed: options.compressed ?? true,
+          maxDuration: options.maxDuration ?? 60,
+          camera: (options.camera ?? 'back') as 'back' | 'front',
+          success: (res : ChooseVideoSuccess) => {
+            resolve(formatVideo(res))
+          },
+          fail: (err : ChooseVideoFail) => {
+            reject(err.errMsg)
+          },
+        })
+      } else {
+        /** 其他类型降级为选择图片 */
+        uni.chooseImage({
+          count: multiple ? Math.min(options.maxCount ?? 9, 9) : 1,
+          sizeType: sizeType,
+          sourceType: sourceType as Array<'album' | 'camera'>,
+          success: (res : ChooseImageSuccess) => {
+            resolve(formatImage(res))
+          },
+          fail: (err : ChooseImageFail) => {
+            reject(err.errMsg)
+          },
+        })
+      }
+    })
+  }
+
+  return {
+    startUpload,
+    fastUpload,
+    abort,
+    chooseFile,
+  }
+}

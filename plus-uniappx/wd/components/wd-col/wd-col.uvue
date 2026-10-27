@@ -1,0 +1,122 @@
+<!--
+Layout 布局 配合wd-row用于快速进行布局
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件 import（easycom 自动注册）
+- inject + genChildUid 替代 useParent
+- interface → 内联 defineProps
+-->
+<template>
+  <!-- 栅格列容器：根据span和offset属性动态应用样式类 -->
+  <view
+    :class="`wd-col ${span ? `wd-col__${span}` : ''} ${offset ? `wd-col__offset-${offset}` : ''} ${customClass}`"
+    :style="`${gutterStyle}${customStyle}`"
+  >
+    <!-- 列内容插槽 -->
+    <slot />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, inject, onMounted, onUnmounted, watch } from 'vue'
+import { addUnit } from '../common/util'
+import { genChildUid } from '../../composables/useChildren'
+import { ROW_KEY, type RowProvide } from '../wd-row/wd-row-key'
+
+/**
+ * 栅格列组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 列元素宽度（栅格数，总共24栅格） */
+  span ?: number
+  /** 列元素偏移距离（栅格数） */
+  offset ?: number
+}>(), {
+  customStyle: '',
+  customClass: '',
+  span: 24,
+  offset: 0,
+})
+
+/** 生成唯一 ID */
+const uid = genChildUid()
+
+/** 获取父级行组件数据 */
+const row = inject<RowProvide | null>(ROW_KEY, null)
+
+/** 注册到父组件 */
+if (row != null) {
+  onMounted(() => {
+    row!.addChild(uid)
+  })
+
+  onUnmounted(() => {
+    row!.removeChild(uid)
+  })
+}
+
+/**
+ * 计算 gutter 间距样式（null 安全）
+ */
+const gutterStyle = computed(() : string => {
+  if (row != null && row!.props.gutter > 0) {
+    const padding = addUnit(row!.props.gutter / 2)
+    return `padding-left: ${padding}; padding-right: ${padding}; background-clip: content-box;`
+  }
+  return ''
+})
+
+/**
+ * 验证组件属性的有效性
+ * 确保 span 和 offset 值为非负数
+ */
+const validateProps = () => {
+  if (props.span < 0 || props.offset < 0) {
+    console.error(
+      '[wot-design] warning(wd-col): attribute span/offset must be greater than or equal to 0',
+    )
+  }
+}
+
+/**
+ * 监听 span 和 offset 属性变化
+ */
+watch(
+  [() : number => props.span, () : number => props.offset],
+  () => {
+    validateProps()
+  },
+)
+</script>
+
+<style lang="scss">
+/* 引入外部样式文件 */
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 栅格列基础样式 */
+@include b(col) {
+  box-sizing: border-box;
+}
+
+/* 生成 1-24 栅格的宽度和偏移样式类 */
+$i: 1;
+@while $i <= 24 {
+  /* 栅格宽度样式：wd-col__1 到 wd-col__24 */
+  .wd-col__#{$i} {
+    width: calc(100% / 24 * $i);
+  }
+
+  /* 栅格偏移样式：wd-col__offset-1 到 wd-col__offset-24 */
+  .wd-col__offset-#{$i} {
+    margin-left: calc(100% / 24 * $i);
+  }
+
+  $i: $i + 1;
+}
+</style>

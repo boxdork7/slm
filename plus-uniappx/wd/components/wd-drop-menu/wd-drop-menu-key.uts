@@ -1,0 +1,78 @@
+/**
+ * DropMenu 下拉菜单 - 父子组件通信 Key 定义
+ *
+ * UniApp X 版本改动说明：
+ * - InjectionKey<T> → string 常量
+ * - DropDirction 类型移到此文件（UTS 需要统一类型定义）
+ * - Partial<{}> 改为完整类型定义（UTS 不支持 Partial）
+ * - 添加 DropMenuItemInfo 类型（子组件注册信息）
+ */
+
+/**
+ * 下拉菜单方向类型
+ */
+export type DropDirction = 'up' | 'down'
+
+/**
+ * 下拉菜单提供的数据接口
+ */
+export type DropMenuProvide = {
+	/** 下拉菜单属性 */
+	props : DropMenuProps
+	/** 控制菜单折叠的方法 */
+	fold : (uid : number) => void
+	/** 下拉菜单偏移量 */
+	offset : number
+	/** 子组件管理 */
+	childUids : number[]
+	addChild : (uid : number) => void
+	removeChild : (uid : number) => void
+}
+
+/**
+ * 下拉菜单属性类型
+ */
+export type DropMenuProps = {
+	zIndex : number
+	direction : string
+	modal : boolean
+	closeOnClickModal : boolean
+	duration : number
+	customStyle : string
+	customClass : string
+}
+
+/**
+ * 下拉菜单项信息类型（子组件向父组件注册的信息）
+ */
+export type DropMenuItemInfo = {
+	/** 子组件唯一 ID */
+	uid : number
+	/** 是否禁用 */
+	disabled : boolean
+	/** 弹窗是否显示 */
+	showPop : boolean
+	/** 菜单标题 */
+	title : string
+	/** 当前选中值 */
+	modelValue : string | number | null
+	/** 选项列表 */
+	options : UTSJSONObject[]
+	/** value 键名 */
+	valueKey : string
+	/** label 键名 */
+	labelKey : string
+	/** 图标名称 */
+	icon : string
+	/** 图标大小 */
+	iconSize : string
+	/** 切换方法 */
+	toggle : (() => void) | null
+	/** 关闭方法 */
+	close : (() => void) | null
+}
+
+/**
+ * 下拉菜单注入键
+ */
+export const DROP_MENU_KEY = 'wd-drop-menu'

@@ -1,0 +1,160 @@
+/**
+ * 加密工具类 (UniApp X 版本)
+ *
+ * 使用 tq-encrypt 插件替代 crypto-js
+ * 保持与 plus-app/utils/crypto.ts 完全相同的导出接口
+ *
+ * 包含以下功能：
+ * - 随机生成: 生成随机字符串和AES密钥 (generateRandomString, generateAesKey)
+ * - Base64处理: Base64编码与解码 (encodeBase64, decodeBase64)
+ * - AES加密/解密: 使用AES密钥加密和解密数据 (encryptWithAes, decryptWithAes)
+ * - 高级加解密: 自动密钥生成的加密和支持JSON解析的解密 (encryptWithAutoKey, decryptWithParsing)
+ * - 哈希计算: 计算数据的哈希值 (computeSha256Hash, computeMd5Hash)
+ *
+ * 依赖: tq-encrypt 插件（需在 HBuilderX 插件市场导入）
+ */
+import {
+	base64EncodeSync,
+	base64DecodeSync,
+	md5Sync,
+	sha256Sync,
+	aesEncryptSync,
+	aesDecryptSync,
+} from '@/uni_modules/tq-encrypt'
+
+/**
+ * 随机生成32位的字符串
+ */
+export const generateRandomString = () : string => {
+	const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+	let result = ''
+	const charactersLength = characters.length
+	for (let i = 0; i < 32; i++) {
+		result += characters.charAt(Math.floor(Math.random() * charactersLength))
+	}
+	return result
+}
+
+/**
+ * 随机生成AES密钥（32位字符串）
+ *
+ * tq-encrypt 的 aesEncryptSync/aesDecryptSync 直接接受字符串密钥
+ * 无需像 crypto-js 那样转为 WordArray
+ */
+export const generateAesKey = () : string => {
+	return generateRandomString()
+}
+
+/**
+ * Base64编码
+ * @param data 要编码的字符串
+ */
+export const encodeBase64 = (data : string) : string => {
+	return base64EncodeSync(data)
+}
+
+/**
+ * Base64解码
+ * @param str Base64编码的字符串
+ */
+export const decodeBase64 = (str : string) : string => {
+	return base64DecodeSync(str)
+}
+
+/**
+ * 使用AES密钥加密数据 (ECB模式，与后端对应)
+ * @param message 要加密的消息
+ * @param aesKey AES密钥字符串
+ * @returns 加密后的 Base64 字符串
+ */
+export const encryptWithAes = (message : string, aesKey : string) : string => {
+	return aesEncryptSync(message, aesKey)
+}
+
+/**
+ * 使用AES密钥解密数据 (ECB模式)
+ * @param message 加密的消息（Base64格式）
+ * @param aesKey AES密钥字符串
+ * @returns 解密后的字符串
+ */
+export const decryptWithAes = (message : string, aesKey : string) : string => {
+	return aesDecryptSync(message, aesKey)
+}
+
+/**
+ * AES加密结果
+ */
+export type AesEncryptResult = {
+	encryptedData : string
+	key : string
+}
+
+/**
+ * 一步完成加密过程 - 生成密钥、加密数据并返回结果
+ * @param data 要加密的数据（字符串或对象）
+ */
+export const encryptWithAutoKey = (data : string | UTSJSONObject) : AesEncryptResult => {
+	const key = generateAesKey()
+	let message : string
+	if (typeof data == 'string') {
+		message = data as string
+	} else {
+		message = JSON.stringify(data)
+	}
+	const encryptedData = encryptWithAes(message, key)
+	return {
+		encryptedData: encryptedData,
+		key: key,
+	} as AesEncryptResult
+}
+
+/**
+ * 使用提供的密钥解密数据
+ * @param encryptedData 加密的数据
+ * @param key 解密密钥字符串
+ * @param parseJson 是否将结果解析为JSON对象
+ */
+export const decryptWithParsing = (
+	encryptedData : string,
+	key : string,
+	parseJson : boolean = false,
+) : string | UTSJSONObject => {
+	const decryptedStr = decryptWithAes(encryptedData, key)
+
+	if (parseJson) {
+		try {
+			return JSON.parse(decryptedStr) as UTSJSONObject
+		} catch (e) {
+			console.error('Failed to parse decrypted data as JSON:', e)
+			return decryptedStr
+		}
+	}
+
+	return decryptedStr
+}
+
+/**
+ * 计算字符串的SHA-256哈希值
+ * @param data 要计算哈希的数据
+ * @returns 哈希值（十六进制表示）
+ */
+export const computeSha256Hash = (data : string) : string => {
+	return sha256Sync(data)
+}
+
+/**
+ * 计算字符串的MD5哈希值
+ * @param data 要计算哈希的数据
+ * @returns 哈希值（十六进制大写表示）
+ */
+export const computeMd5Hash = (data : string) : string => {
+	return md5Sync(data)
+}
+
+/**
+ * 生成图片的唯一哈希标识
+ * @param base64Data 图片的Base64编码数据
+ */
+export const generateImageHash = (base64Data : string) : string => {
+	return computeSha256Hash(base64Data)
+}

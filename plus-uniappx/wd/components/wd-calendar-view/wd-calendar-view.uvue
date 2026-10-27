@@ -1,0 +1,221 @@
+<!--
+CalendarView 日历面板组件
+UniApp X 简化版本 - 从 plus-app/wd/components/wd-calendar-view/wd-calendar-view.vue 迁移
+
+迁移说明:
+1. .vue → .uvue, <script lang="ts"> → <script lang="uts">
+2. 移除 defineOptions
+3. 移除 ComponentPublicInstance 类型
+4. 简化复杂逻辑:仅保留基础日期选择和范围选择
+5. 移除 monthPanel 和 yearPanel 子组件引用(暂未迁移)
+6. CalendarValue union 类型简化为 any
+7. 移除 dayjs,使用原生 Date
+8. 移除智能类型转换(仅支持时间戳模式)
+
+当前版本仅为骨架,需要配合子组件完整实现:
+- month-panel(月份面板)
+- year-panel(年份面板)
+- month(单月组件)
+- year(单年组件)
+-->
+<template>
+  <view :class="`wd-calendar-view ${customClass}`">
+    <!-- 简化版本:仅显示提示文本 -->
+    <view class="wd-calendar-view__placeholder">
+      <text class="wd-calendar-view__text">日历组件(简化版)</text>
+      <text class="wd-calendar-view__desc">类型: {{ type }}</text>
+      <text class="wd-calendar-view__desc">当前值: {{ formatValue }}</text>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { ref, watch, computed } from 'vue'
+import { getDefaultTime } from './wd-calendar-utils'
+import type { CalendarType } from './wd-calendar-utils'
+
+/**
+ * 日历视图组件属性接口
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+
+  /** 选中值(时间戳或时间戳数组) */
+  modelValue : any
+  /** 日历类型 */
+  type ?: CalendarType
+  /** 最小日期,为13位时间戳 */
+  minDate ?: number
+  /** 最大日期,为13位时间戳 */
+  maxDate ?: number
+  /** 周起始天,0为周日,1为周一 */
+  firstDayOfWeek ?: number
+  /** 范围选择时的最大日期范围 */
+  maxRange ?: number
+  /** 范围选择时超出最大日期范围的错误提示文案 */
+  rangePrompt ?: string
+  /** 范围选择时是否允许选择同一天 */
+  allowSameDay ?: boolean
+  /** 是否展示面板标题 */
+  showPanelTitle ?: boolean
+  /** 选中日期所使用的当日内具体时刻 */
+  defaultTime ?: string | string[]
+  /** 可滚动面板的高度 */
+  panelHeight ?: number
+  /** 是否隐藏秒选择 */
+  hideSecond ?: boolean
+  /** 是否在手指松开时立即触发picker-view的change事件 */
+  immediateChange ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  type: 'date',
+  minDate: () : number => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth() - 6, now.getDate()).getTime()
+  },
+  maxDate: () : number => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth() + 6, now.getDate(), 23, 59, 59).getTime()
+  },
+  firstDayOfWeek: 0,
+  allowSameDay: false,
+  showPanelTitle: true,
+  defaultTime: '00:00:00',
+  panelHeight: 756,
+  hideSecond: false,
+  immediateChange: false,
+})
+
+/**
+ * 日历视图组件事件接口
+ */
+const emit = defineEmits<{
+  (e : 'change', payload : { value : any }) : void
+  (e : 'update:modelValue', value : any) : void
+  (e : 'pickstart') : void
+  (e : 'pickend') : void
+}>()
+
+/**
+ * 日历视图组件暴露方法接口
+ */
+export interface WdCalendarViewExpose {
+  /** 使当前日期或者选中日期滚动到可视区域 */
+  scrollIntoView : () => void
+}
+
+// 响应式数据
+const formatDefauleTime = ref<number[][]>([])
+const internalValue = ref<any>(null)
+
+/**
+ * 格式化显示值
+ */
+const formatValue = computed(() : string => {
+  if (internalValue.value == null) {
+    return '未选择'
+  }
+  if (Array.isArray(internalValue.value)) {
+    return `[${(internalValue.value as any[]).join(', ')}]`
+  }
+  return `${internalValue.value}`
+})
+
+/**
+ * 监听 modelValue 变化
+ */
+watch(
+  () => props.modelValue,
+  (newValue : any) => {
+    internalValue.value = newValue
+  },
+  {
+    deep: true,
+    immediate: true,
+  }
+)
+
+/**
+ * 监听默认时间变化
+ */
+watch(
+  () => props.defaultTime,
+  (newValue : string | string[]) => {
+    formatDefauleTime.value = getDefaultTime(newValue)
+  },
+  {
+    deep: true,
+    immediate: true,
+  }
+)
+
+/**
+ * 使当前日期或者选中日期滚动到可视区域
+ */
+const scrollIntoView = () => {
+  // TODO: 实现滚动逻辑
+  console.log('scrollIntoView called')
+}
+
+/**
+ * 处理日期变化事件
+ */
+const handleChange = (value : any) => {
+  internalValue.value = value
+  emit('update:modelValue', value)
+  emit('change', { value: value })
+}
+
+/**
+ * 处理选择开始事件
+ */
+const handlePickStart = () => {
+  emit('pickstart')
+}
+
+/**
+ * 处理选择结束事件
+ */
+const handlePickEnd = () => {
+  emit('pickend')
+}
+
+// 暴露组件方法
+defineExpose<WdCalendarViewExpose>({
+  scrollIntoView,
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/_mixin.scss';
+@import '../common/abstracts/variable.scss';
+
+// 日历视图组件样式
+@include b(calendar-view) {
+  @include e(placeholder) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40rpx;
+    min-height: 400rpx;
+  }
+
+  @include e(text) {
+    font-size: 32rpx;
+    font-weight: bold;
+    color: $-color-gray;
+    margin-bottom: 20rpx;
+  }
+
+  @include e(desc) {
+    font-size: 28rpx;
+    color: $-color-gray;
+    margin-top: 10rpx;
+  }
+}
+</style>

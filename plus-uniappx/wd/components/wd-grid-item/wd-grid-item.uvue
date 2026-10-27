@@ -1,0 +1,423 @@
+<!--
+Grid Item 宫格项 用于 wd-grid 的子组件模式。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- inject + genChildUid 替代 useParent
+- 移除 ComponentPublicInstance 类型
+- 移除 ::before/::after 伪元素（用 view 替代或移除）
+- edeep → e
+- any → 具体类型
+-->
+<template>
+  <view
+    :class="`wd-grid-item ${border && gutter == 0 && itemClass ? itemClass : ''} ${customClass}`"
+    :style="`${style}${customStyle}`"
+    @click="handleClick"
+  >
+    <view
+      :class="`wd-grid-item__content ${square ? 'is-square' : ''} ${border && gutter > 0 ? 'is-round' : ''}`"
+      :style="gutterContentStyle"
+      :hover-class="gridParent != null && gridParent.clickable ? (gridParent.hoverClass || 'wd-grid-item__content--hover') : 'none'"
+      :hover-stay-time="240"
+    >
+      <slot v-if="useSlot" />
+      <block v-else>
+        <view
+          :style="`width:${iconSize}; height: ${iconSize}`"
+          class="wd-grid-item__wrapper"
+        >
+          <wd-badge custom-class="badge" v-bind="customBadgeProps">
+            <template v-if="useIconSlot">
+              <slot name="icon" />
+            </template>
+            <wd-icon
+              v-else
+              :name="icon"
+              :size="iconSize"
+              :color="iconColor"
+              :custom-class="customIcon"
+            />
+          </wd-badge>
+        </view>
+        <slot v-if="useTextSlot" name="text" />
+        <view v-else class="wd-grid-item__text custom-text">
+          {{ text }}
+        </view>
+      </block>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, ref, inject, onMounted, onUnmounted } from 'vue'
+import { addUnit, isDef } from '../common/util'
+import { genChildUid } from '../../composables/useChildren'
+import { GRID_KEY, type GridProvide } from '../wd-grid/wd-grid-key'
+
+/**
+ * 页面跳转方式类型
+ */
+type LinkType = 'navigateTo' | 'switchTab' | 'reLaunch' | 'redirectTo'
+
+/**
+ * Badge 类型
+ */
+type BadgeType = 'primary' | 'success' | 'warning' | 'danger' | 'info'
+
+/**
+ * 网格项组件属性接口
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** GridItem 下方文字样式 */
+  customText ?: string
+  /** GridItem 上方 icon 样式 */
+  customIcon ?: string
+  /** 图标名称 */
+  icon ?: string
+  /** 图标大小 */
+  iconSize ?: string
+  /** 图标颜色 */
+  iconColor ?: string
+  /** 文字 */
+  text ?: string
+  /** 点击后跳转的链接地址 */
+  url ?: string
+  /** 页面跳转方式 */
+  linkType ?: LinkType
+  /** 是否开启 GridItem 内容插槽 */
+  useSlot ?: boolean
+  /** 是否开启 GridItem icon 插槽 */
+  useIconSlot ?: boolean
+  /** 是否开启 GridItem text 内容插槽 */
+  useTextSlot ?: boolean
+  /** 是否显示图标右上角小红点 */
+  isDot ?: boolean
+  /** 图标右上角显示的 badge 类型 */
+  type ?: BadgeType
+  /** 图标右上角 badge 显示值 */
+  value ?: any | null
+  /** 图标右上角 badge 最大值 */
+  max ?: number
+  /** 徽标属性，透传给 Badge 组件 */
+  badgeProps ?: UTSJSONObject | null
+}>(), {
+  customStyle: '',
+  customClass: '',
+  customText: '',
+  customIcon: '',
+  icon: '',
+  iconSize: '26px',
+  linkType: 'navigateTo',
+  useSlot: false,
+  useIconSlot: false,
+  useTextSlot: false,
+})
+
+/**
+ * 网格项组件事件接口
+ */
+const emit = defineEmits<{
+  itemclick: []
+}>()
+
+/* 响应式数据 */
+const style = ref<string>('')
+const gutterContentStyle = ref<string>('')
+const itemClass = ref<string>('')
+const gutter = ref<number>(0)
+const square = ref<boolean>(false)
+const border = ref<boolean>(true)
+
+/* 生成唯一 ID */
+const uid = genChildUid()
+
+/* 获取父组件（Grid）实例 */
+const gridParent = inject<GridProvide | null>(GRID_KEY, null)
+
+/* 注册到父组件 */
+if (gridParent != null) {
+  onMounted(() => {
+    gridParent!.addChild(uid)
+    initGridItem()
+  })
+
+  onUnmounted(() => {
+    gridParent!.removeChild(uid)
+  })
+}
+
+/**
+ * 获取当前网格容器中的子组件总数
+ */
+const childCount = computed(() : number => {
+  if (gridParent != null) {
+    return gridParent.childUids.length
+  }
+  return 0
+})
+
+/**
+ * 计算 Badge 组件属性
+ * 合并用户传入的 badgeProps 和组件内部的 badge 相关属性
+ */
+const customBadgeProps = computed(() : UTSJSONObject => {
+  const result : UTSJSONObject = {}
+
+  /* 处理用户传入的 badgeProps */
+  const bp = props.badgeProps
+  if (bp != null) {
+    const bpAny = bp as any
+    const keys = bpAny.keys() as string[]
+    for (let i = 0; i < keys.length; i++) {
+      result[keys[i]] = bpAny[keys[i]]
+    }
+  }
+
+  /* 组件内部的 badge 相关属性 */
+  if (isDef(props.max)) result['max'] = props.max
+  if (isDef(props.isDot)) result['isDot'] = props.isDot
+  if (isDef(props.value)) result['modelValue'] = props.value
+  if (isDef(props.type)) result['type'] = props.type
+
+  return result
+})
+
+/**
+ * 更新网格项样式
+ * 根据父组件的配置计算当前项的宽度和样式
+ */
+const updateItemStyle = () => {
+  if (gridParent == null) return
+
+  const width = gridParent.column > 0
+    ? `${100 / gridParent.column}%`
+    : `${100 / (childCount.value > 0 ? childCount.value : 1)}%`
+
+  /* 单独定义间隔样式 */
+  const gutterStyle = gridParent.gutter > 0
+    ? `padding:${addUnit(gridParent.gutter)} ${addUnit(gridParent.gutter)} 0 0; background-color: transparent;`
+    : ''
+
+  /* 单独定义正方形样式 */
+  const squareStyle = gridParent.square
+    ? `background-color:transparent; padding-bottom: 0; padding-top:${width}`
+    : ''
+
+  style.value = `width: ${width}; ${squareStyle || gutterStyle}`
+}
+
+/**
+ * 初始化网格项
+ * 设置初始样式和配置信息
+ */
+const initGridItem = () => {
+  if (gridParent == null) return
+
+  const childrenCount = gridParent.childUids.length
+  const width = gridParent.column > 0 ? `${100 / gridParent.column}%` : `${100 / childrenCount}%`
+
+  /* 单独定义间隔样式 */
+  const gutterStyle = gridParent.gutter > 0
+    ? `padding:${addUnit(gridParent.gutter)} ${addUnit(gridParent.gutter)} 0 0; background-color: transparent;`
+    : ''
+
+  /* 单独定义正方形样式 */
+  const squareStyle = gridParent.square
+    ? `background-color:transparent; padding-bottom: 0; padding-top:${width}`
+    : ''
+
+  /* 间隔+正方形组合样式 */
+  gutterContentStyle.value =
+    gridParent.gutter > 0 && gridParent.square
+      ? `right: ${addUnit(gridParent.gutter)}; bottom:${addUnit(gridParent.gutter)};height: auto; background-color: ${gridParent.bgColor}`
+      : `background-color: ${gridParent.bgColor}`
+
+  /* 更新配置信息 */
+  border.value = gridParent.border
+  square.value = gridParent.square
+  gutter.value = gridParent.gutter
+  style.value = `width: ${width}; ${squareStyle || gutterStyle}`
+
+  /* 计算边框类名 */
+  if (gridParent.border) {
+    const column = gridParent.column
+    const myIndex = gridParent.childUids.indexOf(uid)
+
+    if (myIndex >= 0 && column > 0) {
+      const isRightItem = myIndex == childrenCount - 1 || (myIndex + 1) % column == 0
+      const isFirstLine = myIndex + 1 <= column
+      const classes : string[] = []
+
+      if (isFirstLine) classes.push('is-first')
+      if (isRightItem) classes.push('is-right')
+      if (!isFirstLine) classes.push('is-border')
+
+      if (myIndex == childrenCount - 1) {
+        classes.push('is-last')
+      }
+
+      itemClass.value = classes.join(' ')
+    } else {
+      itemClass.value = 'is-first'
+    }
+  }
+}
+
+/**
+ * 处理点击事件
+ * 执行页面跳转或触发点击事件
+ */
+const handleClick = () => {
+  /* 检查父组件是否允许点击 */
+  if (gridParent != null && !gridParent.clickable) return
+
+  const url = props.url
+  const linkType = props.linkType
+
+  /* 触发点击事件 */
+  emit('itemclick')
+
+  /* 处理页面跳转 */
+  if (isDef(url) && url != '') {
+    if (linkType == 'navigateTo') {
+      uni.navigateTo({ url: url! })
+    } else if (linkType == 'reLaunch') {
+      uni.reLaunch({ url: url! })
+    } else if (linkType == 'redirectTo') {
+      uni.redirectTo({ url: url! })
+    } else if (linkType == 'switchTab') {
+      uni.switchTab({ url: url! })
+    } else {
+      console.log(`[wot-design] warning(wd-grid-item): linkType can not be ${linkType}`)
+    }
+  }
+}
+
+/**
+ * 设置网格项样式类名（保留接口，但在 UniApp X 中通过 inject 自动计算）
+ * @param classes 样式类名字符串
+ */
+const setItemClass = (classes : string) => {
+  itemClass.value = classes
+}
+
+/* 暴露给父组件的方法和属性 */
+defineExpose({
+  setItemClass,
+  itemClass,
+  init: initGridItem,
+})
+</script>
+
+<style lang="scss">
+/* 引入外部样式文件 */
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(grid-item) {
+    @include when(border) {
+      /* UTS 不支持 ::before/::after，用 view 替代或移除 */
+    }
+
+    @include when(first) {
+      /* UTS 不支持 ::after，用 view 替代或移除 */
+    }
+
+    @include e(content) {
+      background-color: $-dark-background2;
+
+      @include m(hover) {
+        background-color: $-grid-item-hover-bg-dark !important;
+      }
+    }
+  }
+}
+
+/* 网格项主体样式 */
+@include b(grid-item) {
+  font-size: $-grid-item-fs;
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+
+  /* 边框样式 - UTS 不支持 ::before/::after，改用内嵌 view 或移除 */
+  @include when(border) {
+    /* 需要在模板中用 view 实现边框 */
+  }
+
+  @include when(first) {
+    /* 需要在模板中用 view 实现边框 */
+  }
+
+  @include when(right) {
+    /* 隐藏右边框 */
+  }
+
+  @include when(last) {
+    /* 隐藏最后一个边框 */
+  }
+
+  /* 包装器样式 */
+  @include e(wrapper) {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 内容区域样式 */
+  @include e(content) {
+    width: 100%;
+    height: 100%;
+    padding: $-grid-item-padding;
+    background-color: $-grid-item-bg;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+
+    /* 正方形样式 */
+    @include when(square) {
+      box-sizing: border-box;
+      position: absolute;
+      top: 0;
+      right: 0;
+      left: 0;
+      padding: 0;
+      height: 100%;
+    }
+
+    /* 圆角样式 - UTS 不支持 ::after，用 border 替代 */
+    @include when(round) {
+      border: 1px solid $-grid-item-border-color;
+      border-radius: 4px;
+    }
+
+    /* 悬停样式 */
+    @include m(hover) {
+      background-color: $-grid-item-hover-bg !important;
+    }
+  }
+
+  /* 文本样式 */
+  @include e(text) {
+    margin-top: 8px;
+    font-size: $-grid-item-fs;
+    line-height: $-grid-item-fs;
+    @include lineEllipsis;
+  }
+}
+</style>

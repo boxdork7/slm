@@ -1,0 +1,73 @@
+/**
+ * 可中止的Promise类 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除泛型参数（UTS 函数泛型受限），统一使用 boolean 类型
+ * - then/catch/finally 方法简化为非泛型版本
+ * - _reject 参数类型改为 Error | null
+ */
+export class AbortablePromise {
+  /** 内部Promise实例 */
+  promise : Promise<boolean>
+
+  /** 用于中止Promise的reject方法引用 */
+  private _reject : ((reason : Error | null) => void) | null = null
+
+  /**
+   * 构造函数
+   * @param executor Promise执行器函数，接收resolve和reject参数
+   */
+  constructor(
+    executor : (
+      resolve : (value : boolean) => void,
+      reject : (reason : Error | null) => void,
+    ) => void,
+  ) {
+    this.promise = new Promise<boolean>((resolve : (value : boolean) => void, reject : (reason : Error | null) => void) => {
+      executor(resolve, reject)
+      this._reject = reject
+    })
+  }
+
+  /**
+   * 中止Promise执行
+   * @param error 可选的错误信息
+   */
+  abort(error : Error | null = null) : void {
+    if (this._reject != null) {
+      this._reject!(error != null ? error : new Error('Promise was aborted'))
+      this._reject = null
+    }
+  }
+
+  /**
+   * Promise的then方法
+   */
+  then(
+    onfulfilled : ((value : boolean) => void) | null = null,
+    onrejected : ((reason : Error | null) => void) | null = null,
+  ) : Promise<boolean> {
+    return this.promise.then(
+      onfulfilled != null ? (v : boolean) : boolean => { onfulfilled!(v); return v } : null,
+      onrejected != null ? (r : Error | null) : boolean => { onrejected!(r); return false } : null,
+    )
+  }
+
+  /**
+   * Promise的catch方法
+   */
+  catch(
+    onrejected : ((reason : Error | null) => void) | null = null,
+  ) : Promise<boolean> {
+    return this.promise.catch(
+      onrejected != null ? (r : Error | null) : boolean => { onrejected!(r); return false } : null,
+    ) as Promise<boolean>
+  }
+
+  /**
+   * Promise的finally方法
+   */
+  finally(onfinally : (() => void) | null = null) : Promise<boolean> {
+    return this.promise.finally(onfinally) as Promise<boolean>
+  }
+}

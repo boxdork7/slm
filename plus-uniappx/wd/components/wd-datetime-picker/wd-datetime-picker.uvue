@@ -1,0 +1,1305 @@
+<!--
+DatetimePicker ����ʱ��ѡ����
+Ϊ DatetimePickerView ����ķ�װ�������ڲ�����������ʱ��ѡ��
+
+UniApp X �汾Ǩ��˵��:
+- �Ƴ� defineOptions
+- �Ƴ� import type ComponentPublicInstance
+- �Ƴ� dayjs ������ʹ��ԭ�� Date��
+- Record<string, any> �� UTSJSONObject
+- any �� ��������
+- �Ƴ��ֶ�������루easycom��
+- useTranslate �� ����������
+- useCell/useParent/FORM_KEY �� �򻯻��Ƴ�
+- FormItemRule �� ������
+-->
+<template>
+  <view
+    :class="`wd-picker ${disabled ? 'is-disabled' : ''} ${size ? `is-${size}` : ''} ${customClass}`"
+    :style="customStyle"
+  >
+    <!-- �İ� -->
+    <view class="wd-picker__field" @click="showPopup">
+      <slot v-if="$slots.default" />
+      <view v-else class="wd-picker__cell" :class="customCellClass">
+        <view
+          v-if="label || $slots.label"
+          :class="`wd-picker__label ${customLabelClass} ${isRequired ? 'is-required' : ''}`"
+          :style="labelWidth ? `min-width:${labelWidth};max-width:${labelWidth};` : ''"
+        >
+          <slot v-if="$slots.label" name="label" />
+          <block v-else>
+            {{ label }}
+          </block>
+        </view>
+        <view class="wd-picker__body">
+          <view class="wd-picker__value-wraper">
+            <view :class="`wd-picker__value ${customValueClass}`">
+              <template v-if="region">
+                <view v-if="isArray(showValue)">
+                  <text :class="(showValue as any[])[0] ? '' : 'wd-picker__placeholder'">
+                    {{ (showValue as any[])[0] ? (showValue as any[])[0] : placeholder || '��ѡ��' }}
+                  </text>
+                  ��
+                  <text :class="(showValue as any[])[1] ? '' : 'wd-picker__placeholder'">
+                    {{ (showValue as any[])[1] ? (showValue as any[])[1] : placeholder || '��ѡ��' }}
+                  </text>
+                </view>
+                <view v-else class="wd-picker__placeholder">
+                  {{ placeholder || '��ѡ��' }}
+                </view>
+              </template>
+              <view v-else :class="showValue ? '' : 'wd-picker__placeholder'">
+                {{ showValue ? showValue : placeholder || '��ѡ��' }}
+              </view>
+            </view>
+            <wd-icon
+              v-if="!disabled && !readonly"
+              custom-class="wd-picker__arrow"
+              name="right"
+            />
+          </view>
+          <view v-if="errorMessage" class="wd-picker__error-message">{{ errorMessage }}</view>
+        </view>
+      </view>
+    </view>
+    <!-- ������ -->
+    <wd-popup
+      v-model="popupShow"
+      custom-class="wd-picker__popup"
+      position="bottom"
+      :hide-when-close="false"
+      :close-on-click-modal="closeOnClickModal"
+      :safe-area-inset-bottom="safeAreaInsetBottom"
+      :z-index="zIndex"
+      @close="onCancel"
+    >
+      <view class="wd-picker__wraper">
+        <!-- toolBar -->
+        <view class="wd-picker__toolbar" @touchmove="noop">
+          <!-- ȡ����ť -->
+          <view class="wd-picker__action wd-picker__action--cancel" @click="onCancel">
+            {{ cancelButtonText || 'ȡ��' }}
+          </view>
+          <!-- ���� -->
+          <view v-if="title" class="wd-picker__title">
+            {{ title }}
+          </view>
+          <!-- ȷ����ť -->
+          <view
+            :class="`wd-picker__action ${loading || isLoading ? 'is-loading' : ''}`"
+            @click="onConfirm"
+          >
+            {{ confirmButtonText || 'ȷ��' }}
+          </view>
+        </view>
+        <!-- ����ѡ��tabչʾ -->
+        <view v-if="region" class="wd-picker__region-tabs">
+          <view :class="`wd-picker__region ${showStart ? 'is-active' : ''}`" @click="tabChange">
+            <view>��ʼ</view>
+            <view class="wd-picker__region-time">{{ showTabLabel[0] }}</view>
+          </view>
+          <view :class="`wd-picker__region ${showStart ? '' : 'is-active'}`" @click="tabChange">
+            <view>����</view>
+            <view class="wd-picker__region-time">{{ showTabLabel[1] }}</view>
+          </view>
+        </view>
+        <!-- datetimePickerView -->
+        <view :class="showStart ? 'wd-picker__show' : 'wd-picker__hidden'">
+          <wd-datetime-picker-view
+            ref="datetimePickerView"
+            v-model="innerValue"
+            :custom-class="customViewClass"
+            :type="type"
+            :loading="loading || isLoading"
+            :loading-color="loadingColor"
+            :columns-height="columnsHeight"
+            :value-key="valueKey"
+            :label-key="labelKey"
+            :formatter="formatter"
+            :filter="filter"
+            :column-formatter="isArray(modelValue) ? customColumnFormatter : null"
+            :max-hour="maxHour"
+            :min-hour="minHour"
+            :max-date="maxDate"
+            :min-date="minDate"
+            :max-minute="maxMinute"
+            :min-minute="minMinute"
+            :use-second="useSecond"
+            :min-second="minSecond"
+            :max-second="maxSecond"
+            :start-symbol="true"
+            :immediate-change="immediateChange"
+            @change="onChangeStart"
+            @pickstart="onPickStart"
+            @pickend="onPickEnd"
+          />
+        </view>
+        <view :class="showStart ? 'wd-picker__hidden' : 'wd-picker__show'">
+          <wd-datetime-picker-view
+            ref="datetimePickerView1"
+            v-model="endInnerValue"
+            :custom-class="customViewClass"
+            :type="type"
+            :loading="loading || isLoading"
+            :loading-color="loadingColor"
+            :columns-height="columnsHeight"
+            :value-key="valueKey"
+            :label-key="labelKey"
+            :formatter="formatter"
+            :filter="filter"
+            :column-formatter="isArray(modelValue) ? customColumnFormatter : null"
+            :max-hour="maxHour"
+            :min-hour="minHour"
+            :max-date="maxDate"
+            :min-date="minDate"
+            :max-minute="maxMinute"
+            :min-minute="minMinute"
+            :use-second="useSecond"
+            :min-second="minSecond"
+            :max-second="maxSecond"
+            :start-symbol="false"
+            :immediate-change="immediateChange"
+            @change="onChangeEnd"
+            @pickstart="onPickStart"
+            @pickend="onPickEnd"
+          />
+        </view>
+      </view>
+    </wd-popup>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, getCurrentInstance, nextTick, onBeforeMount, onMounted, ref, watch } from 'vue'
+import { deepClone, isArray, isDef, isEqual, isFunction, padZero } from '../common/util'
+import type {
+  DatetimePickerViewColumnFormatter,
+  DatetimePickerViewColumnType,
+  DatetimePickerViewExpose,
+  DatetimePickerViewFilter,
+  DatetimePickerViewFormatter,
+  DateTimeType,
+} from '../wd-datetime-picker-view/wd-datetime-picker-view.uvue'
+
+/**
+ * ����ʱ��ѡ������ʾ��ʽ����������
+ */
+export type DatetimePickerDisplayFormat = (items : UTSJSONObject[]) => string
+
+/**
+ * ����ʱ��ѡ����ȷ��ǰ�ص���������
+ */
+export type DatetimePickerBeforeConfirm = (
+  value : number | string | (number | string)[],
+  resolve : (isPass : boolean) => void,
+  picker : DatetimePickerInstance | null,
+) => void
+
+/**
+ * ����ʱ��ѡ������ǩ��ʾ��ʽ����������
+ */
+export type DatetimePickerDisplayFormatTabLabel = (items : UTSJSONObject[]) => string
+
+/**
+ * ����ʱ��ѡ�����������
+ */
+const props = withDefaults(defineProps<{
+  /** �Զ�����ڵ���ʽ */
+  customStyle ?: string
+  /** �Զ�����ڵ���ʽ�� */
+  customClass ?: string
+  /** ѡ��������İ� */
+  label ?: string
+  /** ѡ����ռλ�� */
+  placeholder ?: string
+  /** ���� */
+  disabled ?: boolean
+  /** ֻ�� */
+  readonly ?: boolean
+  /** ������ */
+  loading ?: boolean
+  /** ���ص���ɫ */
+  loadingColor ?: string
+  /** ��������� */
+  title ?: string
+  /** ȡ����ť�İ� */
+  cancelButtonText ?: string
+  /** ȷ�ϰ�ť�İ� */
+  confirmButtonText ?: string
+  /** �Ƿ���� */
+  required ?: boolean
+  /** ����ѡ������С */
+  size ?: string
+  /** ������������� */
+  labelWidth ?: string
+  /** �Ƿ�Ϊ����״̬ */
+  error ?: boolean
+  /** ѡ������ֵ����չʾ */
+  alignRight ?: boolean
+  /** ��������Ƿ�ر� */
+  closeOnClickModal ?: boolean
+  /** ��������Ƿ����õײ���ȫ���� */
+  safeAreaInsetBottom ?: boolean
+  /** �Ƿ񳬳����� */
+  ellipsis ?: boolean
+  /** picker�ڲ���Ͳ�� */
+  columnsHeight ?: number
+  /** ѡ���key */
+  valueKey ?: string
+  /** ѡ���label */
+  labelKey ?: string
+  /** ѡ���� */
+  modelValue : string | number | Array<string | number>
+  /** ѡ�������� */
+  type ?: DateTimeType
+  /** ��С���� */
+  minDate ?: number
+  /** ������� */
+  maxDate ?: number
+  /** ��ССʱ */
+  minHour ?: number
+  /** ���Сʱ */
+  maxHour ?: number
+  /** ��С���� */
+  minMinute ?: number
+  /** ������ */
+  maxMinute ?: number
+  /** �Ƿ�������ѡ�� */
+  useSecond ?: boolean
+  /** ��С���� */
+  minSecond ?: number
+  /** ������� */
+  maxSecond ?: number
+  /** �Զ������ѡ��ĺ��� */
+  filter ?: DatetimePickerViewFilter | null
+  /** �Զ��嵯����ѡ���İ��ĸ�ʽ������ */
+  formatter ?: DatetimePickerViewFormatter | null
+  /** �Զ���չʾ�İ��ĸ�ʽ������ */
+  displayFormat ?: DatetimePickerDisplayFormat | null
+  /** ȷ��ǰУ�麯�� */
+  beforeConfirm ?: DatetimePickerBeforeConfirm | null
+  /** �Զ���չʾtab��ǩ�İ��ĸ�ʽ������ */
+  displayFormatTabLabel ?: DatetimePickerDisplayFormatTabLabel | null
+  /** Ĭ������ */
+  defaultValue ?: string | number | Array<string | number>
+  /** �����㼶 */
+  zIndex ?: number
+  /** ������ model �ֶ��� */
+  prop ?: string
+  /** picker cell �ⲿ�Զ�����ʽ */
+  customCellClass ?: string
+  /** pickerView �ⲿ�Զ�����ʽ */
+  customViewClass ?: string
+  /** label �ⲿ�Զ�����ʽ */
+  customLabelClass ?: string
+  /** value �ⲿ�Զ�����ʽ */
+  customValueClass ?: string
+  /** �Ƿ�����ָ�ɿ�ʱ��������change */
+  immediateChange ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  disabled: false,
+  readonly: false,
+  loading: false,
+  loadingColor: '#4D80F0',
+  required: false,
+  labelWidth: '33%',
+  error: false,
+  alignRight: false,
+  closeOnClickModal: true,
+  safeAreaInsetBottom: true,
+  ellipsis: false,
+  columnsHeight: 217,
+  valueKey: 'value',
+  labelKey: 'label',
+  type: 'datetime',
+  minDate: () : number => {
+    const now = new Date()
+    return new Date(now.getFullYear() - 10, 0, 1).getTime()
+  },
+  maxDate: () : number => {
+    const now = new Date()
+    return new Date(now.getFullYear() + 10, 11, 31, 23, 59, 59).getTime()
+  },
+  minHour: 0,
+  maxHour: 23,
+  minMinute: 0,
+  maxMinute: 59,
+  useSecond: false,
+  minSecond: 0,
+  maxSecond: 59,
+  filter: null,
+  formatter: null,
+  displayFormat: null,
+  beforeConfirm: null,
+  displayFormatTabLabel: null,
+  zIndex: 100,
+  customCellClass: '',
+  customViewClass: '',
+  customLabelClass: '',
+  customValueClass: '',
+  immediateChange: false,
+})
+
+/**
+ * ����ʱ��ѡ��������¼�
+ */
+const emit = defineEmits<{
+  /** ֵ�仯ʱ���� */
+  change : [event : { value : string | number | Array<string | number> }]
+  /** ��ѡ����ʱ���� */
+  open : []
+  /** �л�ѡ����tabʱ���� */
+  toggle : [value : string | number]
+  /** ȡ��ѡ��ʱ���� */
+  cancel : []
+  /** ȷ��ѡ��ʱ���� */
+  confirm : [event : { value : string | number | Array<string | number> }]
+  /** ����ģ��ֵ */
+  'update:modelValue' : [value : string | number | Array<string | number>]
+}>()
+
+// ��Ӧʽ����
+const showValue = ref<string | Date | Array<string | Date>>('')
+const popupShow = ref<boolean>(false)
+const showStart = ref<boolean>(true)
+const region = ref<boolean>(false)
+const showTabLabel = ref<string[]>([])
+const innerValue = ref<string | number>('')
+const endInnerValue = ref<string | number>('')
+const isPicking = ref<boolean>(false)
+const hasConfirmed = ref<boolean>(false)
+const isLoading = ref<boolean>(false)
+const errorMessage = ref<string>('')
+
+// �������
+const datetimePickerView = ref<DatetimePickerViewExpose | null>(null)
+const datetimePickerView1 = ref<DatetimePickerViewExpose | null>(null)
+
+// ��ȡ��ǰ���ʵ��
+const { proxy } = getCurrentInstance()!
+
+/**
+ * ���ݴ����ֵ������ת��Ϊpickerѡ������
+ */
+const getPickerValue = (value : string | number, type : DateTimeType) : number[] => {
+  const values : number[] = []
+
+  if (type === 'time') {
+    const pair = String(value).split(':')
+    values.push(Number.parseInt(pair[0]), Number.parseInt(pair[1]))
+    if (pair.length > 2) {
+      values.push(Number.parseInt(pair[2]))
+    }
+  } else {
+    const date = new Date(value as number)
+    values.push(date.getFullYear(), date.getMonth() + 1)
+    if (type === 'date') {
+      values.push(date.getDate())
+    } else if (type === 'datetime') {
+      values.push(date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds())
+    }
+  }
+  return values
+}
+
+/**
+ * �պ�����������ֹĬ����Ϊ
+ */
+const noop = () : void => {}
+
+/**
+ * ��ȡĬ���ڲ�ֵ
+ */
+const getDefaultInnerValue = (isRegion : boolean = false, isEnd : boolean = false) : string | number => {
+  const value = props.modelValue
+  const defaultValue = props.defaultValue
+  const maxDate = props.maxDate
+  const minDate = props.minDate
+  const type = props.type
+
+  if (isRegion) {
+    const index = isEnd ? 1 : 0
+    const targetValue = isArray(value) ? (value as any[])[index] as string : ''
+    const targetDefault = isArray(defaultValue) ? (defaultValue as any[])[index] as string : ''
+    const maxValue = type === 'time' ? formatTime(maxDate) : maxDate
+    const minValue = type === 'time' ? formatTime(minDate) : minDate
+    return targetValue || targetDefault || (isEnd ? maxValue : minValue)
+  } else {
+    return isDef(value || defaultValue) ? (value as string) || (defaultValue as string) : ''
+  }
+}
+
+/**
+ * ��ʽ��ʱ���Ϊ HH:mm ��ʽ
+ */
+const formatTime = (timestamp : number) : string => {
+  const date = new Date(timestamp)
+  return `${padZero(date.getHours())}:${padZero(date.getMinutes())}`
+}
+
+/**
+ * ���ݴ����picker���ͻ�ȡ��ǰcellչʾֵ
+ */
+const getSelects = (picker : 'before' | 'after') : UTSJSONObject[] => {
+  const value = picker === 'before' ? innerValue.value : endInnerValue.value
+  let selected : number[] = []
+  if (value) {
+    selected = getPickerValue(value, props.type)
+  }
+
+  return selected.map((value) : UTSJSONObject => {
+    const obj = {} as UTSJSONObject
+    obj[props.labelKey] = padZero(value)
+    obj[props.valueKey] = value
+    return obj
+  })
+}
+
+/**
+ * ����ʱ��߽�ֵ�ж�
+ */
+const handleBoundaryValue = (
+  isStart : boolean,
+  columnType : DatetimePickerViewColumnType,
+  value : number,
+  currentArray : number[],
+  boundary : number[],
+) : boolean => {
+  const type = props.type
+  const useSecond = props.useSecond
+
+  if (type === 'datetime') {
+    const year = boundary[0]
+    const month = boundary[1]
+    const date = boundary[2]
+    const hour = boundary[3]
+    const minute = boundary[4]
+    const second = boundary[5]
+
+    if (columnType === 'year') {
+      return isStart ? value > year : value < year
+    }
+    if (columnType === 'month' && currentArray[0] === year) {
+      return isStart ? value > month : value < month
+    }
+    if (columnType === 'date' && currentArray[0] === year && currentArray[1] === month) {
+      return isStart ? value > date : value < date
+    }
+    if (
+      columnType === 'hour' &&
+      currentArray[0] === year &&
+      currentArray[1] === month &&
+      currentArray[2] === date
+    ) {
+      return isStart ? value > hour : value < hour
+    }
+    if (
+      columnType === 'minute' &&
+      currentArray[0] === year &&
+      currentArray[1] === month &&
+      currentArray[2] === date &&
+      currentArray[3] === hour
+    ) {
+      return isStart ? value > minute : value < minute
+    }
+    if (
+      useSecond &&
+      columnType === 'second' &&
+      currentArray[0] === year &&
+      currentArray[1] === month &&
+      currentArray[2] === date &&
+      currentArray[3] === hour &&
+      currentArray[4] === minute
+    ) {
+      return isStart ? value > second : value < second
+    }
+  } else if (type === 'year-month') {
+    const year = boundary[0]
+    const month = boundary[1]
+    if (columnType === 'year') {
+      return isStart ? value > year : value < year
+    }
+    if (columnType === 'month' && currentArray[0] === year) {
+      return isStart ? value > month : value < month
+    }
+  } else if (type === 'year') {
+    const year = boundary[0]
+    if (columnType === 'year') {
+      return isStart ? value > year : value < year
+    }
+  } else if (type === 'date') {
+    const year = boundary[0]
+    const month = boundary[1]
+    const date = boundary[2]
+    if (columnType === 'year') {
+      return isStart ? value > year : value < year
+    }
+    if (columnType === 'month' && currentArray[0] === year) {
+      return isStart ? value > month : value < month
+    }
+    if (columnType === 'date' && currentArray[0] === year && currentArray[1] === month) {
+      return isStart ? value > date : value < date
+    }
+  } else if (type === 'time') {
+    const hour = boundary[0]
+    const minute = boundary[1]
+    const second = boundary[2]
+    if (columnType === 'hour') {
+      return isStart ? value > hour : value < hour
+    }
+    if (columnType === 'minute' && currentArray[0] === hour) {
+      return isStart ? value > minute : value < minute
+    }
+    if (
+      useSecond &&
+      columnType === 'second' &&
+      currentArray[0] === hour &&
+      currentArray[1] === minute
+    ) {
+      return isStart ? value > second : value < second
+    }
+  }
+  return false
+}
+
+/**
+ * �Զ�������ɸѡ����
+ */
+const customColumnFormatter : DatetimePickerViewColumnFormatter = (picker : DatetimePickerViewExpose | null) => {
+  if (picker == null) return []
+
+  const type = props.type
+  const startSymbol = (picker as any).startSymbol as boolean
+  const formatter = props.formatter
+  const start = picker.correctValue(innerValue.value)
+  const end = picker.correctValue(endInnerValue.value)
+
+  const currentValue = startSymbol
+    ? picker.getPickerValue(start, type)
+    : picker.getPickerValue(end, type)
+  const boundary = startSymbol
+    ? picker.getPickerValue(end, type)
+    : picker.getPickerValue(start, type)
+  const columns = picker.getOriginColumns()
+
+  return columns.map((column) => {
+    return column.values.map((value) => {
+      const disabled = handleBoundaryValue(startSymbol, column.type, value, currentValue, boundary)
+      const option = {
+        label: formatter != null ? formatter!(column.type, padZero(value)) : padZero(value),
+        value,
+        disabled,
+      }
+      return option
+    })
+  })
+}
+
+/**
+ * ����Ĭ����ʾ��ʽ
+ */
+const defaultDisplayFormat = (items : UTSJSONObject[], tabLabel : boolean = false) : string => {
+  if (items.length === 0) return ''
+
+  if (tabLabel && props.displayFormatTabLabel != null) {
+    return props.displayFormatTabLabel!(items)
+  }
+
+  if (props.displayFormat != null) {
+    return props.displayFormat!(items)
+  }
+
+  // ���ʹ�����Զ����formatter��defaultDisplayFormat��Ч
+  if (props.formatter != null) {
+    const typeMap = {
+      'year': ['year'],
+      'datetime': props.useSecond
+        ? ['year', 'month', 'date', 'hour', 'minute', 'second']
+        : ['year', 'month', 'date', 'hour', 'minute'],
+      'date': ['year', 'month', 'date'],
+      'time': props.useSecond ? ['hour', 'minute', 'second'] : ['hour', 'minute'],
+      'year-month': ['year', 'month'],
+    }
+    const types = typeMap[props.type]
+    const parts : string[] = []
+    for (let i = 0; i < items.length; i++) {
+      parts.push(props.formatter!(types[i], items[i].value as any))
+    }
+    return parts.join('')
+  }
+
+  if (props.type === 'year') {
+    return items[0].label as string
+  } else if (props.type === 'date') {
+    return `${items[0].label as string}-${items[1].label as string}-${items[2].label as string}`
+  } else if (props.type === 'year-month') {
+    return `${items[0].label as string}-${items[1].label as string}`
+  } else if (props.type === 'time') {
+    return props.useSecond
+      ? `${items[0].label as string}:${items[1].label as string}:${items[2].label as string}`
+      : `${items[0].label as string}:${items[1].label as string}`
+  } else if (props.type === 'datetime') {
+    return props.useSecond
+      ? `${items[0].label as string}-${items[1].label as string}-${items[2].label as string} ${items[3].label as string}:${items[4].label as string}:${items[5].label as string}`
+      : `${items[0].label as string}-${items[1].label as string}-${items[2].label as string} ${items[3].label as string}:${items[4].label as string}`
+  }
+  return ''
+}
+
+/**
+ * ��������ѡ��tab��ǩչʾֵ
+ */
+const setTabLabel = (index : number = 0) : string => {
+  if (region.value) {
+    let items : UTSJSONObject[] = []
+    if (index === 0) {
+      items = (datetimePickerView.value != null ? datetimePickerView.value!.getSelects() : null) as UTSJSONObject[] ||
+        (innerValue.value ? getSelects('before') : [])
+    } else {
+      items = (datetimePickerView1.value != null ? datetimePickerView1.value!.getSelects() : null) as UTSJSONObject[] ||
+        (endInnerValue.value ? getSelects('after') : [])
+    }
+    return defaultDisplayFormat(items, true)
+  } else {
+    return ''
+  }
+}
+
+/**
+ * ����չʾֵ
+ */
+const setShowValue = (
+  tab : boolean = false,
+  isConfirm : boolean = false,
+  beforeMount : boolean = false,
+) : void => {
+  if (region.value) {
+    const items = beforeMount
+      ? (innerValue.value ? getSelects('before') : [])
+      : (datetimePickerView.value != null && datetimePickerView.value!.getSelects != null
+          ? datetimePickerView.value!.getSelects()
+          : []) as UTSJSONObject[]
+
+    const endItems = beforeMount
+      ? (endInnerValue.value ? getSelects('after') : [])
+      : (datetimePickerView1.value != null && datetimePickerView1.value!.getSelects != null
+          ? datetimePickerView1.value!.getSelects()
+          : []) as UTSJSONObject[]
+
+    showValue.value = tab
+      ? showValue.value
+      : [
+          (props.modelValue as any[])[0] || isConfirm
+            ? defaultDisplayFormat(items)
+            : '',
+          (props.modelValue as any[])[1] || isConfirm
+            ? defaultDisplayFormat(endItems)
+            : '',
+        ]
+    showTabLabel.value = [
+      defaultDisplayFormat(items, true),
+      defaultDisplayFormat(endItems, true),
+    ]
+  } else {
+    const items = beforeMount
+      ? (innerValue.value ? getSelects('before') : [])
+      : (datetimePickerView.value != null && datetimePickerView.value!.getSelects != null
+          ? datetimePickerView.value!.getSelects()
+          : []) as UTSJSONObject[]
+
+    showValue.value = deepClone(
+      props.modelValue || isConfirm ? defaultDisplayFormat(items) : '',
+    )
+  }
+}
+
+/**
+ * ��ʾ������
+ */
+const showPopup = () : void => {
+  if (props.disabled || props.readonly) return
+
+  emit('open')
+  if (region.value) {
+    popupShow.value = true
+    showStart.value = true
+    innerValue.value = deepClone(getDefaultInnerValue(true, false))
+    endInnerValue.value = deepClone(getDefaultInnerValue(true, true))
+  } else {
+    popupShow.value = true
+    innerValue.value = deepClone(getDefaultInnerValue())
+  }
+  setShowValue(true, false, true)
+}
+
+/**
+ * ����ѡ��ʱtab��ǩ�л�����
+ */
+const tabChange = () : void => {
+  showStart.value = !showStart.value
+  // ����ˢ�¶༶�������ص�datetimepickerView
+  const picker = showStart.value ? datetimePickerView.value : datetimePickerView1.value
+  if (picker != null) {
+    picker!.setColumns(picker!.updateColumns())
+  }
+
+  emit('toggle', showStart.value ? innerValue.value : endInnerValue.value)
+}
+
+/**
+ * ��ʼʱ��picker��change�¼�����
+ */
+const onChangeStart = (event : { value : number | string }) : void => {
+  if (datetimePickerView.value == null) return
+  if (region.value && datetimePickerView1.value == null) return
+
+  if (region.value) {
+    // ����ѡ�����Ҫ�����߽�ֵ
+    const currentArray = datetimePickerView.value!.getPickerValue(event.value, props.type)
+    const boundaryArray = datetimePickerView.value!.getPickerValue(endInnerValue.value, props.type)
+    const columns = datetimePickerView.value!.getOriginColumns()
+
+    // ����Ƿ����κ��г����߽�
+    const needsAdjust = columns.some((column, index) : boolean => {
+      return handleBoundaryValue(
+        true,
+        column.type,
+        currentArray[index],
+        currentArray,
+        boundaryArray,
+      )
+    })
+
+    innerValue.value = deepClone(needsAdjust ? endInnerValue.value : event.value)
+
+    nextTick(() : void => {
+      showTabLabel.value = [setTabLabel(), deepClone(showTabLabel.value[1])]
+      emit('change', {
+        value: [innerValue.value, endInnerValue.value],
+      })
+      // ��������picker����
+      if (datetimePickerView.value != null) {
+        datetimePickerView.value!.setColumns(datetimePickerView.value!.updateColumns())
+      }
+      if (datetimePickerView1.value != null) {
+        datetimePickerView1.value!.setColumns(datetimePickerView1.value!.updateColumns())
+      }
+    })
+  } else {
+    // ������ѡ��ֱ������ֵ����
+    innerValue.value = deepClone(event.value)
+    emit('change', {
+      value: innerValue.value,
+    })
+  }
+}
+
+/**
+ * ����ʱ��picker��change�¼�����
+ */
+const onChangeEnd = (event : { value : number | string }) : void => {
+  if (datetimePickerView.value == null || datetimePickerView1.value == null) return
+
+  const currentArray = datetimePickerView1.value!.getPickerValue(event.value, props.type)
+  const boundaryArray = datetimePickerView1.value!.getPickerValue(innerValue.value, props.type)
+  const columns = datetimePickerView1.value!.getOriginColumns()
+
+  // ����Ƿ����κ��г����߽�
+  const needsAdjust = columns.some((column, index) : boolean => {
+    return handleBoundaryValue(false, column.type, currentArray[index], currentArray, boundaryArray)
+  })
+
+  endInnerValue.value = deepClone(needsAdjust ? innerValue.value : event.value)
+
+  nextTick(() : void => {
+    showTabLabel.value = [deepClone(showTabLabel.value[0]), setTabLabel(1)]
+    emit('change', {
+      value: [innerValue.value, endInnerValue.value],
+    })
+    // ��������picker����
+    if (datetimePickerView.value != null) {
+      datetimePickerView.value!.setColumns(datetimePickerView.value!.updateColumns())
+    }
+    if (datetimePickerView1.value != null) {
+      datetimePickerView1.value!.setColumns(datetimePickerView1.value!.updateColumns())
+    }
+  })
+}
+
+/**
+ * ���ȡ����ť����
+ */
+const onCancel = () : void => {
+  popupShow.value = false
+  setTimeout(() : void => {
+    if (region.value) {
+      innerValue.value = deepClone(getDefaultInnerValue(true))
+      endInnerValue.value = deepClone(getDefaultInnerValue(true, true))
+    } else {
+      innerValue.value = deepClone(getDefaultInnerValue())
+    }
+  }, 200)
+
+  emit('cancel')
+}
+
+/**
+ * ��ʼѡ���¼�����
+ */
+const onPickStart = () : void => {
+  isPicking.value = true
+}
+
+/**
+ * ����ȷ�ϲ���
+ */
+const handleConfirm = () : void => {
+  if (props.loading || isLoading.value || props.disabled) {
+    popupShow.value = false
+    return
+  }
+  const value = region.value ? [innerValue.value, endInnerValue.value] : innerValue.value
+  popupShow.value = false
+  emit('update:modelValue', value)
+  emit('confirm', {
+    value,
+  })
+  setShowValue(false, true)
+}
+
+/**
+ * ���ȷ�ϰ�ť����
+ */
+const onConfirm = () : void => {
+  if (props.loading || isLoading.value) return
+
+  // �����ǰ���ڻ�����δֹͣ����������ס�Ȳ�ȷ��
+  if (isPicking.value) {
+    hasConfirmed.value = true
+    return
+  }
+
+  const beforeConfirm = props.beforeConfirm
+  if (beforeConfirm != null) {
+    beforeConfirm!(
+      region.value ? [innerValue.value, endInnerValue.value] : innerValue.value,
+      (isPass : boolean) : void => {
+        if (isPass) handleConfirm()
+      },
+      proxy.$.exposed as DatetimePickerInstance,
+    )
+  } else {
+    handleConfirm()
+  }
+}
+
+/**
+ * ����ѡ���¼�����
+ */
+const onPickEnd = () : void => {
+  isPicking.value = false
+
+  // �ӳ�һ�ᣬ��Ϊ����㼶Ƕ�׹���
+  setTimeout(() : void => {
+    if (hasConfirmed.value) {
+      hasConfirmed.value = false
+      onConfirm()
+    }
+  }, 50)
+}
+
+/**
+ * ���ü���״̬
+ */
+const setLoading = (loading : boolean) : void => {
+  isLoading.value = loading
+}
+
+/**
+ * ���Ⱪ¶�ӿڣ��򿪵���
+ */
+const open = () : void => {
+  showPopup()
+}
+
+/**
+ * ���Ⱪ¶�ӿڣ��رյ���
+ */
+const close = () : void => {
+  onCancel()
+}
+
+// ��������
+const isRequired = computed(() : boolean => {
+  return props.required
+})
+
+// ������
+watch(
+  () : string | number | Array<string | number> => props.modelValue,
+  (val, oldVal) : void => {
+    if (isEqual(val, oldVal)) return
+
+    if (isArray(val)) {
+      region.value = true
+      innerValue.value = deepClone(getDefaultInnerValue(true))
+      endInnerValue.value = deepClone(getDefaultInnerValue(true, true))
+    } else {
+      // ÿ��value����ʱ����Ҫˢ�������б�
+      innerValue.value = deepClone(getDefaultInnerValue())
+    }
+    nextTick(() : void => {
+      setShowValue(false, false, true)
+    })
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+// ����������֤������
+watch(
+  () : DatetimePickerDisplayFormat | null => props.displayFormat,
+  (fn) : void => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of displayFormat must be Function')
+    }
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  () : DatetimePickerViewFilter | null => props.filter,
+  (fn) : void => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of filter must be Function')
+    }
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  () : DatetimePickerViewFormatter | null => props.formatter,
+  (fn) : void => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of formatter must be Function')
+    }
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  () : DatetimePickerBeforeConfirm | null => props.beforeConfirm,
+  (fn) : void => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of beforeConfirm must be Function')
+    }
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  () : DatetimePickerDisplayFormatTabLabel | null => props.displayFormatTabLabel,
+  (fn) : void => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of displayFormatTabLabel must be Function')
+    }
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  () : string | number | Array<string | number> | undefined => props.defaultValue,
+  (val) : void => {
+    if (isArray(val) || region.value) {
+      innerValue.value = deepClone(getDefaultInnerValue(true))
+      endInnerValue.value = deepClone(getDefaultInnerValue(true, true))
+    } else {
+      innerValue.value = deepClone(getDefaultInnerValue())
+    }
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+// �������ڹ���
+onBeforeMount(() : void => {
+  const value = props.modelValue
+  if (isArray(value)) {
+    region.value = true
+    innerValue.value = deepClone(getDefaultInnerValue(true))
+    endInnerValue.value = deepClone(getDefaultInnerValue(true, true))
+  } else {
+    innerValue.value = deepClone(getDefaultInnerValue())
+  }
+})
+
+onMounted(() : void => {
+  setShowValue(false, false, true)
+})
+
+/**
+ * ����ʱ��ѡ���������¶�����ӿ�
+ */
+export interface DatetimePickerExpose {
+  /** ��picker���� */
+  open : () => void
+  /** �ر�picker���� */
+  close : () => void
+  /** ���ü���״̬ */
+  setLoading : (loading : boolean) => void
+}
+
+// ��¶�������
+defineExpose<DatetimePickerExpose>({
+  open,
+  close,
+  setLoading,
+})
+
+/** ����ʱ��ѡ����ʵ������ */
+export type DatetimePickerInstance = DatetimePickerExpose
+</script>
+
+<style lang="scss">
+// �����ⲿ��ʽ�ļ�
+@import './../common/abstracts/_mixin.scss';
+@import './../common/abstracts/variable.scss';
+
+// ��ɫ������ʽ
+.wot-theme-dark {
+  @include b(picker) {
+    @include e(cell) {
+      background-color: $-dark-background2;
+      color: $-dark-color;
+    }
+
+    @include e(title) {
+      color: $-dark-color;
+    }
+
+    @include e(label) {
+      color: $-dark-color;
+    }
+    @include e(value) {
+      color: $-dark-color;
+    }
+
+    @include e(placeholder) {
+      color: $-dark-color-gray;
+    }
+
+    .wd-picker__arrow {
+      color: $-dark-color;
+    }
+
+    @include e(action) {
+      @include m(cancel) {
+        color: $-dark-color;
+      }
+    }
+
+    @include e(region) {
+      color: $-dark-color;
+
+      @include when(active) {
+        background: $-picker-region-bg-active-color;
+        color: $-dark-color;
+      }
+    }
+  }
+}
+
+// picker ������ʽ
+@include b(picker) {
+  @include e(popup) {
+    border-radius: 16px 16px 0px 0px;
+  }
+
+  @include e(wraper) {
+    padding-bottom: var(--window-bottom);
+  }
+
+  @include when(large) {
+    .wd-picker__cell {
+      font-size: $-cell-title-fs-large;
+    }
+    .wd-picker__arrow {
+      font-size: $-cell-icon-size-large;
+    }
+  }
+  @include when(error) {
+    .wd-picker__value,
+    .wd-picker__placeholder {
+      color: $-input-error-color;
+    }
+
+    .wd-picker__arrow {
+      color: $-input-error-color;
+    }
+  }
+  @include when(align-right) {
+    .wd-picker__value {
+      text-align: right;
+    }
+  }
+  @include e(cell) {
+    position: relative;
+    display: flex;
+    padding: $-cell-wrapper-padding $-cell-padding;
+    align-items: flex-start;
+    background-color: $-color-white;
+    text-decoration: none;
+    color: $-cell-title-color;
+    font-size: $-cell-title-fs;
+    overflow: hidden;
+    line-height: $-cell-line-height;
+
+    @include when(disabled) {
+      .wd-picker__value {
+        color: $-input-disabled-color;
+      }
+    }
+  }
+
+  @include when(disabled) {
+    .wd-picker__value {
+      color: $-picker-column-disabled-color;
+    }
+  }
+
+  @include e(error-message) {
+    color: $-form-item-error-message-color;
+    font-size: $-form-item-error-message-font-size;
+    line-height: $-form-item-error-message-line-height;
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  @include e(label) {
+    position: relative;
+    width: $-input-cell-label-width;
+    margin-right: $-cell-padding;
+    color: $-cell-title-color;
+    box-sizing: border-box;
+
+    @include when(required) {
+      padding-left: 12px;
+
+      &::after {
+        position: absolute;
+        left: 0;
+        top: 2px;
+        content: '*';
+        font-size: $-cell-required-size;
+        line-height: 1.1;
+        color: $-cell-required-color;
+      }
+    }
+  }
+
+  @include e(value-wraper) {
+    display: flex;
+  }
+
+  @include e(value) {
+    flex: 1;
+    margin-right: 10px;
+    color: $-cell-value-color;
+
+    @include when(ellipsis) {
+      @include lineEllipsis;
+    }
+  }
+
+  @include e(body) {
+    flex: 1;
+  }
+
+  @include e(placeholder) {
+    color: $-input-placeholder-color;
+  }
+
+  @include e(arrow) {
+    display: block;
+    font-size: $-cell-icon-size;
+    color: $-cell-arrow-color;
+    line-height: $-cell-line-height;
+  }
+
+  @include e(toolbar) {
+    position: relative;
+    display: flex;
+    font-size: $-picker-toolbar-fs;
+    height: $-picker-toolbar-height;
+    line-height: $-picker-action-height;
+    justify-content: space-between;
+    align-items: center;
+    box-sizing: border-box;
+  }
+
+  @include e(action) {
+    display: block;
+    border: none;
+    outline: none;
+    font-size: $-picker-toolbar-fs;
+    color: $-picker-toolbar-finish-color;
+    background: transparent;
+    padding: 24px 15px 14px 15px;
+
+    @include m(cancel) {
+      color: $-picker-toolbar-cancel-color;
+    }
+
+    @include when(loading) {
+      color: $-picker-loading-button-color;
+    }
+  }
+  @include e(title) {
+    display: block;
+    color: $-picker-toolbar-title-color;
+  }
+
+  @include e(region-tabs) {
+    display: flex;
+  }
+
+  @include e(region) {
+    width: 50%;
+    display: inline-block;
+    color: $-picker-region-color;
+    text-align: center;
+    padding: 14px 0;
+    font-size: $-picker-region-fs;
+    line-height: 16px;
+    transition: all 0.15s ease-out;
+
+    @include when(active) {
+      background: $-picker-region-bg-active-color;
+      color: $-color-white;
+    }
+  }
+
+  @include e(region-time) {
+    font-size: 16px;
+    margin-top: 2px;
+  }
+
+  @include e(hidden) {
+    visibility: hidden;
+    overflow: hidden;
+    height: 0;
+  }
+
+  @include e(show) {
+    visibility: visible;
+    height: auto;
+  }
+}
+</style>

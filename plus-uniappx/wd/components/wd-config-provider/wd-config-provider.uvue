@@ -1,0 +1,157 @@
+<!--
+ConfigProvider 全局配置 用于全局配置 Wot 组件，提供深色模式、主题定制等能力
+
+UniApp X 版本迁移说明：
+- script lang="ts" → lang="uts"
+- 移除 defineOptions
+- 联合类型 'light' | 'dark' → string
+- Record<string, any> → UTSJSONObject
+- 计算属性返回类型需显式标注
+- ConfigProviderThemeVars 保留所有类型定义（简化版）
+-->
+<template>
+  <view :class="`wot-theme-${theme} ${customClass}`" :style="themeStyle">
+    <slot />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed } from 'vue'
+import { objToStyle } from '../common/util'
+
+/**
+ * 主题风格类型（简化为 string）
+ */
+type ConfigProviderTheme = string // 'light' | 'dark'
+
+/**
+ * 基础主题变量接口（简化版，保留核心字段）
+ */
+interface BaseThemeVars {
+  /** 主题色 */
+  colorTheme?: string
+  /** 用于mix的白色 */
+  colorWhite?: string
+  /** 用于mix的黑色 */
+  colorBlack?: string
+  /** 成功色 */
+  colorSuccess?: string
+  /** 警告色 */
+  colorWarning?: string
+  /** 危险出错色 */
+  colorDanger?: string
+  /** 信息色 */
+  colorInfo?: string
+  /** 背景色 */
+  colorBg?: string
+  /** 边框颜色 */
+  colorBorder?: string
+  /** 模块标题/重要正文 */
+  colorTitle?: string
+  /** 普通正文 */
+  colorContent?: string
+  // 更多主题变量可根据需要添加...
+}
+
+/**
+ * 配置提供者主题变量接口（简化版）
+ */
+type ConfigProviderThemeVars = BaseThemeVars & UTSJSONObject
+
+/**
+ * 配置提供者组件属性接口
+ */
+interface WdConfigProviderProps {
+  /** 自定义根节点样式 */
+  customStyle?: string
+  /** 自定义根节点样式类 */
+  customClass?: string
+
+  /** 主题风格，设置为 dark 来开启深色模式，全局生效 */
+  theme?: ConfigProviderTheme
+  /** 自定义主题变量 */
+  themeVars?: ConfigProviderThemeVars
+}
+
+// 使用 withDefaults 定义组件属性和默认值
+const props = withDefaults(defineProps<WdConfigProviderProps>(), {
+  customStyle: '',
+  customClass: '',
+  theme: 'light',
+  themeVars: () => ({} as ConfigProviderThemeVars),
+})
+
+/**
+ * 将驼峰命名转换为短横线命名
+ * @param str 驼峰命名字符串
+ * @returns 短横线命名字符串
+ */
+const kebabCase = (str: string) : string => {
+  str = str.replace(str.charAt(0), str.charAt(0).toLocaleLowerCase())
+  return str.replace(/([a-z])([A-Z])/g, (_, p1, p2) => `${p1}-${p2.toLowerCase()}`)
+}
+
+/**
+ * 将主题变量映射为CSS变量
+ * @param themeVars 主题变量对象
+ * @returns CSS变量对象
+ */
+const mapThemeVarsToCSSVars = (themeVars: ConfigProviderThemeVars) : UTSJSONObject | null => {
+  if (!themeVars) return null
+
+  const cssVars: UTSJSONObject = {}
+  Object.keys(themeVars).forEach((key: string) => {
+    const value = themeVars[key]
+    if (value !== undefined) {
+      cssVars[`--wot-${kebabCase(key)}`] = value
+    }
+  })
+
+  return cssVars
+}
+
+/**
+ * 计算主题样式
+ * 将主题变量转换为CSS变量并合并自定义样式
+ */
+const themeStyle = computed(() : string => {
+  const styleObj = mapThemeVarsToCSSVars(props.themeVars)
+  return styleObj ? `${objToStyle(styleObj)}${props.customStyle}` : props.customStyle
+})
+
+/**
+ * 将十六进制颜色值转换为RGB格式
+ * @param str 十六进制颜色值
+ * @returns RGB颜色值字符串或null
+ */
+const colorRgb = (str: string) : string | null => {
+  if (!str) return null
+
+  let sColor = str.toLowerCase()
+  // 十六进制颜色值的正则表达式
+  const reg = /^#(?:[0-9A-F]{3}|[0-9A-F]{6})$/i
+
+  // 如果是16进制颜色
+  if (sColor && reg.test(sColor)) {
+    // 处理三位颜色值
+    if (sColor.length === 4) {
+      let sColorNew = '#'
+      for (let i = 1; i < 4; i += 1) {
+        sColorNew += sColor.slice(i, i + 1).concat(sColor.slice(i, i + 1))
+      }
+      sColor = sColorNew
+    }
+
+    // 处理六位颜色值
+    const sColorChange: number[] = []
+    for (let i = 1; i < 7; i += 2) {
+      sColorChange.push(Number.parseInt(`0x${sColor.slice(i, i + 2)}`))
+    }
+    return sColorChange.join(',')
+  }
+
+  return null
+}
+</script>
+
+<style lang="scss" scoped></style>

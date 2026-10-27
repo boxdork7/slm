@@ -1,0 +1,695 @@
+<!--
+Button 按钮 按钮用于触发一个操作，如提交表单或打开链接
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export interface/type（UTS 不支持 script setup 内 export）
+- ButtonType/ButtonSize/ButtonLang/ButtonOpenType/ButtonScope 联合类型改为 string
+- IconName 改为 string
+- background-image url() 不支持 data URI，改用 <image :src /> 方式
+- ::before/::after 伪元素简化（UniApp X 中不完全支持复杂伪元素）
+- halfPixelBorderSurround() 替换为直接 border
+- edeep → e（UniApp X 无 :deep()）
+- :deep(.wd-button__icon) → 直接类选择器
+-->
+<template>
+  <button
+    v-if="!stopClickPropagation"
+    :id="buttonId"
+    :hover-class="getHoverClass"
+    :style="customStyle"
+    :class="getButtonClass"
+    :hover-start-time="hoverStartTime"
+    :hover-stay-time="hoverStayTime"
+    :open-type="disabled || loading ? '' : openType"
+    :send-message-title="sendMessageTitle"
+    :send-message-path="sendMessagePath"
+    :send-message-img="sendMessageImg"
+    :app-parameter="appParameter"
+    :show-message-card="showMessageCard"
+    :session-from="sessionFrom"
+    :lang="lang"
+    :hover-stop-propagation="hoverStopPropagation"
+    :scope="scope"
+    @click="handleClick"
+    @getAuthorize="handleGetAuthorize"
+    @getuserinfo="handleGetuserinfo"
+    @contact="handleConcat"
+    @getphonenumber="handleGetphonenumber"
+    @error="handleError"
+    @launchapp="handleLaunchapp"
+    @opensetting="handleOpensetting"
+    @chooseavatar="handleChooseavatar"
+    @agreeprivacyauthorization="handleAgreePrivacyAuthorization"
+  >
+    <view v-if="invisible !== true" class="wd-button__content">
+      <view v-if="loading" class="wd-button__loading">
+        <image
+          class="wd-button__loading-svg"
+          :src="loadingIconSvg"
+          mode="aspectFit"
+        />
+      </view>
+      <wd-icon
+        v-else-if="icon != ''"
+        custom-class="wd-button__icon"
+        :name="icon"
+        :class-prefix="classPrefix"
+        :size="iconSize"
+        :color="iconColor"
+      />
+      <view class="wd-button__text">
+        <slot />
+      </view>
+    </view>
+  </button>
+  <button
+    v-else
+    :id="buttonId"
+    :hover-class="getHoverClass"
+    :style="customStyle"
+    :class="getButtonClass"
+    :hover-start-time="hoverStartTime"
+    :hover-stay-time="hoverStayTime"
+    :open-type="disabled || loading ? '' : openType"
+    :send-message-title="sendMessageTitle"
+    :send-message-path="sendMessagePath"
+    :send-message-img="sendMessageImg"
+    :app-parameter="appParameter"
+    :show-message-card="showMessageCard"
+    :session-from="sessionFrom"
+    :lang="lang"
+    :hover-stop-propagation="hoverStopPropagation"
+    :scope="scope"
+    @click.stop="handleClick"
+    @getAuthorize="handleGetAuthorize"
+    @getuserinfo="handleGetuserinfo"
+    @contact="handleConcat"
+    @getphonenumber="handleGetphonenumber"
+    @error="handleError"
+    @launchapp="handleLaunchapp"
+    @opensetting="handleOpensetting"
+    @chooseavatar="handleChooseavatar"
+    @agreeprivacyauthorization="handleAgreePrivacyAuthorization"
+  >
+    <view v-if="invisible !== true" class="wd-button__content">
+      <view v-if="loading" class="wd-button__loading">
+        <image
+          class="wd-button__loading-svg"
+          :src="loadingIconSvg"
+          mode="aspectFit"
+        />
+      </view>
+      <wd-icon
+        v-else-if="icon != ''"
+        custom-class="wd-button__icon"
+        :name="icon"
+        :class-prefix="classPrefix"
+        :size="iconSize"
+        :color="iconColor"
+      />
+      <view class="wd-button__text">
+        <slot />
+      </view>
+    </view>
+  </button>
+</template>
+
+<script lang="uts" setup>
+import { ref, watch, computed } from 'vue'
+import { encode } from '../common/base64'
+
+/**
+ * 按钮组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 是否为幽灵按钮 */
+  plain ?: boolean
+  /** 是否为圆角按钮 */
+  round ?: boolean
+  /** 是否禁用按钮 */
+  disabled ?: boolean
+  /** 是否为细边框 */
+  hairline ?: boolean
+  /** 是否为块状按钮 */
+  block ?: boolean
+  /** 是否为隐形按钮（透明覆盖层模式） */
+  invisible ?: boolean
+  /** 按钮类型，可选值：primary / success / info / warning / error / default / text / icon */
+  type ?: string
+  /** 按钮尺寸，可选值：small / medium / large */
+  size ?: string
+  /** 图标类名 */
+  icon ?: string
+  /** 类名前缀，用于使用自定义图标 */
+  classPrefix ?: string
+  /** 图标大小 */
+  iconSize ?: string | number
+  /** 图标颜色 */
+  iconColor ?: string
+  /** 是否为加载中按钮 */
+  loading ?: boolean
+  /** 加载图标颜色 */
+  loadingColor ?: string
+  /** 开放能力 */
+  openType ?: string
+  /** 是否阻止本节点的祖先节点出现点击态 */
+  hoverStopPropagation ?: boolean
+  /** 是否阻止点击事件冒泡 */
+  stopClickPropagation ?: boolean
+  /** 返回用户信息的语言 */
+  lang ?: string
+  /** 会话来源 */
+  sessionFrom ?: string
+  /** 会话内消息卡片标题 */
+  sendMessageTitle ?: string
+  /** 会话内消息卡片点击跳转小程序路径 */
+  sendMessagePath ?: string
+  /** 会话内消息卡片图片 */
+  sendMessageImg ?: string
+  /** 打开 APP 时，向 APP 传递的参数 */
+  appParameter ?: string
+  /** 是否显示会话内消息卡片 */
+  showMessageCard ?: boolean
+  /** 按钮的唯一标识 */
+  buttonId ?: string
+  /** 支付宝小程序授权范围 */
+  scope ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  plain: false,
+  round: true,
+  disabled: false,
+  hairline: false,
+  block: false,
+  invisible: false,
+  type: 'primary',
+  size: 'medium',
+  icon: '',
+  classPrefix: 'wd-icon',
+  iconColor: '',
+  loading: false,
+  loadingColor: '',
+  openType: '',
+  hoverStopPropagation: false,
+  stopClickPropagation: false,
+  lang: '',
+  sessionFrom: '',
+  sendMessageTitle: '',
+  sendMessagePath: '',
+  sendMessageImg: '',
+  appParameter: '',
+  showMessageCard: false,
+  buttonId: '',
+  scope: '',
+})
+
+/** 组件事件 */
+const emit = defineEmits(['click', 'getuserinfo', 'contact', 'getphonenumber', 'error', 'launchapp', 'opensetting', 'chooseavatar', 'agreeprivacyauthorization'])
+
+/** 响应式数据 */
+const hoverStartTime = ref<number>(20)
+const hoverStayTime = ref<number>(70)
+const loadingIconSvg = ref<string>('')
+
+/**
+ * 计算 hover-class
+ */
+const getHoverClass = computed(() : string => {
+  if (props.invisible) {
+    return ''
+  }
+  return props.disabled || props.loading ? '' : 'wd-button--active'
+})
+
+/**
+ * 计算按钮类名
+ */
+const getButtonClass = computed(() : string => {
+  if (props.invisible) {
+    return `wd-button is-invisible ${props.customClass}`
+  }
+
+  const classes : string[] = ['wd-button', `is-${props.type}`, `is-${props.size}`]
+  if (props.customClass != '') {
+    classes.push(props.customClass)
+  }
+  if (props.round) {
+    classes.push('is-round')
+  }
+  if (props.hairline) {
+    classes.push('is-hairline')
+  }
+  if (props.plain) {
+    classes.push('is-plain')
+  }
+  if (props.disabled) {
+    classes.push('is-disabled')
+  }
+  if (props.block) {
+    classes.push('is-block')
+  }
+  if (props.loading) {
+    classes.push('is-loading')
+  }
+  return classes.join(' ')
+})
+
+/**
+ * 生成加载图标 SVG
+ */
+const loadingIcon = (color : string, reverse : boolean) : string => {
+  const stopColor = reverse ? color : '#fff'
+  const fillColor = reverse ? '#fff' : color
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42 42"><defs><linearGradient x1="100%" y1="0%" x2="0%" y2="0%" id="a"><stop stop-color="${stopColor}" offset="0%" stop-opacity="0"/><stop stop-color="${stopColor}" offset="100%"/></linearGradient></defs><g fill="none" fill-rule="evenodd"><path d="M21 1c11.046 0 20 8.954 20 20s-8.954 20-20 20S1 32.046 1 21 9.954 1 21 1zm0 7C13.82 8 8 13.82 8 21s5.82 13 13 13 13-5.82 13-13S28.18 8 21 8z" fill="${fillColor}"/><path d="M4.599 21c0 9.044 7.332 16.376 16.376 16.376 9.045 0 16.376-7.332 16.376-16.376" stroke="url(#a)" stroke-width="3.5" stroke-linecap="round"/></g></svg>`
+}
+
+/**
+ * 构建加载图标 SVG
+ */
+const buildLoadingSvg = () : void => {
+  let color = props.loadingColor
+
+  if (color == '') {
+    if (props.type == 'primary') {
+      color = '#4D80F0'
+    } else if (props.type == 'success') {
+      color = '#34d19d'
+    } else if (props.type == 'info') {
+      color = '#333'
+    } else if (props.type == 'warning') {
+      color = '#f0883a'
+    } else if (props.type == 'error') {
+      color = '#fa4350'
+    } else if (props.type == 'default') {
+      color = '#333'
+    } else {
+      color = '#4D80F0'
+    }
+  }
+
+  const svg = loadingIcon(color, !props.plain)
+  loadingIconSvg.value = `data:image/svg+xml;base64,${encode(svg)}`
+}
+
+/** 监听 loading 属性变化 */
+watch(
+  () => props.loading,
+  () => {
+    buildLoadingSvg()
+  },
+  { deep: true, immediate: true },
+)
+
+/**
+ * 处理按钮点击事件
+ */
+const handleClick = (event : any | null) => {
+  if (!props.disabled && !props.loading) {
+    emit('click', event)
+  }
+}
+
+/**
+ * 处理获取用户手机号事件
+ */
+const handleGetphonenumber = (event : any | null) => {
+  emit('getphonenumber', event)
+}
+
+/**
+ * 处理获取用户信息事件
+ */
+const handleGetuserinfo = (event : any | null) => {
+  emit('getuserinfo', event)
+}
+
+/**
+ * 处理支付宝小程序授权事件
+ */
+const handleGetAuthorize = (event : any | null) => {
+  if (props.scope == 'phoneNumber') {
+    handleGetphonenumber(event)
+  } else if (props.scope == 'userInfo') {
+    handleGetuserinfo(event)
+  }
+}
+
+/**
+ * 处理客服消息事件
+ */
+const handleConcat = (event : any | null) => {
+  emit('contact', event)
+}
+
+/**
+ * 处理错误事件
+ */
+const handleError = (event : any | null) => {
+  emit('error', event)
+}
+
+/**
+ * 处理启动 APP 事件
+ */
+const handleLaunchapp = (event : any | null) => {
+  emit('launchapp', event)
+}
+
+/**
+ * 处理打开设置事件
+ */
+const handleOpensetting = (event : any | null) => {
+  emit('opensetting', event)
+}
+
+/**
+ * 处理选择头像事件
+ */
+const handleChooseavatar = (event : any | null) => {
+  emit('chooseavatar', event)
+}
+
+/**
+ * 处理同意隐私协议事件
+ */
+const handleAgreePrivacyAuthorization = (event : any | null) => {
+  emit('agreeprivacyauthorization', event)
+}
+</script>
+
+<style lang="scss">
+@import './../common/abstracts/_mixin.scss';
+@import './../common/abstracts/variable.scss';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(button) {
+    @include when(info) {
+      background: $-dark-background4;
+      color: $-dark-color3;
+    }
+
+    @include when(plain) {
+      background: transparent;
+
+      @include when(info) {
+        color: $-dark-color;
+        /* ::after 伪元素替代：直接用 border */
+        border-color: $-dark-background5;
+      }
+    }
+
+    @include when(text) {
+      @include when(disabled) {
+        color: $-dark-color-gray;
+        background: transparent;
+      }
+    }
+
+    @include when(icon) {
+      color: $-dark-color;
+
+      @include when(disabled) {
+        color: $-dark-color-gray;
+        background: transparent;
+      }
+    }
+  }
+}
+
+/* 按钮主体样式 */
+/* UniApp X: inline-block 不支持，button 默认块级，用 align-self: flex-start 模拟 inline 收缩 */
+@include b(button) {
+  margin-left: initial;
+  margin-right: initial;
+  position: relative;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  outline: none;
+  -webkit-appearance: none;
+  background: transparent;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 0;
+  color: $-button-normal-color;
+  transition: opacity 0.2s;
+  font-weight: normal;
+
+  /* UniApp X: ::before 按下效果简化 —— 用 opacity 替代 */
+
+  /* 内容区域 - UniApp X: view 不继承 font-size，需显式 inherit */
+  @include e(content) {
+    display: flex;
+    /* UniApp X 的 view 默认 flex-direction: column，需显式覆盖为行布局 */
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    font-size: inherit;
+  }
+
+  /* 激活状态 */
+  @include m(active) {
+    opacity: 0.85;
+  }
+
+  /* 隐形按钮样式 */
+  @include when(invisible) {
+    width: 100%;
+    height: 100%;
+    background-color: transparent;
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 9999;
+    padding: 0;
+    margin: 0;
+    border: none;
+    opacity: 1;
+    box-shadow: none;
+    outline: none;
+  }
+
+  /* 禁用状态 */
+  @include when(disabled) {
+    opacity: $-button-disabled-opacity;
+  }
+
+  /* 加载图标 */
+  @include e(loading) {
+    margin-right: 10rpx;
+    animation: wd-rotate 0.8s linear infinite;
+    animation-duration: 2s;
+  }
+
+  @include e(loading-svg) {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* 按钮类型样式 */
+  @include when(primary) {
+    background: $-button-primary-bg-color;
+    color: $-button-primary-color;
+  }
+
+  @include when(success) {
+    background: $-button-success-bg-color;
+    color: $-button-success-color;
+  }
+
+  @include when(info) {
+    background: $-button-info-bg-color;
+    color: $-button-info-color;
+  }
+
+  @include when(warning) {
+    background: $-button-warning-bg-color;
+    color: $-button-warning-color;
+  }
+
+  @include when(error) {
+    background: $-button-error-bg-color;
+    color: $-button-error-color;
+  }
+
+  /* 按钮尺寸样式 */
+  @include when(small) {
+    height: $-button-small-height;
+    padding: $-button-small-padding;
+    border-radius: $-button-small-radius;
+    font-size: $-button-small-fs;
+    font-weight: normal;
+
+    .wd-button__loading {
+      width: $-button-small-loading;
+      height: $-button-small-loading;
+    }
+  }
+
+  @include when(medium) {
+    height: $-button-medium-height;
+    padding: $-button-medium-padding;
+    border-radius: $-button-medium-radius;
+    font-size: $-button-medium-fs;
+    min-width: 240rpx;
+
+    @include when(round) {
+      @include when(icon) {
+        min-width: 0;
+        border-radius: 50%;
+      }
+
+      @include when(text) {
+        border-radius: 0;
+        min-width: 0;
+      }
+    }
+
+    .wd-button__loading {
+      width: $-button-medium-loading;
+      height: $-button-medium-loading;
+    }
+  }
+
+  @include when(large) {
+    height: $-button-large-height;
+    padding: $-button-large-padding;
+    border-radius: $-button-large-radius;
+    font-size: $-button-large-fs;
+
+    .wd-button__loading {
+      width: $-button-large-loading;
+      height: $-button-large-loading;
+    }
+  }
+
+  /* 圆角按钮 */
+  @include when(round) {
+    border-radius: 999rpx;
+  }
+
+  /* 文字按钮 */
+  @include when(text) {
+    color: $-button-primary-bg-color;
+    min-width: 0;
+    padding: 8rpx 0;
+
+    @include when(disabled) {
+      color: $-button-normal-disabled-color;
+      background: transparent;
+    }
+  }
+
+  /* 幽灵按钮 */
+  @include when(plain) {
+    background: $-button-plain-bg-color;
+    /* UniApp X: 1rpx 亚像素边框在原生渲染中可能断裂，用 1px 确保完整显示 */
+    border: 1px solid currentColor;
+
+    @include when(primary) {
+      color: $-button-primary-bg-color;
+    }
+
+    @include when(success) {
+      color: $-button-success-bg-color;
+    }
+
+    @include when(info) {
+      color: $-button-info-plain-normal-color;
+      border-color: $-button-info-plain-border-color;
+    }
+
+    @include when(warning) {
+      color: $-button-warning-bg-color;
+    }
+
+    @include when(error) {
+      color: $-button-error-bg-color;
+    }
+  }
+
+  /* 细边框 - halfPixelBorderSurround 替代为直接 border + scaleY */
+  @include when(hairline) {
+    border-width: 0;
+
+    &.is-plain {
+      border: 1px solid currentColor;
+      border-color: inherit;
+
+      &.is-round {
+        border-radius: 999rpx;
+      }
+
+      &.is-large {
+        border-radius: $-button-large-radius;
+      }
+
+      &.is-medium {
+        border-radius: $-button-medium-radius;
+      }
+
+      &.is-small {
+        border-radius: $-button-small-radius;
+      }
+    }
+  }
+
+  /* 块级按钮 - 覆盖 align-self: flex-start，占满宽度 */
+  @include when(block) {
+    align-self: stretch;
+  }
+
+  /* 图标按钮 */
+  @include when(icon) {
+    width: $-button-icon-size;
+    height: $-button-icon-size;
+    padding: 0;
+    border-radius: 50%;
+    color: $-button-icon-color;
+
+    /* edeep → e（UniApp X 无 :deep()） */
+    .wd-button__icon {
+      margin-right: 0;
+    }
+
+    @include when(disabled) {
+      color: $-button-icon-disabled-color;
+      background: transparent;
+    }
+  }
+
+  /* 图标样式 - edeep → e */
+  @include e(icon) {
+    display: flex;
+    margin-right: 12rpx;
+    font-size: $-button-icon-fs;
+    vertical-align: middle;
+  }
+
+  /* 文字样式 - UniApp X: view 不继承 font-size，需显式 inherit */
+  @include e(text) {
+    white-space: nowrap;
+    font-size: inherit;
+  }
+}
+
+/* 旋转动画 */
+@keyframes wd-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+</style>

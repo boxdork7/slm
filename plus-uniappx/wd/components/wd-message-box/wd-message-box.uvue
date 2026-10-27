@@ -1,0 +1,341 @@
+<!--
+MessageBox 消息弹窗 用于确认操作、输入内容等交互场景。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type / export interface（移到 useMessage.uts）
+- 移除手动组件导入（easycom 自动注册）
+- 移除 import type { InputType }（UTS 中为 string）
+- action: 'confirm' | 'cancel' | 'modal' → string
+- MouseEvent → any
+- ref<any>({}) → 具体类型
+- edeep → e（UniApp X mixin）
+- :deep() → 直接类选择器
+- wd-input 未迁移，prompt 使用原生 input 临时替代
+-->
+<template>
+  <wd-popup
+    :model-value="isShow"
+    :z-index="computedZIndex"
+    position="center"
+    :close-on-click-modal="computedCloseOnClickModal"
+    :lazy-render="computedLazyRender"
+    :duration="300"
+    :custom-class="`wd-message-box ${customClass}`"
+    @click-modal="handleAction('modal')"
+  >
+    <!-- 标题 -->
+    <view v-if="computedTitle != ''" class="wd-message-box__header">
+      <text class="wd-message-box__title">{{ computedTitle }}</text>
+    </view>
+
+    <!-- 内容区域 -->
+    <view class="wd-message-box__body">
+      <!-- 消息文本 -->
+      <view v-if="computedMsg != ''" class="wd-message-box__msg">
+        <text>{{ computedMsg }}</text>
+      </view>
+
+      <!-- Prompt 输入框（临时使用原生 input，等 wd-input 迁移后替换） -->
+      <view v-if="computedType == 'prompt'" class="wd-message-box__input-wrapper">
+        <input
+          class="wd-message-box__input"
+          :type="computedInputType"
+          :value="inputValue"
+          :placeholder="computedInputPlaceholder"
+          @input="onInputChange"
+        />
+        <!-- 验证错误提示 -->
+        <text v-if="showInputError" class="wd-message-box__input-error">
+          {{ computedInputError }}
+        </text>
+      </view>
+    </view>
+
+    <!-- 操作按钮 -->
+    <view class="wd-message-box__actions">
+      <!-- 取消按钮 -->
+      <wd-button
+        v-if="computedShowCancelButton"
+        custom-class="wd-message-box__actions-btn"
+        type="info"
+        plain
+        block
+        @click="handleAction('cancel')"
+      >
+        {{ computedCancelButtonText }}
+      </wd-button>
+
+      <!-- 确认按钮 -->
+      <wd-button
+        v-if="computedShowConfirmButton"
+        custom-class="wd-message-box__actions-btn"
+        type="primary"
+        block
+        :loading="confirmLoading"
+        @click="handleAction('confirm')"
+      >
+        {{ computedConfirmButtonText }}
+      </wd-button>
+    </view>
+  </wd-popup>
+</template>
+
+<script lang="uts" setup>
+import { watch, ref } from 'vue'
+import { getMessageOption, useMessageInternal, type MessageOptions, type MessageBeforeConfirmOption } from './useMessage'
+
+/**
+ * MessageBox 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 选择器标识 */
+  selector ?: string
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+}>(), {
+  selector: '',
+  customStyle: '',
+  customClass: '',
+})
+
+/* 获取全局选项和内部操作 */
+const messageOption = getMessageOption(props.selector)
+const { handleConfirm, handleCancel } = useMessageInternal(props.selector)
+
+/* 本地状态 */
+const isShow = ref(false)
+const computedType = ref('alert')
+const computedTitle = ref('')
+const computedMsg = ref('')
+const computedCloseOnClickModal = ref(true)
+const computedShowCancelButton = ref(false)
+const computedShowConfirmButton = ref(true)
+const computedConfirmButtonText = ref('确定')
+const computedCancelButtonText = ref('取消')
+const computedZIndex = ref(2000)
+const computedLazyRender = ref(true)
+const computedInputType = ref('text')
+const computedInputPlaceholder = ref('请输入')
+const computedInputError = ref('输入的数据不合规范')
+const inputValue = ref('')
+const showInputError = ref(false)
+const confirmLoading = ref(false)
+
+/* 验证相关 */
+let currentInputPattern : RegExp | null = null
+let currentInputValidate : ((inputValue : string) => boolean) | null = null
+let currentBeforeConfirm : ((option : MessageBeforeConfirmOption) => void) | null = null
+
+/**
+ * 从选项同步到本地状态
+ */
+const syncFromOption = (opt : MessageOptions) => {
+  isShow.value = opt.show ?? false
+  computedType.value = opt.type ?? 'alert'
+  computedTitle.value = opt.title ?? ''
+  computedMsg.value = opt.msg ?? ''
+  computedCloseOnClickModal.value = opt.closeOnClickModal ?? true
+  computedShowCancelButton.value = opt.showCancelButton ?? false
+  computedShowConfirmButton.value = opt.showConfirmButton ?? true
+  computedConfirmButtonText.value = opt.confirmButtonText ?? '确定'
+  computedCancelButtonText.value = opt.cancelButtonText ?? '取消'
+  computedZIndex.value = opt.zIndex ?? 2000
+  computedLazyRender.value = opt.lazyRender ?? true
+  computedInputType.value = opt.inputType ?? 'text'
+  computedInputPlaceholder.value = opt.inputPlaceholder ?? '请输入'
+  computedInputError.value = opt.inputError ?? '输入的数据不合规范'
+
+  /* 重置输入状态 */
+  if (opt.show == true) {
+    inputValue.value = opt.inputValue ?? ''
+    showInputError.value = false
+    confirmLoading.value = false
+  }
+
+  /* 存储验证函数引用 */
+  currentInputPattern = opt.inputPattern ?? null
+  currentInputValidate = opt.inputValidate ?? null
+  currentBeforeConfirm = opt.beforeConfirm ?? null
+}
+
+/**
+ * 输入变化处理
+ */
+const onInputChange = (event : any) => {
+  inputValue.value = event.detail.value as string
+  showInputError.value = false
+}
+
+/**
+ * 验证输入
+ */
+const validate = () : boolean => {
+  if (computedType.value != 'prompt') return true
+
+  const val = inputValue.value
+
+  /* 正则验证 */
+  if (currentInputPattern != null) {
+    if (!currentInputPattern!.test(val)) {
+      showInputError.value = true
+      return false
+    }
+  }
+
+  /* 自定义验证 */
+  if (currentInputValidate != null) {
+    if (!currentInputValidate!(val)) {
+      showInputError.value = true
+      return false
+    }
+  }
+
+  return true
+}
+
+/**
+ * 处理操作
+ */
+const handleAction = (action : string) => {
+  if (action == 'confirm') {
+    /* 验证输入 */
+    if (!validate()) return
+
+    /* beforeConfirm 回调 */
+    if (currentBeforeConfirm != null) {
+      confirmLoading.value = true
+      const option : MessageBeforeConfirmOption = {
+        resolve: (pass : boolean) => {
+          confirmLoading.value = false
+          if (pass) {
+            handleConfirm(inputValue.value)
+          }
+        },
+      }
+      currentBeforeConfirm!(option)
+      return
+    }
+
+    handleConfirm(inputValue.value)
+  } else if (action == 'cancel') {
+    handleCancel('cancel')
+  } else if (action == 'modal') {
+    if (computedCloseOnClickModal.value) {
+      handleCancel('modal')
+    }
+  }
+}
+
+/* 监听选项变化 */
+watch(() => messageOption.value, (newVal : MessageOptions) => {
+  syncFromOption(newVal)
+}, { deep: true, immediate: true })
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  .wd-message-box {
+    background: $-dark-background2;
+  }
+
+  .wd-message-box__title {
+    color: $-dark-color;
+  }
+
+  .wd-message-box__msg {
+    color: $-dark-color3;
+  }
+
+  .wd-message-box__input {
+    background: $-dark-background;
+    color: $-dark-color;
+    border-color: $-dark-border-color;
+  }
+}
+
+/* MessageBox 基础样式 */
+.wd-message-box {
+  width: 560rpx;
+  border-radius: 24rpx;
+  background: #fff;
+  overflow: hidden;
+}
+
+@include b(message-box) {
+  /* 标题区域 */
+  @include e(header) {
+    padding: 40rpx 40rpx 0;
+    text-align: center;
+  }
+
+  /* 标题文本 */
+  @include e(title) {
+    font-size: 32rpx;
+    font-weight: 600;
+    color: rgba(0, 0, 0, 0.85);
+    line-height: 44rpx;
+  }
+
+  /* 内容区域 */
+  @include e(body) {
+    padding: 24rpx 40rpx 0;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  /* 消息文本 */
+  @include e(msg) {
+    font-size: 28rpx;
+    color: rgba(0, 0, 0, 0.65);
+    line-height: 44rpx;
+    text-align: center;
+    word-break: break-all;
+  }
+
+  /* 输入框包装 */
+  @include e(input-wrapper) {
+    margin-top: 24rpx;
+  }
+
+  /* 输入框样式 */
+  @include e(input) {
+    width: 100%;
+    height: 72rpx;
+    padding: 0 24rpx;
+    border: 2rpx solid #e5e5e5;
+    border-radius: 8rpx;
+    font-size: 28rpx;
+    color: rgba(0, 0, 0, 0.85);
+    background: #f5f5f5;
+    box-sizing: border-box;
+  }
+
+  /* 输入错误提示 */
+  @include e(input-error) {
+    margin-top: 8rpx;
+    font-size: 24rpx;
+    color: #fa4350;
+    line-height: 36rpx;
+  }
+
+  /* 操作按钮区域 */
+  @include e(actions) {
+    display: flex;
+    flex-direction: row;
+    padding: 32rpx 40rpx 40rpx;
+  }
+
+  /* 按钮样式 */
+  @include e(actions-btn) {
+    flex: 1;
+    margin: 0 8rpx;
+  }
+}
+</style>

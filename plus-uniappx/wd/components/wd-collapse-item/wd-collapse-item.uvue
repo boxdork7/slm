@@ -1,0 +1,415 @@
+<!--
+Collapse 折叠面板 每一项
+
+UniApp X 版本改动说明：
+- 移除 defineOptions（UTS 不支持）
+- 移除手动组件导入（easycom 自动注册）
+- CollapseItemBeforeExpand 类型定义移到 wd-collapse-key.uts
+- useParent(COLLAPSE_KEY) → inject(COLLAPSE_KEY) + genChildUid 模式
+- getCurrentInstance() → 移除，使用 uni.createSelectorQuery() 代替
+- ComponentPublicInstance → 移除（UTS 不支持）
+- isPromise → 移除（UTS 简化异步处理，beforeExpend 只支持同步返回 boolean）
+- getRect 参数调整：不传 proxy，使用全局查询
+- <text> 代替 <span>
+- 展开/收起动画使用 CSS transition（保持原有的高度动画逻辑）
+- edeep mixin → 直接使用类名（.wd-collapse-item__arrow）
+-->
+<template>
+  <view
+    :class="`wd-collapse-item ${disabled ? 'is-disabled' : ''} is-border ${customClass}`"
+    :style="customStyle"
+  >
+    <view
+      :class="`wd-collapse-item__header ${expanded ? 'is-expanded' : ''} ${isFirst ? 'wd-collapse-item__header-first' : ''} ${
+        $slots.title ? 'is-custom' : ''
+      }`"
+      @click="handleClick"
+    >
+      <slot name="title" :expanded="expanded" :disabled="disabled" :is-first="isFirst">
+        <text class="wd-collapse-item__title">
+          {{ title }}
+        </text>
+        <wd-icon
+          name="down"
+          :custom-class="`wd-collapse-item__arrow ${expanded ? 'is-retract' : ''}`"
+        />
+      </slot>
+    </view>
+    <view
+      class="wd-collapse-item__wrapper"
+      :style="contentStyle"
+      @transitionend="handleTransitionEnd"
+    >
+      <view
+        :id="collapseId"
+        class="wd-collapse-item__body"
+        :class="customBodyClass"
+        :style="customBodyStyle"
+      >
+        <slot />
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, onMounted, onUnmounted, ref, watch, nextTick, getCurrentInstance } from 'vue'
+import { getRect, isArray, isDef, isString, objToStyle, uuid } from '../common/util'
+import { genChildUid } from '../../composables/useChildren'
+import { COLLAPSE_KEY, type CollapseProvide, type CollapseItemBeforeExpand, type CollapseItemRef } from '../wd-collapse/wd-collapse-key'
+import { inject } from 'vue'
+
+/**
+ * 折叠面板项组件属性接口
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 自定义折叠栏内容容器样式类名 */
+  customBodyClass ?: string
+  /** 自定义折叠栏内容容器样式 */
+  customBodyStyle ?: string
+  /** 折叠栏的标题, 可通过 slot 传递自定义内容 */
+  title ?: string
+  /** 禁用折叠栏 */
+  disabled ?: boolean
+  /** 折叠栏的标识符 */
+  name : string
+  /** 打开前的回调函数，返回 false 可以阻止打开（UTS 版本仅支持同步） */
+  beforeExpend ?: CollapseItemBeforeExpand | null
+}>(), {
+  customStyle: '',
+  customClass: '',
+  customBodyClass: '',
+  customBodyStyle: '',
+  title: '',
+  disabled: false,
+  beforeExpend: null,
+})
+
+/* 获取父级折叠面板组件 */
+const collapse = inject<CollapseProvide | null>(COLLAPSE_KEY, null)
+
+/* 生成唯一 ID */
+const uid = genChildUid()
+
+/* 响应式数据 */
+const collapseId = ref<string>(`collapseId${uuid()}`)
+const contentHeight = ref<number>(0)
+const inited = ref<boolean>(false)
+const expanded = ref<boolean>(false)
+const animating = ref<boolean>(false)
+
+/* 获取当前组件实例（用于 getRect） */
+const instance = getCurrentInstance()
+
+/**
+ * 计算在兄弟组件中的索引
+ */
+const index = computed(() : number => {
+  if (collapse != null) return collapse!.childUids.indexOf(uid)
+  return -1
+})
+
+/**
+ * 计算是否为第一项
+ */
+const isFirst = computed(() : boolean => {
+  return index.value == 0
+})
+
+/**
+ * 计算容器样式（动画）
+ */
+const contentStyle = computed(() : string => {
+  const style : Map<string, any> = new Map<string, any>()
+
+  /* 始终设置过渡，但未初始化时持续时间为0 */
+  style.set('transition', inited.value ? 'height 0.3s ease-in-out' : 'height 0s')
+
+  if (!expanded.value) {
+    style.set('height', '0px')
+  } else if (animating.value && contentHeight.value > 0) {
+    /* 动画过程中使用精确高度 */
+    style.set('height', `${contentHeight.value}px`)
+  } else if (expanded.value && !animating.value) {
+    /* 动画完成后使用auto，允许内容自适应 */
+    style.set('height', 'auto')
+  }
+  return objToStyle(style)
+})
+
+/**
+ * 计算是否被选中
+ */
+const isSelected = computed(() : boolean => {
+  const modelValue = collapse != null ? collapse!.modelValue : ''
+  return (
+    (isString(modelValue) && modelValue == props.name) ||
+    (isArray(modelValue) && (modelValue as string[]).includes(props.name))
+  )
+})
+
+/**
+ * 获取展开状态
+ * @returns 是否展开
+ */
+const getExpanded = () : boolean => {
+  return expanded.value
+}
+
+/**
+ * 展开前钩子处理（UTS 版本简化为同步）
+ * @returns 是否允许展开
+ */
+const handleBeforeExpand = () : boolean => {
+  const nextexpanded = !expanded.value
+  if (nextexpanded && props.beforeExpend != null) {
+    const response = props.beforeExpend!(props.name)
+    return response
+  }
+  return true
+}
+
+/**
+ * 获取内容高度
+ */
+const getContentHeight = async () : Promise<number> => {
+  const rect = await getRect(`#${collapseId.value}`, false, instance?.proxy)
+  return isDef(rect.height) ? Number(rect.height) : 0
+}
+
+/**
+ * 执行展开/收起动画
+ */
+const performAnimation = async (shouldExpand : boolean) => {
+  if (expanded.value == shouldExpand) return
+
+  animating.value = true
+
+  if (shouldExpand) {
+    /* 展开动画：先获取高度，再设置展开状态 */
+    const height = await getContentHeight()
+    contentHeight.value = height
+    await nextTick()
+    expanded.value = true
+  } else {
+    /* 收起动画：先设置当前高度，再收起 */
+    const height = await getContentHeight()
+    contentHeight.value = height
+    await nextTick()
+    expanded.value = false
+  }
+}
+
+/**
+ * 初始化矩形区域
+ */
+const initRect = async () => {
+  const rect = await getRect(`#${collapseId.value}`, false, instance?.proxy)
+  const rectHeight = rect.height
+  contentHeight.value = isDef(rectHeight) ? Number(rectHeight) : 0
+
+  /* 初始化时直接设置状态，不执行动画 */
+  if (!inited.value) {
+    expanded.value = isSelected.value
+    inited.value = true
+    animating.value = false
+  } else {
+    /* 已初始化，执行动画 */
+    await performAnimation(isSelected.value)
+  }
+}
+
+/**
+ * 更新展开状态
+ * @param useBeforeExpand 是否使用展开前钩子
+ */
+const updateExpand = async (useBeforeExpand : boolean = true) => {
+  if (useBeforeExpand) {
+    const allowed = handleBeforeExpand()
+    if (!allowed) return
+  }
+  await initRect()
+}
+
+/**
+ * 过渡动画结束处理
+ */
+const handleTransitionEnd = () => {
+  animating.value = false
+}
+
+/**
+ * 点击子项处理
+ */
+const handleClick = async () => {
+  if (props.disabled) return
+  const allowed = handleBeforeExpand()
+  if (!allowed) return
+  if (collapse != null) collapse!.toggle(props.name, !expanded.value)
+}
+
+/**
+ * 监听选中状态变化
+ */
+watch(
+  () : boolean => isSelected.value,
+  async (newVal : boolean) => {
+    if (inited.value) {
+      await performAnimation(newVal)
+    }
+  },
+)
+
+/**
+ * 组件挂载后的处理
+ */
+onMounted(async () => {
+  /* 注册到父组件 */
+  if (collapse != null) {
+    collapse!.addChild(uid)
+  }
+
+  await nextTick()
+  await updateExpand(isSelected.value)
+
+  /* 注册子组件引用到父组件（用于 toggleAll） */
+  const parentInstance = instance?.proxy?.$parent
+  if (parentInstance != null) {
+    const childRef : CollapseItemRef = {
+      uid: uid,
+      name: props.name,
+      disabled: props.disabled,
+      getExpanded: getExpanded,
+      updateExpand: updateExpand,
+    }
+    if (typeof parentInstance.registerChildRef == 'function') {
+      parentInstance.registerChildRef(childRef)
+    }
+  }
+})
+
+/**
+ * 组件卸载前的处理
+ */
+onUnmounted(() => {
+  /* 从父组件注销 */
+  if (collapse != null) {
+    collapse!.removeChild(uid)
+  }
+
+  /* 从父组件注销子组件引用 */
+  const parentInstance = instance?.proxy?.$parent
+  if (parentInstance != null && typeof parentInstance.unregisterChildRef == 'function') {
+    parentInstance.unregisterChildRef(uid)
+  }
+})
+
+/* 暴露组件方法 */
+defineExpose({ getExpanded, updateExpand })
+</script>
+
+<style lang="scss">
+/* 引入外部样式文件 */
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(collapse-item) {
+    @include halfPixelBorder('top', 0, $-dark-border-color);
+
+    @include e(title) {
+      color: $-dark-color;
+    }
+
+    @include e(body) {
+      color: $-dark-color3;
+    }
+
+    @include when(disabled) {
+      .wd-collapse-item__title {
+        color: $-dark-color-gray;
+      }
+      .wd-collapse-item__arrow {
+        color: $-dark-color-gray;
+      }
+    }
+  }
+}
+
+/* 折叠面板项主体样式 */
+@include b(collapse-item) {
+  position: relative;
+  @include halfPixelBorder('top');
+
+  /* 头部样式 */
+  @include e(header) {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: $-collapse-header-padding;
+    overflow: hidden;
+    user-select: none;
+
+    /* 展开状态样式 */
+    @include when(expanded) {
+      @include halfPixelBorder('bottom');
+    }
+
+    /* 自定义头部样式 */
+    @include when(custom) {
+      display: block;
+    }
+  }
+
+  /* 标题样式 */
+  @include e(title) {
+    color: $-collapse-title-color;
+    font-weight: $-fw-medium;
+    font-size: $-collapse-title-fs;
+  }
+
+  /* 箭头样式（edeep → 直接类名） */
+  .wd-collapse-item__arrow {
+    display: block;
+    font-size: $-collapse-arrow-size;
+    color: $-collapse-arrow-color;
+    transition: transform 0.3s;
+
+    /* 收起状态箭头样式 */
+    @include when(retract) {
+      transform: rotate(-180deg);
+    }
+  }
+
+  /* 包装器样式 */
+  @include e(wrapper) {
+    position: relative;
+    overflow: hidden;
+    will-change: height;
+  }
+
+  /* 内容区域样式 */
+  @include e(body) {
+    color: $-collapse-body-color;
+    font-size: $-collapse-body-fs;
+    padding: $-collapse-body-padding;
+    line-height: 1.43;
+  }
+
+  /* 禁用状态样式 */
+  @include when(disabled) {
+    .wd-collapse-item__title {
+      color: $-collapse-disabled-color;
+    }
+    .wd-collapse-item__arrow {
+      color: $-collapse-disabled-color;
+    }
+  }
+}
+</style>

@@ -1,0 +1,32 @@
+import { http } from '@/composables/useHttp'
+import { AsyncResult } from '@/utils/to'
+import { PhoneBindBo, PhoneBindVo } from './phoneTypes'
+
+/**
+ * 获取并绑定手机号
+ * 通过平台授权码获取用户手机号并自动绑定到当前登录用户
+ * @param data 手机号绑定请求参数
+ * @returns 绑定结果和手机号信息
+ */
+export const bindPhone = (data: PhoneBindBo): Promise<AsyncResult> => {
+  return http.post('/app/phone/bindPhone', data)
+}
+
+/**
+ * 仅获取手机号（不绑定）
+ * 用于需要先获取手机号再进行其他操作的场景
+ * @param data 手机号绑定请求参数
+ * @returns 手机号信息
+ */
+export const getPhone = (data: PhoneBindBo): Promise<AsyncResult> => {
+  return http.get('/app/phone/getPhone', data)
+}
+
+/**
+ * 解绑手机号
+ * 移除用户绑定的手机号信息
+ * @returns 解绑结果
+ */
+export const unbindPhone = (): Promise<AsyncResult> => {
+  return http.del('/app/phone/unbindPhone')
+}

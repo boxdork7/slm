@@ -1,0 +1,155 @@
+<!--
+Form Item 表单项 每一项。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- import type { FormItemRule } → 从 wd-form-key.uts 导入
+- useParent(FORM_KEY) → inject(FORM_KEY) + genChildUid 模式
+- vertical-align → 移除（UniApp X 不支持）
+-->
+<template>
+  <wd-cell
+    custom-class="wd-form-item"
+    :required="required"
+    :title="label"
+    :icon="icon"
+    :custom-icon-class="customIconClass"
+    :center="center"
+    :border="showBorder"
+    :title-width="labelWidthValue"
+    :is-link="isLink"
+    :clickable="clickable"
+    :size="size"
+    :vertical="vertical"
+  >
+    <slot />
+    <view v-if="errorMessage != ''" class="wd-form-item__error-message">
+      <text class="wd-form-item__error-text">{{ errorMessage }}</text>
+    </view>
+  </wd-cell>
+</template>
+
+<script lang="uts" setup>
+import { computed, inject, onMounted, onUnmounted } from 'vue'
+import { addUnit } from '../common/util'
+import { genChildUid } from '../../composables/useChildren'
+import { FORM_KEY, type FormProvide } from '../wd-form/wd-form-key'
+
+/**
+ * FormItem 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 表单字段名 */
+  prop ?: string
+  /** 是否必填 */
+  required ?: boolean
+  /** 是否垂直居中 */
+  center ?: boolean
+  /** 标签文本 */
+  label ?: string
+  /** 标签宽度 */
+  labelWidth ?: string
+  /** 是否显示右侧箭头 */
+  isLink ?: boolean
+  /** 图标类名 */
+  icon ?: string
+  /** 图标自定义样式类 */
+  customIconClass ?: string
+  /** 开启点击反馈 */
+  clickable ?: boolean
+  /** 设置表单项大小 */
+  size ?: string
+  /** 表单属性，上下结构 */
+  vertical ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  prop: '',
+  required: false,
+  center: false,
+  label: '',
+  labelWidth: '70',
+  isLink: false,
+  icon: '',
+  customIconClass: '',
+  clickable: false,
+  size: '',
+  vertical: false,
+})
+
+/* 获取父组件 Form 的 provide 数据 */
+const form = inject<FormProvide | null>(FORM_KEY, null)
+
+/* 生成唯一 ID 并注册到父组件 */
+const uid = genChildUid()
+onMounted(() => {
+  if (form != null) form!.addChild(uid)
+})
+onUnmounted(() => {
+  if (form != null) form!.removeChild(uid)
+})
+
+/**
+ * 标签宽度带单位
+ */
+const labelWidthValue = computed(() : string => {
+  return addUnit(props.labelWidth)
+})
+
+/**
+ * 计算错误信息
+ */
+const errorMessage = computed(() : string => {
+  if (form != null && props.prop != '' && form!.errorMessages.has(props.prop)) {
+    return form!.errorMessages.get(props.prop)!
+  }
+  return ''
+})
+
+/**
+ * 计算在兄弟组件中的索引
+ */
+const index = computed(() : number => {
+  if (form != null) return form!.childUids.indexOf(uid)
+  return -1
+})
+
+/**
+ * 计算是否显示边框
+ */
+const showBorder = computed(() : boolean => {
+  return index.value > 0
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(form-item) {
+  }
+}
+
+/* 表单项样式 */
+@include b(form-item) {
+  /* 错误信息样式 */
+  @include e(error-message) {
+    display: flex;
+  }
+
+  /* 错误文本样式 */
+  .wd-form-item__error-text {
+    color: $-form-item-error-message-color;
+    font-size: $-form-item-error-message-font-size;
+    line-height: $-form-item-error-message-line-height;
+    text-align: left;
+  }
+}
+</style>

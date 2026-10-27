@@ -1,0 +1,190 @@
+<!--
+Divider 分割线 用于将内容分隔为多个区域。
+
+UniApp X 版本
+- ::before/::after 伪元素替换为实际 <view> 节点
+- 移除 useSlots()（UniApp X 中可直接使用 $slots）
+- 移除 defineOptions
+- 字符串字面量联合类型改为 string
+-->
+<template>
+  <view
+    :class="rootClass"
+    :style="`${color != '' ? `color: ${color};` : ''}${customStyle}`"
+  >
+    <!-- 前线条（替代 ::before） -->
+    <view
+      v-if="!vertical"
+      :class="`wd-divider__line wd-divider__line--before ${dashed ? 'is-dashed' : ''} ${hairline ? 'is-hairline' : ''}`"
+    />
+    <view
+      v-if="vertical"
+      :class="`wd-divider__line wd-divider__line--vertical ${dashed ? 'is-dashed' : ''} ${hairline ? 'is-hairline' : ''}`"
+    />
+
+    <!-- 文本内容 -->
+    <view v-if="!vertical && hasContent" class="wd-divider__text">
+      <slot />
+    </view>
+
+    <!-- 后线条（替代 ::after） -->
+    <view
+      v-if="!vertical && hasContent"
+      :class="`wd-divider__line wd-divider__line--after ${dashed ? 'is-dashed' : ''} ${hairline ? 'is-hairline' : ''}`"
+    />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed } from 'vue'
+
+/**
+ * 分割线组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 自定义颜色 */
+  color ?: string
+  /** 内容位置，可选值：left / right / center */
+  contentPosition ?: string
+  /** 是否显示为虚线 */
+  dashed ?: boolean
+  /** 是否为垂直分割线 */
+  vertical ?: boolean
+  /** 是否显示为 0.5px 的线 */
+  hairline ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  color: '',
+  contentPosition: 'center',
+  dashed: false,
+  vertical: false,
+  hairline: true,
+})
+
+/** 是否有插槽内容 */
+const hasContent = computed(() : boolean => {
+  return !!useSlots()['default']
+})
+
+/** 根节点类名 */
+const rootClass = computed(() : string => {
+  const classes : string[] = ['wd-divider']
+  if (props.vertical) {
+    classes.push('wd-divider--vertical')
+  } else if (hasContent.value) {
+    classes.push(`wd-divider--${props.contentPosition}`)
+  }
+  if (props.customClass != '') {
+    classes.push(props.customClass)
+  }
+  return classes.join(' ')
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+.wot-theme-dark {
+  @include b(divider) {
+    color: $-dark-color3;
+
+    @include e(line) {
+      border-color: $-dark-color-gray;
+    }
+  }
+}
+
+@include b(divider) {
+  position: relative;
+  display: flex;
+  /* UniApp X 的 view 默认 flex-direction: column，需显式覆盖为行布局 */
+  flex-direction: row;
+  padding: $-divider-padding;
+  margin: $-divider-margin;
+  align-items: center;
+  color: $-divider-color;
+  font-size: $-divider-fs;
+
+  /* 线条基础样式 */
+  @include e(line) {
+    flex: 1;
+    box-sizing: border-box;
+    border-style: solid;
+    border-color: $-divider-line-color;
+    border-width: $-divider-line-height 0 0;
+
+    @include when(hairline) {
+      transform: scaleY(0.5);
+    }
+
+    @include when(dashed) {
+      border-style: dashed;
+    }
+
+    /* 前线条 */
+    @include m(before) {
+      /* 默认样式 */
+    }
+
+    /* 后线条（有内容时显示） */
+    @include m(after) {
+      margin-left: $-divider-content-left-margin;
+    }
+
+    /* 垂直线条 */
+    @include m(vertical) {
+      height: 100%;
+      border-width: 0 0 0 $-divider-vertical-line-width;
+
+      @include when(hairline) {
+        transform: scaleX(0.5);
+      }
+    }
+  }
+
+  /* 文本内容 */
+  @include e(text) {
+    padding: 0 $-divider-content-right-margin;
+    white-space: nowrap;
+  }
+
+  /* 内容位置修饰符 */
+  @include m(center) {
+    .wd-divider__line--before {
+      margin-right: $-divider-content-right-margin;
+    }
+  }
+
+  @include m(left) {
+    .wd-divider__line--before {
+      max-width: $-divider-content-left-width;
+      margin-right: $-divider-content-right-margin;
+    }
+  }
+
+  @include m(right) {
+    .wd-divider__line--after {
+      max-width: $-divider-content-right-width;
+    }
+    .wd-divider__line--before {
+      margin-right: $-divider-content-right-margin;
+    }
+  }
+
+  /* 垂直分割线 */
+  @include m(vertical) {
+    display: flex;
+    width: $-divider-vertical-line-width;
+    height: $-divider-vertical-height;
+    margin: $-divider-vertical-content-margin;
+    padding: 0;
+    vertical-align: middle;
+  }
+}
+</style>

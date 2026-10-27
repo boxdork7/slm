@@ -1,0 +1,352 @@
+<!--
+IndexBar 索引栏 用于列表的索引分类显示和快速定位。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- 使用 createChildManager + provide 替代 useChildren
+- getCurrentInstance().proxy → 移除，getRect 不传 scope
+- watch children → watch childUids.length
+- 子组件访问方式：通过 childManager 跟踪 childData Map
+- TouchEvent → UniTouchEvent
+- computed 返回类型需显式标注
+- watch 回调参数需显式类型标注
+-->
+<template>
+  <view :id="indexBarId" class="wd-index-bar">
+    <scroll-view
+      :scroll-top="scrollState.scrollTop"
+      :scroll-y="true"
+      class="wd-index-bar__content"
+      @scroll="hanleScroll"
+    >
+      <slot />
+    </scroll-view>
+    <view
+      class="wd-index-bar__sidebar"
+      @touchstart.stop.prevent="handleTouchStart"
+      @touchmove.stop.prevent="handleTouchMove"
+      @touchend.stop.prevent="handleTouchEnd"
+      @touchcancel.stop.prevent="handleTouchEnd"
+    >
+      <view
+        v-for="(item, index) in childDataList"
+        :key="index"
+        class="wd-index-bar__index"
+        :class="{ 'is-active': item.index === anchorState.activeIndex }"
+      >
+        {{ item.index }}
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, nextTick, onMounted, provide, reactive, ref, watch } from 'vue'
+import { getRect, isDef, pause, rpxToPx, uuid } from '../common/util'
+import { createChildManager } from '../../composables/useChildren'
+import { INDEX_BAR_KEY, type AnchorIndex, type IndexBarProvide } from './wd-index-bar-key'
+
+/**
+ * 子组件数据接口（用于父组件访问子组件数据）
+ */
+type ChildAnchorData = {
+  uid : number
+  index : AnchorIndex
+  top : number
+}
+
+/**
+ * 索引栏组件属性接口
+ */
+const props = withDefaults(defineProps<{
+  /** 索引是否吸顶 */
+  sticky ?: boolean
+}>(), {
+  sticky: false,
+})
+
+// 索引栏唯一ID
+const indexBarId = ref<string>(`indexBar${uuid()}`)
+
+// 锚点状态
+const anchorState = reactive({
+  activeIndex: null as AnchorIndex | null,
+})
+
+// 子组件管理器
+const manager = createChildManager()
+
+// 子组件数据映射（uid -> 子组件数据）
+const childDataMap = reactive<Map<number, ChildAnchorData>>(new Map())
+
+/**
+ * 计算子组件数据列表（按注册顺序）
+ */
+const childDataList = computed(() : ChildAnchorData[] => {
+  const list : ChildAnchorData[] = []
+  for (let i = 0; i < manager.childUids.length; i++) {
+    const uid = manager.childUids[i]
+    const data = childDataMap.get(uid)
+    if (data != null) {
+      list.push(data)
+    }
+  }
+  return list
+})
+
+/**
+ * 注册子组件数据（由子组件调用）
+ */
+const registerChildData = (uid : number, index : AnchorIndex, top : number) : void => {
+  childDataMap.set(uid, { uid, index, top } as ChildAnchorData)
+}
+
+/**
+ * 更新子组件 top 值（由子组件调用）
+ */
+const updateChildTop = (uid : number, top : number) : void => {
+  const data = childDataMap.get(uid)
+  if (data != null) {
+    data.top = top
+  }
+}
+
+// 向子组件提供数据
+provide<IndexBarProvide>(INDEX_BAR_KEY, {
+  childUids: manager.childUids,
+  addChild: manager.addChild,
+  removeChild: manager.removeChild,
+  props: {
+    sticky: props.sticky,
+  },
+  anchorState: anchorState,
+  registerChildData: registerChildData,
+  updateChildTop: updateChildTop,
+} as IndexBarProvide)
+
+/**
+ * 监听子组件变化
+ * 当子组件发生变化时，更新激活索引
+ */
+watch(
+  () => manager.childUids.length,
+  (newLength : number) => {
+    if (newLength === 0) {
+      anchorState.activeIndex = null
+      return
+    }
+
+    const list = childDataList.value
+    if (list.length === 0) {
+      return
+    }
+
+    if (!isDef(anchorState.activeIndex) || !list.find((item) => item.index === anchorState.activeIndex)) {
+      anchorState.activeIndex = list[0].index
+    }
+  },
+  { immediate: true },
+)
+
+// 滚动状态（使用 px 作为 scroll-view 的 scrollTop 单位）
+const scrollState = reactive({
+  scrollTop: 0, // 即将滚动到的位置（px）
+  prevScrollTop: 0, // 上次记录的位置（px）
+  touching: false, // 是否正在触摸
+})
+
+// 组件距离页面顶部的高度（px）
+let offsetTop = 0
+
+// 侧边栏信息（px）
+const sidebarInfo = reactive({
+  offsetTop: 0, // 侧边栏距离顶部的高度（px）
+  indexHeight: rpxToPx(48), // 索引项高度，48rpx 转换为 px
+})
+
+/**
+ * 初始化组件位置信息
+ * 计算索引栏和侧边栏的位置信息
+ */
+const init = () => {
+  setTimeout(() => {
+    Promise.all([
+      getRect(`#${indexBarId.value}`, false),
+      getRect('.wd-index-bar__sidebar', false),
+      getRect('.wd-index-bar__index', false),
+    ]).then((results : any[]) => {
+      const bar = results[0]
+      const sidebar = results[1]
+      const index = results[2]
+
+      if (bar != null && bar['top'] != null) {
+        offsetTop = bar['top'] as number
+      }
+      if (sidebar != null && sidebar['top'] != null) {
+        sidebarInfo.offsetTop = sidebar['top'] as number
+      }
+      if (index != null && index['height'] != null) {
+        sidebarInfo.indexHeight = index['height'] as number
+      }
+    }).catch((_err : Error) => {
+      // 忽略错误
+    })
+  }, 100)
+}
+
+/**
+ * 组件挂载后初始化
+ */
+onMounted(() => {
+  init()
+})
+
+/**
+ * 处理滚动事件
+ * 根据滚动位置更新激活的索引
+ */
+const hanleScroll = (scrollEvent : any) => {
+  if (scrollState.touching) {
+    return
+  }
+
+  const detail = scrollEvent['detail']
+  if (detail == null) return
+
+  const scrolltop = Math.floor(detail['scrollTop'] as number)
+
+  const list = childDataList.value
+  const anchor = list.find((item, index) => {
+    if (index >= list.length - 1) return true
+    return (
+      item.top - offsetTop <= scrolltop &&
+      list[index + 1].top - offsetTop > scrolltop
+    )
+  })
+
+  if (isDef(anchor) && anchor != null && anchorState.activeIndex !== anchor.index) {
+    anchorState.activeIndex = anchor.index
+  }
+
+  scrollState.prevScrollTop = scrolltop
+}
+
+/**
+ * 根据Y坐标获取对应的锚点
+ */
+const getAnchorByPageY = (pageY : number) : ChildAnchorData | null => {
+  const list = childDataList.value
+  if (list.length === 0) return null
+
+  const y = pageY - sidebarInfo.offsetTop
+  let idx = Math.floor(y / sidebarInfo.indexHeight)
+  if (idx < 0) idx = 0
+  else if (idx > list.length - 1) idx = list.length - 1
+  return list[idx]
+}
+
+/**
+ * 处理触摸开始事件
+ */
+const handleTouchStart = () => {
+  scrollState.touching = true
+}
+
+/**
+ * 设置滚动位置
+ * 处理滚动位置的更新逻辑
+ */
+const setScrollTop = (top : number) => {
+  if (scrollState.scrollTop === top) {
+    scrollState.scrollTop = scrollState.prevScrollTop
+    nextTick(() => {
+      scrollState.scrollTop = top
+    })
+  } else {
+    scrollState.scrollTop = top
+  }
+}
+
+/**
+ * 处理触摸移动事件
+ * 根据触摸位置更新激活索引并滚动到对应位置
+ */
+const handleTouchMove = (e : UniTouchEvent) => {
+  const touches = e.touches
+  if (touches.length === 0) return
+
+  const clientY = touches[0].pageY
+  const anchor = getAnchorByPageY(clientY)
+  if (anchor == null) return
+
+  if (anchorState.activeIndex === anchor.index) {
+    return
+  }
+  anchorState.activeIndex = anchor.index
+  setScrollTop(anchor.top - offsetTop)
+}
+
+/**
+ * 处理触摸结束事件
+ */
+const handleTouchEnd = async (e : UniTouchEvent) => {
+  const changedTouches = e.changedTouches
+  if (changedTouches.length === 0) return
+
+  const clientY = changedTouches[0].pageY
+  const anchor = getAnchorByPageY(clientY)
+  if (anchor == null) return
+
+  anchorState.activeIndex = anchor.index
+  setScrollTop(anchor.top - offsetTop)
+
+  await pause()
+  scrollState.touching = false
+}
+</script>
+
+<style lang="scss">
+// 引入外部样式文件
+@import '../common/abstracts/_mixin.scss';
+@import '../common/abstracts/variable.scss';
+
+// 暗色主题样式
+.wot-theme-dark {
+  @include b(index-bar) {
+    @include e(index) {
+      color: $-color-white;
+    }
+  }
+}
+
+// 索引栏样式
+@include b(index-bar) {
+  position: relative;
+  width: 100%;
+  height: 100%;
+
+  @include e(content) {
+    width: 100%;
+    height: 100%;
+  }
+
+  @include e(sidebar) {
+    position: absolute;
+    top: 50%;
+    right: 8rpx;
+    transform: translateY(-50%);
+  }
+
+  @include e(index) {
+    font-size: 24rpx;
+    font-weight: $-fw-medium;
+    color: $-color-title;
+    padding: 8rpx 12rpx;
+
+    @include when(active) {
+      color: $-color-theme;
+    }
+  }
+}
+</style>

@@ -1,0 +1,66 @@
+import { http } from '@/composables/useHttp'
+import { AsyncResult } from '@/utils/to'
+import type { SysRoleBo, SysRoleDeptTree, SysRoleQuery, SysRoleVo } from './roleTypes'
+
+/**
+ * 分页查询角色列表
+ */
+export const pageRoles = (query ?: UTSJSONObject): Promise<AsyncResult> => {
+  return http.get('/system/role/pageRoles', query)
+}
+
+/**
+ * 获取角色选项列表
+ */
+export const getRoleOptions = (): Promise<AsyncResult> => {
+  return http.get('/system/role/optionselect')
+}
+
+/**
+ * 获取角色详情
+ */
+export const getRole = (roleId: string | number): Promise<AsyncResult> => {
+  return http.get(`/system/role/getRole/${roleId}`)
+}
+
+/**
+ * 新增角色
+ */
+export const addRole = (data: SysRoleBo): Promise<AsyncResult> => {
+  return http.post('/system/role/addRole', data)
+}
+
+/**
+ * 修改角色
+ */
+export const updateRole = (data: SysRoleBo): Promise<AsyncResult> => {
+  return http.put('/system/role/updateRole', data)
+}
+
+/**
+ * 修改角色数据权限
+ */
+export const updateRoleDataScope = (data: SysRoleBo): Promise<AsyncResult> => {
+  return http.put('/system/role/dataScope', data)
+}
+
+/**
+ * 修改角色状态
+ */
+export const changeRoleStatus = (roleId: string | number, status: string): Promise<AsyncResult> => {
+  return http.put('/system/role/changeStatus', { 'roleId': roleId, 'status': status } as UTSJSONObject)
+}
+
+/**
+ * 删除角色
+ */
+export const deleteRoles = (roleIds: string): Promise<AsyncResult> => {
+  return http.del(`/system/role/deleteRoles/${roleIds}`)
+}
+
+/**
+ * 获取角色部门树
+ */
+export const getRoleDeptTree = (roleId: string | number): Promise<AsyncResult> => {
+  return http.get(`/system/role/deptTree/${roleId}`)
+}

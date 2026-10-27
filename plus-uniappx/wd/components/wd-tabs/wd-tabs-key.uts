@@ -1,0 +1,88 @@
+/**
+ * 标签页容器提供的数据接口 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 InjectionKey 泛型（UTS 不支持 Symbol/InjectionKey）
+ * - 改用字符串 key + type 定义
+ * - TabItem/TabsSlidable/TabsProvide 在此文件统一定义（不从 .uvue export）
+ * - 子组件管理通过 ChildManager 模式实现
+ */
+
+/**
+ * 标签页滑动模式
+ */
+export type TabsSlidable = string
+
+/**
+ * 标签项配置接口
+ */
+export type TabItem = {
+  /** 唯一标识符 */
+  name ?: string | number | null
+  /** 标签标题 */
+  title : string
+  /** 是否禁用 */
+  disabled ?: boolean
+  /** 是否懒加载 */
+  lazy ?: boolean
+  /** 徽标属性 */
+  badgeProps ?: UTSJSONObject | null
+  /** 是否使用自定义内容插槽 */
+  useSlot ?: boolean
+  /** 自定义内容插槽名称，默认为 item-{index} */
+  slotName ?: string
+}
+
+/**
+ * 标签页容器 Provide 接口
+ */
+export type TabsProvide = {
+  /** 子组件 UID 列表 */
+  childUids : number[]
+  /** 注册子组件 */
+  addChild : (uid : number) => void
+  /** 注销子组件 */
+  removeChild : (uid : number) => void
+  /** 状态 */
+  state : TabsState
+  /** 属性 */
+  props : TabsProps
+}
+
+/**
+ * 标签页状态
+ */
+export type TabsState = {
+  activeIndex : number
+  lineStyle : string
+  inited : boolean
+  animating : boolean
+  mapShow : boolean
+  scrollLeft : number
+  useInnerLine : boolean
+}
+
+/**
+ * 标签页属性（业务需要的部分）
+ */
+export type TabsProps = {
+  slidableNum : number
+  mapNum : number
+  mapTitle : string
+  sticky : boolean
+  offsetTop : number
+  swipeable : boolean
+  autoLineWidth : boolean
+  lineWidth : string | number
+  lineHeight : string | number
+  color : string
+  inactiveColor : string
+  animated : boolean
+  duration : number
+  slidable : string
+}
+
+/**
+ * 标签页容器注入键（字符串 key）
+ */
+export const TABS_KEY = 'wd-tabs'

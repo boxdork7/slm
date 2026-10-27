@@ -1,0 +1,97 @@
+/**
+ * 标签栏容器提供的数据接口 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 InjectionKey 泛型（UTS 不支持 Symbol/InjectionKey）
+ * - 改用字符串 key + type 定义
+ * - TabbarShape 联合类型改为 string
+ * - WdTabbarItemProps 移到此文件统一定义（不从 .uvue export）
+ * - 子组件管理通过 ChildManager 模式实现
+ */
+
+/**
+ * 标签栏形状类型
+ * UTS: 'default' | 'round' → string
+ */
+export type TabbarShape = string
+
+/**
+ * 标签项组件属性接口
+ */
+export type WdTabbarItemProps = {
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 标签页的标题 */
+  title ?: string
+  /** 唯一标识符 */
+  name ?: string | number | null
+  /** 图标名称 */
+  icon ?: string
+  /** 激活状态的图标名称 */
+  activeIcon ?: string
+  /** 徽标显示值 */
+  value ?: number | string | null
+  /** 是否点状徽标 */
+  isDot ?: boolean
+  /** 徽标最大值 */
+  max ?: number | null
+  /** 徽标属性，透传给 Badge 组件 */
+  badgeProps ?: UTSJSONObject | null
+  /** 页面是否已加载（用于懒加载） */
+  loaded ?: boolean
+  /** 图标大小 */
+  iconSize ?: string | number | null
+  /** 文字大小 */
+  fontSize ?: string | number | null
+}
+
+/**
+ * 标签栏属性类型（从 TabbarProvide 提取，避免嵌套类型字面量）
+ */
+export type WdTabbarProvideProps = {
+  /** 选中标签的索引值或者名称 */
+  modelValue : number | string
+  /** 是否固定在底部 */
+  fixed : boolean
+  /** 是否设置底部安全距离（iPhone X 类型的机型） */
+  safeAreaInsetBottom : boolean
+  /** 是否显示顶部边框 */
+  bordered : boolean
+  /** 标签栏的形状 */
+  shape : string
+  /** 激活标签的颜色 */
+  activeColor : string
+  /** 未激活标签的颜色 */
+  inactiveColor : string
+  /** 固定在底部时，是否在标签位置生成一个等高的占位元素 */
+  placeholder : boolean
+  /** 自定义组件的层级 */
+  zIndex : number
+  /** 图标大小 */
+  iconSize : string | number
+  /** 文字大小 */
+  fontSize : string | number
+}
+
+/**
+ * 标签栏容器 Provide 接口
+ */
+export type TabbarProvide = {
+  /** 子组件 UID 列表 */
+  childUids : number[]
+  /** 注册子组件 */
+  addChild : (uid : number) => void
+  /** 注销子组件 */
+  removeChild : (uid : number) => void
+  /** 标签栏属性 */
+  props : WdTabbarProvideProps
+  /** 设置变更回调函数 */
+  setChange : (child : WdTabbarItemProps) => void
+}
+
+/**
+ * 标签栏注入键（字符串 key）
+ */
+export const TABBAR_KEY = 'wd-tabbar'

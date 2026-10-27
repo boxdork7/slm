@@ -1,0 +1,553 @@
+<!doctype html>
+<html>
+<head>
+  <!--  &lt;!&ndash; 百度统计 &ndash;&gt;-->
+  <!--  <script>-->
+  <!--    var _hmt = _hmt || [];-->
+  <!--    (function() {-->
+  <!--      var hm = document.createElement("script");-->
+  <!--      hm.src = "https://hm.baidu.com/hm.js?xxxxxxxxxxx"; // 替换为你的百度统计ID-->
+  <!--      var s = document.getElementsByTagName("script")[0];-->
+  <!--      s.parentNode.insertBefore(hm, s);-->
+  <!--    })();-->
+  <!--  </script>-->
+  <meta charset="utf-8"/>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
+  <meta name="renderer" content="webkit"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+  <link rel="icon" href="/favicon.ico"/>
+  <title>ryplus-uni后台管理</title>
+  <!--[if lt IE 11
+    ]><script>
+      window.location.href = '/ie.html';
+    </script><!
+  [endif]-->
+  <style>
+    /* ============================================================
+       首屏加载页
+       与认证页（login / register / forgotPassword）共用同一套视觉语言：
+       纯渐变底 + 粒子 + 常规字重品牌文字。
+
+       🔴 三条硬约束（改之前先读）：
+         1. 本页在 Vue 挂载【之前】显示，读不到 SystemConfig，
+            所有配置只能从 localStorage 同步读（见页面底部脚本）
+         2. 不能引背景图 —— 多一次请求，且可能 loading 都结束了图还没下完，
+            所以底色用 CSS 渐变，取样自 login-bg.png 的真实像素
+         3. 不能用 canvas 粒子引擎（AParticleCanvas 此时还没加载），
+            粒子改用纯 CSS 动画近似
+       ============================================================ */
+
+    html,
+    body,
+    #app {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: 'PingFang SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    .chromeframe {
+      margin: 0.2em 0;
+      padding: 0.2em 0;
+      background: #ccc;
+      color: #000;
+    }
+
+    #loader-wrapper {
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 999999;
+      display: flex;
+      overflow: hidden;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      /*
+        浅色底：纯白 + 主题色渐变（与认证页 AuthLayout 同一套配方）。
+        --lp 由页面底部脚本从 localStorage 的主题色注入，切主题色后刷新即跟随。
+        渐变整体可由 SystemConfig.login.gradient 关掉（构建期注入 no-gradient 类）。
+      */
+      background: #fff;
+      transition: opacity 0.45s ease, visibility 0.45s ease;
+    }
+
+    /* 浅色渐变层：四角主题色光晕，中心留白 —— 浓度压到 8%~14%，白底会放大饱和度 */
+    #loader-wrapper.has-gradient {
+      background-image:
+        radial-gradient(ellipse 62% 55% at 8% 6%, rgba(var(--lp), 0.14) 0%, transparent 70%),
+        radial-gradient(ellipse 52% 48% at 94% 8%, rgba(var(--lp), 0.09) 0%, transparent 68%),
+        radial-gradient(ellipse 56% 52% at 6% 96%, rgba(var(--lp), 0.11) 0%, transparent 70%),
+        radial-gradient(ellipse 48% 46% at 96% 94%, rgba(var(--lp), 0.08) 0%, transparent 66%);
+    }
+
+    /* 暗黑模式：底色取深色底图 login-bg-dark.png 的中心取样色，避免闪白 */
+    #loader-wrapper.is-dark {
+      background: #151820;
+      background-image: none;
+    }
+
+    /* ---------- 左上角品牌区（与认证页 .auth-brand 对齐：30/28、常规字重） ---------- */
+    .loader-brand {
+      position: absolute;
+      top: 28px;
+      left: 30px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+    }
+
+    .loader-brand img {
+      display: block;
+      width: 40px;
+      height: 40px;
+      object-fit: contain;
+    }
+
+    .loader-brand span {
+      font-size: 16.5px;
+      letter-spacing: -0.01em;
+      color: #303133;
+    }
+
+    .is-dark .loader-brand span {
+      color: rgba(255, 255, 255, 0.85);
+    }
+
+    /* ---------- 粒子层 ---------- */
+    .loader-particles {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    /* 代码矩阵 / 数据流 / 星野 共用的浮动单元 */
+    .p-item {
+      position: absolute;
+      color: rgba(var(--lp), 0.26);
+      font-family: Consolas, Monaco, 'Courier New', monospace;
+      user-select: none;
+      animation: pRise linear infinite;
+    }
+
+    .is-dark .p-item {
+      color: rgba(var(--lp), 0.5);
+    }
+
+    @keyframes pRise {
+      0% { transform: translateY(0); opacity: 0; }
+      12% { opacity: 1; }
+      88% { opacity: 1; }
+      100% { transform: translateY(-400px); opacity: 0; }
+    }
+
+    /* 数据流：竖向光柱，自上而下 */
+    .p-flow {
+      position: absolute;
+      width: 1.4px;
+      background: linear-gradient(to bottom, transparent, rgba(var(--lp), 0.42));
+      animation: pFall linear infinite;
+    }
+
+    .is-dark .p-flow {
+      background: linear-gradient(to bottom, transparent, rgba(var(--lp), 0.62));
+    }
+
+    @keyframes pFall {
+      0% { transform: translateY(-100%); opacity: 0; }
+      12% { opacity: 1; }
+      88% { opacity: 1; }
+      100% { transform: translateY(420px); opacity: 0; }
+    }
+
+    /* 星野 / 粒子星链：小圆点闪烁 */
+    .p-dot {
+      position: absolute;
+      border-radius: 50%;
+      background: rgba(var(--lp), 0.5);
+      animation: pTwinkle ease-in-out infinite;
+    }
+
+    .is-dark .p-dot {
+      background: rgba(var(--lp), 0.72);
+    }
+
+    @keyframes pTwinkle {
+      0%, 100% { opacity: 0.25; transform: scale(0.85); }
+      50% { opacity: 1; transform: scale(1.15); }
+    }
+
+    /* 立方浮游：等距立方体线框（SVG 内联，见脚本） */
+    .p-cube {
+      position: absolute;
+      animation: pRise linear infinite;
+    }
+
+    .p-cube svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ---------- 中央内容区 ---------- */
+    .loader-core {
+      position: relative;
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .loader-logo {
+      width: 104px;
+      height: 104px;
+      object-fit: contain;
+      animation: logoFloat 2.6s ease-in-out infinite;
+    }
+
+    @keyframes logoFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+
+    .loader-title {
+      margin-top: 28px;
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #303133;
+    }
+
+    .is-dark .loader-title {
+      color: #f1f5f9;
+    }
+
+    .loader-sub {
+      margin-top: 10px;
+      font-size: 14px;
+      color: #909399;
+    }
+
+    .is-dark .loader-sub {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    /* 进度条：细、克制，与登录页主按钮同色 */
+    .loader-bar {
+      position: relative;
+      width: 260px;
+      height: 4px;
+      margin-top: 32px;
+      overflow: hidden;
+      border-radius: 99px;
+      background: rgba(0, 0, 0, 0.07);
+    }
+
+    .is-dark .loader-bar {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .loader-bar i {
+      position: absolute;
+      top: 0;
+      display: block;
+      width: 40%;
+      height: 100%;
+      border-radius: 99px;
+      background: rgb(var(--lp));
+      animation: barSlide 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+    }
+
+    @keyframes barSlide {
+      0% { left: -40%; }
+      100% { left: 100%; }
+    }
+
+    /* ---------- 加载完成 ---------- */
+    .loaded #loader-wrapper {
+      opacity: 0;
+      visibility: hidden;
+    }
+
+    .loaded .loader-core {
+      opacity: 0;
+      transform: scale(0.94);
+      transition: all 0.3s ease;
+    }
+
+    /* ---------- 响应式 ---------- */
+    @media (max-width: 500px) {
+      .loader-brand {
+        top: 18px;
+        left: 18px;
+        gap: 8px;
+      }
+
+      .loader-brand img {
+        width: 32px;
+        height: 32px;
+      }
+
+      .loader-brand span {
+        font-size: 14px;
+      }
+
+      .loader-logo {
+        width: 76px;
+        height: 76px;
+      }
+
+      .loader-title {
+        font-size: 17px;
+      }
+
+      .loader-bar {
+        width: 200px;
+      }
+
+      /* 小屏不画粒子：与认证页 AParticleCanvas 的 minWidth=500 保持一致 */
+      .loader-particles {
+        display: none;
+      }
+    }
+
+    /* 无障碍：系统开启「减少动态效果」时停止所有动画 */
+    @media (prefers-reduced-motion: reduce) {
+      .p-item,
+      .p-flow,
+      .p-dot,
+      .p-cube,
+      .loader-logo,
+      .loader-bar i {
+        animation: none;
+      }
+
+      .loader-bar i {
+        left: 0;
+        width: 100%;
+        opacity: 0.5;
+      }
+    }
+
+    /* 禁用JS时的样式 */
+    .no-js #loader-wrapper {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+<div id="app">
+  <div id="loader-wrapper">
+    <!-- 粒子层：种类由 SystemConfig.login.particle 决定（经 localStorage 同步） -->
+    <div class="loader-particles" id="loaderParticles"></div>
+
+    <!-- 左上角品牌区 -->
+    <div class="loader-brand">
+      <img src="/src/assets/logo/logo.png" alt="logo"/>
+      <span>ruoyi-plus-uniapp</span>
+    </div>
+
+    <!-- 中央内容 -->
+    <div class="loader-core">
+      <img class="loader-logo" src="/src/assets/logo/logo.png" alt=""/>
+      <div class="loader-title">正在初始化系统</div>
+      <div class="loader-sub">请稍候，系统资源加载中...</div>
+      <div class="loader-bar"><i></i></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  /**
+   * 加载页初始化
+   *
+   * 从 localStorage 同步读取用户配置，让加载页与认证页保持一致：
+   *   · 暗黑模式  ← {appId}:layout-config 的 dark 字段
+   *   · 粒子种类  ← {appId}:login-particle（由 main.ts 在启动时写入）
+   * 读不到就用默认值兜底（首次访问 / 隐私模式），不影响使用。
+   */
+  ;(function () {
+    var wrapper = document.getElementById('loader-wrapper')
+    var stage = document.getElementById('loaderParticles')
+
+    /**
+     * 缓存键前缀 = VITE_APP_ID
+     *
+     * 本页是纯 HTML，拿不到 import.meta.env，所以：
+     *   先用默认值，再扫一遍 localStorage 找真实前缀。
+     * 这样基于本框架新建的项目改了 VITE_APP_ID 也不会读不到缓存
+     * （否则加载页会永远读不到暗黑/粒子配置，静默退回默认样式）。
+     */
+    var APP_ID = 'ryplus_uni'
+    try {
+      for (var k = 0; k < localStorage.length; k++) {
+        var key = localStorage.key(k)
+        if (key && key.indexOf(':layout-config') > 0) {
+          APP_ID = key.slice(0, key.indexOf(':layout-config'))
+          break
+        }
+      }
+    } catch (e) {
+      // localStorage 不可用时保持默认前缀
+    }
+
+    /** 读 localStorage，任何异常都静默回落 —— 加载页绝不能因为读缓存失败而白屏 */
+    function readCache(key) {
+      try {
+        return localStorage.getItem(APP_ID + ':' + key)
+      } catch (e) {
+        return null
+      }
+    }
+
+    /* ---- 暗黑模式 + 主题色：同一份 layout-config（localCache 包装格式 { data, _expire }）---- */
+    var isDark = false
+    var themeHex = ''
+    try {
+      var cfg = readCache('layout-config')
+      if (cfg) {
+        var obj = JSON.parse(cfg)
+        var layout = obj && obj.data ? obj.data : obj
+        isDark = !!(layout && layout.dark)
+        themeHex = (layout && layout.theme) || ''
+      }
+    } catch (e) {
+      // JSON 解析失败按浅色 + 默认主题色处理
+    }
+
+    /**
+     * 主题色 → CSS 变量 --lp（"r, g, b" 形式，供 rgba() 调用）
+     *
+     * 渐变、粒子、进度条全部取这个变量，所以切主题色后刷新即整页跟随。
+     * 用 rgb 分量而不是 hex：CSS 里要写 rgba(var(--lp), 0.14) 这种带透明度的用法，
+     * hex 拼不进 rgba()。
+     */
+    var LP = '93, 135, 255'
+    var hex = String(themeHex).trim().replace('#', '')
+    if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2]
+    if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+      LP = parseInt(hex.slice(0, 2), 16) + ', ' + parseInt(hex.slice(2, 4), 16) + ', ' + parseInt(hex.slice(4, 6), 16)
+    }
+    document.documentElement.style.setProperty('--lp', LP)
+
+    /*
+      渐变开关由 vite 插件在构建期替换（'on' / 'off'）。
+      暗黑模式走纯色底，不叠渐变。
+    */
+    var gradientOn = '%LOGIN_GRADIENT%' !== 'off'
+    wrapper.className = isDark ? 'is-dark' : gradientOn ? 'has-gradient' : ''
+
+    /**
+     * 粒子种类
+     *
+     * 下面这个字符串由 vite 插件 loader-config.ts 在**构建期**从
+     * SystemConfig.login.particle 抠出并替换 —— 浏览器拿到的就是最终值，
+     * 所以改完配置第一次刷新加载页就同步，零运行时开销。
+     *
+     * 占位符原样残留（例如脱离 vite 直接打开本文件）时回落 localStorage，
+     * 那里存的是 localCache 的包装格式 { data, _expire }，不是裸字符串
+     * （cache.ts 的 autoCleanup 会把 JSON.parse 失败的键当损坏缓存删掉）。
+     */
+    var effect = '%LOGIN_PARTICLE%'
+    if (effect.charAt(0) === '%') {
+      effect = 'code'
+      try {
+        var raw = readCache('login-particle')
+        if (raw) {
+          var parsed = JSON.parse(raw)
+          effect = (parsed && typeof parsed === 'object' ? parsed.data : parsed) || 'code'
+        }
+      } catch (e) {
+        // 解析失败保持默认的代码矩阵
+      }
+    }
+    if (effect === 'none') return
+
+    /**
+     * 用固定序列而非 Math.random
+     * 每次刷新粒子位置一致，不会出现「有时挤在一起、有时空一片」的随机劣化。
+     */
+    function seeded(i, m) {
+      return ((i * 9301 + 49297) % 233280) % m
+    }
+
+    /** 把落在中心带的粒子推到两侧，给 logo 与文案让位 */
+    function pushAside(x, band) {
+      if (x > band && x < 100 - band) return x + (x < 50 ? -band : band)
+      return x
+    }
+
+    var SYMBOLS = ['{ }', '</>', '=>', '&&', '[ ]', '( )', '::', '/**', '#!', '||', '...', '?.', '<T>', '@Service', 'async', 'await', '0x1F', 'i++']
+
+    /* 等距立方体 SVG（30° 透视，与 AParticleCanvas.vue 的 drawCube 同一套几何） */
+    var CUBE =
+      '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">' +
+      '<polygon points="50,0 93.3,25 50,50 6.7,25" fill="rgba(' + LP + ',.10)"/>' +
+      '<polygon points="50,0 93.3,25 93.3,75 50,100 6.7,75 6.7,25" fill="none" stroke="rgba(' + LP + ',.32)" stroke-width="2"/>' +
+      '<path d="M50 0 L50 50 L93.3 75 M50 50 L6.7 75" fill="none" stroke="rgba(' + LP + ',.22)" stroke-width="1.6"/>' +
+      '</svg>'
+
+    var frag = document.createDocumentFragment()
+    var i
+
+    if (effect === 'code') {
+      for (i = 0; i < 22; i++) {
+        var sym = document.createElement('span')
+        sym.className = 'p-item'
+        sym.textContent = SYMBOLS[seeded(i + 3, SYMBOLS.length)]
+        sym.style.left = pushAside(seeded(i * 7 + 11, 100), 18) + '%'
+        sym.style.top = 55 + seeded(i * 13 + 5, 60) + '%'
+        sym.style.fontSize = 11 + seeded(i * 3 + 7, 12) + 'px'
+        sym.style.animationDuration = 18 + seeded(i * 5, 13) + 's'
+        sym.style.animationDelay = '-' + seeded(i * 11, 22) + 's'
+        frag.appendChild(sym)
+      }
+    } else if (effect === 'cube') {
+      for (i = 0; i < 9; i++) {
+        var cube = document.createElement('span')
+        cube.className = 'p-cube'
+        cube.innerHTML = CUBE
+        var size = 22 + seeded(i * 17 + 3, 34)
+        cube.style.width = cube.style.height = size + 'px'
+        cube.style.left = pushAside(seeded(i * 23 + 9, 100), 20) + '%'
+        cube.style.top = 58 + seeded(i * 19 + 7, 55) + '%'
+        cube.style.animationDuration = 22 + seeded(i * 7, 14) + 's'
+        cube.style.animationDelay = '-' + seeded(i * 13, 26) + 's'
+        frag.appendChild(cube)
+      }
+    } else if (effect === 'flow') {
+      for (i = 0; i < 16; i++) {
+        var flow = document.createElement('span')
+        flow.className = 'p-flow'
+        flow.style.left = pushAside(seeded(i * 29 + 13, 100), 16) + '%'
+        flow.style.top = '-' + (60 + seeded(i * 11, 120)) + 'px'
+        flow.style.height = 60 + seeded(i * 19 + 3, 120) + 'px'
+        flow.style.animationDuration = 9 + seeded(i * 7, 8) + 's'
+        flow.style.animationDelay = '-' + seeded(i * 5, 12) + 's'
+        frag.appendChild(flow)
+      }
+    } else {
+      /* link / star 都是点阵，加载页不做连线（纯 CSS 画不了动态连线） */
+      var count = effect === 'star' ? 42 : 30
+      for (i = 0; i < count; i++) {
+        var dot = document.createElement('span')
+        dot.className = 'p-dot'
+        var r = (effect === 'star' ? 1.4 : 2) + seeded(i * 3 + 1, 2)
+        dot.style.width = dot.style.height = r + 'px'
+        dot.style.left = pushAside(seeded(i * 31 + 7, 100), 14) + '%'
+        dot.style.top = seeded(i * 37 + 3, 100) + '%'
+        dot.style.animationDuration = 2 + seeded(i * 7, 3) + 's'
+        dot.style.animationDelay = '-' + seeded(i * 13, 4) + 's'
+        frag.appendChild(dot)
+      }
+    }
+
+    stage.appendChild(frag)
+  })()
+</script>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,769 @@
+<!--
+InputNumber 计数器 由增加按钮、减少按钮和输入框组成,用于在一定范围内输入、调整数字。
+
+UniApp X 版本
+- 移除 defineOptions
+- export type InputNumberBeforeChange → 移除 export
+- type OperationType = 'add' | 'sub' → string
+- FormItemRule 类型导入
+- ReturnType<typeof setTimeout> → number
+- display: inline-block → display: flex
+- edeep → e
+-->
+<template>
+  <view :class="rootClass" :style="customStyle">
+    <view
+      v-if="label != '' || $slots.label"
+      :class="`wd-input-number__label ${customLabelClass} ${isRequired ? 'is-required' : ''}`"
+      :style="
+        labelWidth != '' ? `min-width: ${addUnit(labelWidth)}; max-width: ${addUnit(labelWidth)};` : ''
+      "
+    >
+      <view v-if="prefixIcon != '' || $slots.prefix" class="wd-input-number__prefix">
+        <wd-icon
+          v-if="prefixIcon != '' && !$slots.prefix"
+          custom-class="wd-input-number__icon"
+          :name="prefixIcon"
+          @click="onClickPrefixIcon"
+        />
+        <slot v-else name="prefix" />
+      </view>
+      <view class="wd-input-number__label-inner">
+        <template v-if="label != '' && !$slots.label">
+          {{ label }}
+        </template>
+        <slot v-else name="label" />
+      </view>
+    </view>
+    <view class="wd-input-number__body">
+      <view class="wd-input-number__value">
+        <view v-if="(prefixIcon != '' || $slots.prefix) && label == ''" class="wd-input-number__prefix">
+          <wd-icon
+            v-if="prefixIcon != '' && !$slots.prefix"
+            custom-class="wd-input-number__icon"
+            :name="prefixIcon"
+            @click="onClickPrefixIcon"
+          />
+          <slot v-else name="prefix" />
+        </view>
+        <view
+          :class="`wd-input-number__wrapper ${disabled ? 'is-disabled' : ''} ${withoutInput ? 'is-without-input' : ''}`"
+        >
+          <!-- 减号按钮 -->
+          <view
+            :class="`wd-input-number__action ${minDisabled || disableMinus ? 'is-disabled' : ''}`"
+            @click="handleClick('sub')"
+            @touchstart="handleTouchStart('sub')"
+            @touchend.stop="handleTouchEnd"
+          >
+            <wd-icon name="minus" custom-class="wd-input-number__action-icon" size="36" />
+          </view>
+          <!-- 输入框 -->
+          <view v-if="!withoutInput" class="wd-input-number__inner" @click.stop="">
+            <input
+              class="wd-input-number__input"
+              :style="inputWidth != '' ? `width: ${addUnit(inputWidth)}` : ''"
+              :type="inputType"
+              :input-mode="precision > 0 ? 'decimal' : 'numeric'"
+              :disabled="disabled || disableInput"
+              :value="String(inputValue)"
+              :placeholder="placeholder"
+              :adjust-position="adjustPosition"
+              @input="handleInput"
+              @focus="handleFocus"
+              @blur="handleBlur"
+            />
+            <view class="wd-input-number__input-border" />
+          </view>
+          <!-- 加号按钮 -->
+          <view
+            :class="`wd-input-number__action ${maxDisabled || disablePlus ? 'is-disabled' : ''}`"
+            @click="handleClick('add')"
+            @touchstart="handleTouchStart('add')"
+            @touchend.stop="handleTouchEnd"
+          >
+            <wd-icon name="add" custom-class="wd-input-number__action-icon" size="36" />
+          </view>
+        </view>
+        <view v-if="suffixIcon != '' || $slots.suffix" class="wd-input-number__suffix">
+          <wd-icon
+            v-if="suffixIcon != '' && !$slots.suffix"
+            custom-class="wd-input-number__icon"
+            :name="suffixIcon"
+            @click="onClickSuffixIcon"
+          />
+          <slot v-else name="suffix" />
+        </view>
+      </view>
+      <view v-if="errorMessage != ''" class="wd-input-number__error-message">
+        {{ errorMessage }}
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, nextTick, ref, watch } from 'vue'
+import { addUnit, isDef, isEqual } from '../common/util'
+import { useCell } from '../../composables/useCell'
+import { useParent } from '../../composables/useParent'
+import { FORM_KEY } from '../wd-form/wd-form-key'
+
+/**
+ * 表单验证规则类型(简化版)
+ */
+type FormItemRule = {
+  required ?: boolean
+  message ?: string
+  validator ?: (value : any) => boolean
+}
+
+/**
+ * 计数器组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 自定义标签样式类 */
+  customLabelClass ?: string
+  /** 绑定值 */
+  modelValue : string | number
+  /** 最小值 */
+  min ?: number
+  /** 最大值 */
+  max ?: number
+  /** 步进值 */
+  step ?: number
+  /** 数值精度 */
+  precision ?: number
+  /** 是否禁用 */
+  disabled ?: boolean
+  /** 是否禁用输入框 */
+  disableInput ?: boolean
+  /** 是否禁用减号按钮 */
+  disableMinus ?: boolean
+  /** 是否禁用加号按钮 */
+  disablePlus ?: boolean
+  /** 是否不显示输入框 */
+  withoutInput ?: boolean
+  /** 输入框宽度(rpx) */
+  inputWidth ?: string | number
+  /** 输入框占位符 */
+  placeholder ?: string
+  /** 键盘弹起时,是否自动上推页面 */
+  adjustPosition ?: boolean
+  /** 输入框类型 */
+  inputType ?: string
+  /** 设置左侧标题 */
+  label ?: string
+  /** 设置左侧标题宽度(rpx) */
+  labelWidth ?: string | number
+  /** 前置图标 */
+  prefixIcon ?: string
+  /** 后置图标 */
+  suffixIcon ?: string
+  /** 当有label属性时,设置标题和输入框垂直居中 */
+  center ?: boolean
+  /** 是否必填 */
+  required ?: boolean
+  /** 表单域 model 字段名 */
+  prop ?: string
+  /** 表单验证规则 */
+  rules ?: FormItemRule[]
+  /** 设置输入框错误状态 */
+  error ?: boolean
+  /** 非 cell 类型下是否隐藏下划线 */
+  noBorder ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  customLabelClass: '',
+  min: 1,
+  max: 2147483647,
+  step: 1,
+  precision: 0,
+  disabled: false,
+  disableInput: false,
+  disableMinus: false,
+  disablePlus: false,
+  withoutInput: false,
+  inputWidth: 120,
+  placeholder: '',
+  adjustPosition: true,
+  inputType: 'digit',
+  label: '',
+  labelWidth: '',
+  prefixIcon: '',
+  suffixIcon: '',
+  center: false,
+  required: false,
+  prop: '',
+  rules: () : FormItemRule[] => { return [] },
+  error: false,
+  noBorder: true,
+})
+
+/** 组件事件 */
+const emit = defineEmits<{
+  /** 数值变化事件 */
+  change: [value: { value: number | string }]
+  /** 输入框聚焦事件 */
+  focus: [detail: any]
+  /** 输入框失焦事件 */
+  blur: [value: { value: string | number }]
+  /** v-model 更新事件 */
+  'update:modelValue': [value: number | string]
+  /** 点击后置图标 */
+  clicksuffixicon: []
+  /** 点击前置图标 */
+  clickprefixicon: []
+}>()
+
+/** 使用 cell 组合函数 */
+const cell = useCell()
+
+/** 使用表单组合函数 */
+const { parent: form } = useParent(FORM_KEY)
+
+/** 响应式数据 */
+const inputValue = ref<string | number>(props.modelValue)
+let longPressTimer : number | null = null
+
+/**
+ * 格式化数值
+ */
+const normalizeValue = (val : number) : number => {
+  let result = Math.min(Math.max(val, props.min), props.max)
+  if (props.precision > 0) {
+    const precision = props.precision
+    result = Math.round(result * Math.pow(10, precision)) / Math.pow(10, precision)
+  }
+  return result
+}
+
+/**
+ * 转换为数字
+ */
+const convertToNumber = (val : string | number) : number => {
+  if (val === '' || val == null) {
+    return props.min
+  }
+
+  let str = String(val)
+  if (str.endsWith('.')) str = str.slice(0, -1)
+  if (str.startsWith('.')) str = `0${str}`
+  if (str.startsWith('-.')) str = `-0${str.substring(1)}`
+  if (str === '-' || str === '') return props.min
+
+  let num = parseFloat(str)
+  if (isNaN(num)) num = props.min
+
+  return normalizeValue(num)
+}
+
+/**
+ * 按步进值增减
+ */
+const addStepValue = (val : string | number, step : number) : number => {
+  const num = convertToNumber(val)
+  const result = num + step
+  return normalizeValue(result)
+}
+
+/**
+ * 判断是否达到最小值
+ */
+const minDisabled = computed(() : boolean => {
+  const val = convertToNumber(inputValue.value)
+  return props.disabled || val <= props.min || addStepValue(val, -props.step) < props.min
+})
+
+/**
+ * 判断是否达到最大值
+ */
+const maxDisabled = computed(() : boolean => {
+  const val = convertToNumber(inputValue.value)
+  return props.disabled || val >= props.max || addStepValue(val, props.step) > props.max
+})
+
+/**
+ * 更新值
+ */
+const updateInputValue = (val : string | number) : void => {
+  if (val === '' || val == null) {
+    inputValue.value = ''
+    emit('update:modelValue', '')
+    emit('change', { value: '' })
+    return
+  }
+
+  const num = convertToNumber(val)
+  inputValue.value = num
+  emit('update:modelValue', num)
+  emit('change', { value: num })
+}
+
+/**
+ * 处理按钮点击
+ */
+const handleClick = (type : string) : void => {
+  const step = type === 'add' ? props.step : -props.step
+  if (
+    (step < 0 && (minDisabled.value || props.disableMinus)) ||
+    (step > 0 && (maxDisabled.value || props.disablePlus))
+  ) {
+    return
+  }
+
+  const newVal = addStepValue(inputValue.value, step)
+  updateInputValue(newVal)
+}
+
+/**
+ * 清除长按定时器
+ */
+const clearLongPressTimer = () : void => {
+  if (longPressTimer != null) {
+    clearTimeout(longPressTimer!)
+    longPressTimer = null
+  }
+}
+
+/**
+ * 长按逻辑
+ */
+const executeLongPressStep = (type : string) : void => {
+  clearLongPressTimer()
+  longPressTimer = setTimeout(() => {
+    handleClick(type)
+    executeLongPressStep(type)
+  }, 250)
+}
+
+/**
+ * 处理输入事件
+ */
+const handleInput = (event : any) : void => {
+  const rawVal = event.detail.value as string
+  inputValue.value = rawVal
+}
+
+/**
+ * 处理失焦事件
+ */
+const handleBlur = (event : any) : void => {
+  const val = event.detail.value as string
+  updateInputValue(val)
+  emit('blur', { value: val })
+}
+
+/**
+ * 处理聚焦事件
+ */
+const handleFocus = (event : any) : void => {
+  emit('focus', event.detail)
+}
+
+/**
+ * 处理触摸开始事件
+ */
+const handleTouchStart = (type : string) : void => {
+  clearLongPressTimer()
+  longPressTimer = setTimeout(() => {
+    handleClick(type)
+    executeLongPressStep(type)
+  }, 600)
+}
+
+/**
+ * 处理触摸结束事件
+ */
+const handleTouchEnd = () : void => {
+  clearLongPressTimer()
+}
+
+/**
+ * 处理点击前置图标事件
+ */
+const onClickPrefixIcon = () : void => {
+  emit('clickprefixicon')
+}
+
+/**
+ * 处理点击后置图标事件
+ */
+const onClickSuffixIcon = () : void => {
+  emit('clicksuffixicon')
+}
+
+/**
+ * 计算表单错误信息
+ */
+const errorMessage = computed(() : string => {
+  if (form != null && props.prop != '' && form.errorMessages != null) {
+    const errors = form.errorMessages as UTSJSONObject
+    const msg = errors[props.prop]
+    if (msg != null) {
+      return msg as string
+    }
+  }
+  return ''
+})
+
+/**
+ * 计算是否必填
+ */
+const isRequired = computed(() : boolean => {
+  let formRequired = false
+  if (form != null && form.props.rules != null) {
+    const rules = form.props.rules as UTSJSONObject
+    const propRules = rules[props.prop]
+    if (Array.isArray(propRules)) {
+      const arr = propRules as FormItemRule[]
+      formRequired = arr.some((rule : FormItemRule) : boolean => rule.required == true)
+    }
+  }
+  return props.required || props.rules.some((rule : FormItemRule) : boolean => rule.required == true) || formRequired
+})
+
+/**
+ * 计算根元素类名
+ */
+const rootClass = computed(() : string => {
+  const classes : string[] = ['wd-input-number']
+
+  if (props.label != '' || useSlots().label) classes.push('is-cell')
+  if (props.center) classes.push('is-center')
+  if (cell.border.value) classes.push('is-border')
+  if (props.error) classes.push('is-error')
+  if (props.disabled) classes.push('is-disabled')
+  if (props.noBorder) classes.push('is-no-border')
+  if (props.customClass != '') classes.push(props.customClass)
+
+  return classes.join(' ')
+})
+
+/** 监听 modelValue 变化 */
+watch(() => props.modelValue, (val : string | number) => {
+  inputValue.value = val
+})
+
+/** 监听 max, min, precision 变化时重新格式化当前值 */
+watch([() => props.max, () => props.min, () => props.precision], () => {
+  const val = convertToNumber(inputValue.value)
+  inputValue.value = val
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/_mixin.scss';
+@import '../common/abstracts/variable.scss';
+
+.wot-theme-dark {
+  @include b(input-number) {
+    background: $-dark-background2;
+
+    &::after {
+      background: $-dark-color-gray;
+    }
+
+    @include e(action) {
+      color: $-dark-color;
+      @include when(disabled) {
+        color: $-dark-color-gray;
+      }
+    }
+
+    @include e(input) {
+      color: $-dark-color;
+    }
+
+    @include e(label) {
+      color: $-dark-color;
+    }
+
+    @include e(icon) {
+      color: $-dark-color;
+      background: transparent;
+    }
+
+    @include when(cell) {
+      background-color: $-dark-background2;
+      line-height: $-cell-line-height;
+
+      @include when(border) {
+        @include halfPixelBorder('top', $-input-cell-padding, $-dark-border-color);
+      }
+    }
+
+    @include when(disabled) {
+      .wd-input-number__input {
+        color: $-dark-color-gray;
+      }
+      .wd-input-number__sub,
+      .wd-input-number__add {
+        color: $-dark-color-gray;
+      }
+    }
+  }
+}
+
+@include b(input-number) {
+  position: relative;
+  text-align: center;
+  user-select: none;
+  line-height: 1.15;
+  background: $-input-bg;
+
+  &::after {
+    position: absolute;
+    content: '';
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: $-input-border-color;
+    transform: scaleY(0.5);
+    transition: background-color 0.2s ease-in-out;
+  }
+
+  @include e(label) {
+    position: relative;
+    display: flex;
+    width: $-input-cell-label-width;
+    color: $-cell-title-color;
+    margin-right: $-cell-padding;
+    box-sizing: border-box;
+    font-size: $-input-fs;
+    flex-shrink: 0;
+
+    @include when(required) {
+      padding-left: 24rpx;
+
+      &::after {
+        position: absolute;
+        left: 0;
+        top: 4rpx;
+        content: '*';
+        font-size: $-cell-required-size;
+        line-height: 1.1;
+        color: $-cell-required-color;
+      }
+    }
+  }
+
+  @include e(label-inner) {
+    display: flex;
+    font-size: $-input-fs;
+    line-height: $-cell-line-height;
+  }
+
+  @include e(body) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  @include e(value) {
+    position: relative;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+  }
+
+  @include e(prefix) {
+    margin-right: $-input-icon-margin;
+    font-size: $-input-fs;
+    line-height: initial;
+
+    @include e(icon) {
+      margin-left: 0;
+    }
+  }
+
+  @include e(suffix) {
+    flex-shrink: 0;
+    line-height: initial;
+  }
+
+  @include e(wrapper) {
+    display: flex;
+    user-select: none;
+    line-height: 1.15;
+    margin-left: auto;
+    .is-cell & {
+      max-width: fit-content;
+      margin-left: auto;
+    }
+  }
+
+  @include e(error-message) {
+    color: $-form-item-error-message-color;
+    font-size: $-form-item-error-message-font-size;
+    line-height: $-form-item-error-message-line-height;
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  @include e(icon) {
+    margin-left: $-input-icon-margin;
+    font-size: $-input-icon-size;
+    color: $-input-icon-color;
+    vertical-align: middle;
+    background: $-input-bg;
+  }
+
+  @include when(cell) {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: $-input-cell-padding $-input-padding;
+    background-color: $-input-cell-bg;
+
+    &.is-error::after {
+      background: $-input-cell-border-color;
+    }
+
+    @include e(icon) {
+      display: flex;
+      align-items: center;
+      height: $-input-cell-height;
+      line-height: $-input-cell-height;
+    }
+
+    .wd-input-number__prefix {
+      display: flex;
+      margin-right: $-cell-icon-right;
+    }
+
+    .wd-input-number__body {
+      flex: 1;
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .wd-input-number__value {
+      justify-content: flex-end;
+    }
+
+    &.wd-input-number::after {
+      display: none;
+    }
+
+    @include when(center) {
+      align-items: center;
+    }
+
+    @include when(border) {
+      @include halfPixelBorder('top', $-input-cell-padding);
+    }
+  }
+
+  @include when(no-border) {
+    &::after {
+      display: none;
+    }
+  }
+
+  @include when(disabled) {
+    .wd-input-number__input {
+      color: $-input-disabled-color;
+      z-index: inherit;
+    }
+    .wd-input-number__sub,
+    .wd-input-number__add {
+      color: $-input-disabled-color;
+    }
+  }
+
+  @include when(without-input) {
+    .wd-input-number__action:last-child::after {
+      border-left: none;
+    }
+  }
+
+  @include e(action) {
+    position: relative;
+    display: flex;
+    width: $-input-number-btn-width;
+    height: $-input-number-height;
+    vertical-align: middle;
+    color: $-input-number-icon-color;
+    -webkit-tap-highlight-color: transparent;
+    box-sizing: border-box;
+
+    &::after {
+      position: absolute;
+      content: '';
+      width: calc(200% - 2px);
+      height: calc(200% - 2px);
+      left: 0;
+      top: 0;
+      border: 2rpx solid $-input-number-border-color;
+      border-top-left-radius: calc($-input-number-radius * 2);
+      border-bottom-left-radius: calc($-input-number-radius * 2);
+      transform: scale(0.5);
+      transform-origin: left top;
+    }
+
+    &:last-child::after {
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+      border-top-right-radius: calc($-input-number-radius * 2);
+      border-bottom-right-radius: calc($-input-number-radius * 2);
+    }
+
+    @include when(disabled) {
+      color: $-input-number-disabled-color;
+    }
+  }
+
+  @include e(inner) {
+    position: relative;
+    display: flex;
+    vertical-align: middle;
+  }
+
+  @include e(input) {
+    position: relative;
+    display: block;
+    width: $-input-number-input-width;
+    height: $-input-number-height;
+    padding: 0 4rpx;
+    box-sizing: border-box;
+    z-index: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    text-align: center;
+    color: $-input-number-color;
+    font-size: $-input-number-fs;
+    -webkit-appearance: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  @include e(input-border) {
+    position: absolute;
+    width: 100%;
+    height: calc(200% - 2px);
+    left: 0;
+    top: 0;
+    border-top: 2rpx solid $-input-number-border-color;
+    border-bottom: 2rpx solid $-input-number-border-color;
+    transform: scaleY(0.5);
+    transform-origin: left top;
+    z-index: 0;
+  }
+
+  @include e(action-icon) {
+    display: flex;
+    font-size: $-input-number-icon-size;
+    width: $-input-number-icon-size;
+    height: $-input-number-icon-size;
+    margin-top: 2rpx;
+    margin-right: 8rpx;
+  }
+}
+</style>

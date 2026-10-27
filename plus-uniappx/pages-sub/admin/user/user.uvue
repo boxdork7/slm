@@ -1,0 +1,16 @@
+<template>
+  <view>
+    <wd-navbar title="用户管理" show-back />
+
+    <wd-text custom-class="user-text" text="用户管理" />
+  </view>
+</template>
+
+<script setup lang="uts">
+</script>
+
+<style lang="scss" scoped>
+.user-text {
+  margin-left: 32rpx;
+}
+</style>

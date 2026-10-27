@@ -1,0 +1,1233 @@
+<!--
+ColPicker 多列选择器
+使用多列选择器来做级联，交互效果较好，多列选择器支持无限级选择。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type/interface
+- 移除手动组件导入（easycom 自动注册）
+- import type → 移除
+- FormItemRule 从 wd-form-key 导入
+- useParent → inject(FORM_KEY)
+- Record<string, any> → UTSJSONObject
+- any → 具体类型
+- ComponentPublicInstance → 移除
+- getCurrentInstance as any → 移除
+- useTranslate → 直接使用中文文本
+- Union literal 类型 → string
+- :deep() → 直接类选择器
+- edeep → e
+- halfPixelBorder → border: 1rpx solid
+- Array.isArray → isArray
+- ::after → 真实 view 元素
+- CSSProperties → string
+- 计算属性返回类型显式标注
+- watch 回调参数显式类型标注
+-->
+<template>
+  <view
+    :class="`wd-col-picker ${cell.border.value ? 'is-border' : ''} ${customClass}`"
+    :style="customStyle"
+  >
+    <view class="wd-col-picker__field" @click="showPicker">
+      <slot v-if="useDefaultSlot"></slot>
+      <view
+        v-else
+        :class="`wd-col-picker__cell ${disabled ? 'is-disabled' : ''} ${readonly ? 'is-readonly' : ''} ${alignRight ? 'is-align-right' : ''} ${error ? 'is-error' : ''} ${size != '' ? `is-${size}` : ''}`"
+      >
+        <view
+          v-if="label != '' || useLabelSlot"
+          :class="`wd-col-picker__label ${isRequired ? 'is-required' : ''} ${customLabelClass}`"
+          :style="
+            labelWidth != ''
+              ? `min-width: ${labelWidth}; max-width: ${labelWidth};`
+              : ''
+          "
+        >
+          <template v-if="label != ''">{{ label }}</template>
+          <slot v-else name="label"></slot>
+        </view>
+        <view class="wd-col-picker__body">
+          <view class="wd-col-picker__value-wraper">
+            <view
+              :class="`wd-col-picker__value ${ellipsis ? 'is-ellipsis' : ''} ${customValueClass} ${showValue == '' ? 'wd-col-picker__value--placeholder' : ''}`"
+            >
+              {{ showValue != '' ? showValue : (placeholder != '' ? placeholder : '请选择') }}
+            </view>
+            <wd-icon
+              v-if="!disabled && !readonly"
+              custom-class="wd-col-picker__arrow"
+              name="right"
+            />
+          </view>
+          <view v-if="errorMessage != ''" class="wd-col-picker__error-message">{{ errorMessage }}</view>
+        </view>
+      </view>
+    </view>
+    <wd-action-sheet
+      v-model="pickerShow"
+      :duration="250"
+      :title="title != '' ? title : '请选择'"
+      :close-on-click-modal="closeOnClickModal"
+      :z-index="zIndex"
+      :safe-area-inset-bottom="safeAreaInsetBottom"
+      @open="handlePickerOpend"
+      @close="handlePickerClose"
+      @closed="handlePickerClosed"
+    >
+      <view class="wd-col-picker__selected">
+        <scroll-view :scroll-x="true" scroll-with-animation :scroll-left="scrollLeft">
+          <view class="wd-col-picker__selected-container">
+            <view
+              v-for="(_, colIndex) in selectList"
+              :key="colIndex"
+              :class="`wd-col-picker__selected-item  ${colIndex === currentCol ? 'is-selected' : ''}`"
+              @click="handleColClick(colIndex)"
+            >
+              {{ selectShowList[colIndex] ?? '请选择' }}
+            </view>
+            <view class="wd-col-picker__selected-line" :style="state.lineStyle"></view>
+          </view>
+        </scroll-view>
+      </view>
+      <view class="wd-col-picker__list-container">
+        <view
+          v-for="(col, colIndex) in selectList"
+          :key="colIndex"
+          class="wd-col-picker__list"
+          :style="colIndex === currentCol ? 'display: block;' : 'display: none;'"
+        >
+          <view
+            v-for="(item, index) in col"
+            :key="index"
+            :class="`wd-col-picker__list-item ${pickerColSelected[colIndex] != null && item[valueKey] === pickerColSelected[colIndex] ? 'is-selected' : ''} ${
+              item['disabled'] == true ? 'is-disabled' : ''
+            }`"
+            @click="chooseItem(colIndex, index)"
+          >
+            <view>
+              <view class="wd-col-picker__list-item-label">{{ item[labelKey] }}</view>
+              <view v-if="item[tipKey] != null" class="wd-col-picker__list-item-tip">
+                {{ item[tipKey] }}
+              </view>
+            </view>
+            <wd-icon custom-class="wd-col-picker__checked" name="check"></wd-icon>
+          </view>
+          <view v-if="loading" class="wd-col-picker__loading">
+            <wd-loading :color="loadingColor" />
+          </view>
+        </view>
+      </view>
+    </wd-action-sheet>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, nextTick, onMounted, reactive, ref, watch, inject } from 'vue'
+import {
+  addUnit,
+  debounce,
+  getRect,
+  isArray,
+  isBoolean,
+  isDef,
+  isFunction,
+  objToStyle,
+} from '../common/util'
+import { useCell } from '../../composables/useCell'
+import { FORM_KEY, type FormProvide, type FormItemRule } from '../wd-form/wd-form-key'
+import { useChinaRegions } from '../../composables/useChinaRegions'
+
+/**
+ * 列变化回调选项类型
+ */
+type ColPickerColumnChangeOption = {
+  selectedItem : UTSJSONObject
+  index : number
+  rowIndex : number
+  resolve : (nextColumn : UTSJSONObject[]) => void
+  finish : (isOk ?: boolean) => void
+}
+
+/**
+ * 列变化回调函数类型
+ */
+export type ColPickerColumnChange = (option : ColPickerColumnChangeOption) => void
+
+/**
+ * 显示格式化函数类型
+ */
+type ColPickerDisplayFormat = (selectedItems : UTSJSONObject[]) => string
+
+/**
+ * 确认前回调函数类型
+ */
+type ColPickerBeforeConfirm = (
+  value : (string | number)[],
+  selectedItems : UTSJSONObject[],
+  resolve : (isPass : boolean) => void,
+) => void
+
+/**
+ * 多列选择器组件属性接口
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+
+  /** 选中项 */
+  modelValue : (string | number)[]
+  /** 选择器数据，二维数组 */
+  columns ?: UTSJSONObject[][]
+  /** 选择器左侧文案 */
+  label ?: string
+  /** 设置左侧标题宽度 */
+  labelWidth ?: string
+  /** 使用 label 插槽时设置该选项 */
+  useLabelSlot ?: boolean
+  /** 使用默认插槽时设置该选项 */
+  useDefaultSlot ?: boolean
+  /** 禁用 */
+  disabled ?: boolean
+  /** 只读 */
+  readonly ?: boolean
+  /** 选择器占位符 */
+  placeholder ?: string
+  /** 弹出层标题 */
+  title ?: string
+  /** 接收当前列的选中项 item、当前列下标、当前列选中项下标下一列数据处理函数 resolve、结束选择 finish */
+  columnChange ?: ColPickerColumnChange | null
+  /** 自定义展示文案的格式化函数，返回一个字符串 */
+  displayFormat ?: ColPickerDisplayFormat | null
+  /** 确定前校验函数，接收 (value, resolve) 参数，通过 resolve 继续执行 picker，resolve 接收 1 个 boolean 参数 */
+  beforeConfirm ?: ColPickerBeforeConfirm | null
+  /** 选择器的值靠右展示 */
+  alignRight ?: boolean
+  /** 是否为错误状态，错误状态时右侧内容为红色 */
+  error ?: boolean
+  /** 是否必填 */
+  required ?: boolean
+  /** 设置选择器大小，可选值：large */
+  size ?: string
+  /** 选项对象中，value 对应的 key */
+  valueKey ?: string
+  /** 选项对象中，展示的文本对应的 key */
+  labelKey ?: string
+  /** 选项对象中，提示文案对应的 key */
+  tipKey ?: string
+  /** loading 图标的颜色 */
+  loadingColor ?: string
+  /** 点击遮罩是否关闭 */
+  closeOnClickModal ?: boolean
+  /** 自动触发 column-change 事件来补全数据，当 columns 为空数组或者 columns 数组长度小于 value 数组长度时，会自动触发 column-change */
+  autoComplete ?: boolean
+  /** 弹窗层级 */
+  zIndex ?: number
+  /** 弹出面板是否设置底部安全距离（iphone X 类型的机型） */
+  safeAreaInsetBottom ?: boolean
+  /** 是否超出隐藏 */
+  ellipsis ?: boolean
+  /** 表单域 model 字段名，在使用表单校验功能的情况下，该属性是必填的 */
+  prop ?: string
+  /** 表单验证规则，结合wd-form组件使用 */
+  rules ?: FormItemRule[]
+  /** 底部条宽度，单位像素 */
+  lineWidth ?: string | number
+  /** 底部条高度，单位像素 */
+  lineHeight ?: string | number
+  /** label 外部自定义样式 */
+  customViewClass ?: string
+  /** label 外部自定义样式 */
+  customLabelClass ?: string
+  /** value 外部自定义样式 */
+  customValueClass ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  columns: () : UTSJSONObject[][] => [] as UTSJSONObject[][],
+  labelWidth: '33%',
+  useLabelSlot: false,
+  useDefaultSlot: false,
+  disabled: false,
+  readonly: false,
+  alignRight: false,
+  error: false,
+  required: false,
+  valueKey: 'value',
+  labelKey: 'label',
+  tipKey: 'tip',
+  loadingColor: '#4D80F0',
+  closeOnClickModal: true,
+  autoComplete: false,
+  zIndex: 100,
+  safeAreaInsetBottom: true,
+  ellipsis: false,
+  rules: () : FormItemRule[] => [] as FormItemRule[],
+  customViewClass: '',
+  customLabelClass: '',
+  customValueClass: '',
+  columnChange: null,
+  displayFormat: null,
+  beforeConfirm: null,
+  label: '',
+  placeholder: '',
+  title: '',
+  size: '',
+  prop: '',
+  lineWidth: '',
+  lineHeight: '',
+})
+
+// 定义组件事件
+const emit = defineEmits<{
+  (e : 'close') : void
+  (e : 'update:modelValue', value : (string | number)[]) : void
+  (e : 'confirm', data : { value : (string | number)[], selectedItems : UTSJSONObject[] }) : void
+}>()
+
+// 使用省市区数据组合函数
+const { getCitiesByProvince, getDistrictsByCity, getRegionColumns, getFullRegionName } =
+  useChinaRegions()
+
+// 响应式数据
+const pickerShow = ref<boolean>(false)
+const currentCol = ref<number>(0)
+const selectList = ref<UTSJSONObject[][]>([])
+const pickerColSelected = ref<(string | number | null)[]>([])
+const selectShowList = ref<(string | null)[]>([])
+const loading = ref<boolean>(false)
+const isChange = ref<boolean>(false)
+const lastSelectList = ref<UTSJSONObject[][]>([])
+const lastPickerColSelected = ref<(string | number)[]>([])
+const scrollLeft = ref<number>(0)
+const inited = ref<boolean>(false)
+const isCompleting = ref<boolean>(false)
+const isUsingAreaData = ref<boolean>(false)
+
+const state = reactive({
+  lineStyle: 'display:none;', // 激活项边框线样式
+})
+
+// 使用 cell 组合式函数
+const cell = useCell()
+
+// 选择器容器和项目选择器
+const $container = '.wd-col-picker__selected-container'
+const $item = '.wd-col-picker__selected-item'
+
+/**
+ * 设置线条样式
+ * 更新导航栏下划线的偏移量
+ */
+const setLineStyle = (animation : boolean = true) => {
+  if (!inited.value || !pickerShow.value) return
+
+  const updateStyle = () => {
+    getRect($item, true).then((rects : any | null) => {
+      if (!isArray(rects) || (rects as any[]).length === 0 || !(rects as any[])[currentCol.value]) return
+
+      const lineStyle : Map<string, any> = new Map<string, any>()
+
+      // 设置线条宽度
+      if (isDef(props.lineWidth)) {
+        lineStyle.set('width', addUnit(props.lineWidth))
+      }
+
+      if (isDef(props.lineHeight)) {
+        lineStyle.set('height', addUnit(props.lineHeight))
+        lineStyle.set('borderRadius', `calc(${addUnit(props.lineHeight)} / 2)`)
+      }
+
+      const currentRect = (rects as any[])[currentCol.value]
+
+      // 计算前面所有项的宽度总和
+      const offsetLeft = (rects as any[]).slice(0, currentCol.value).reduce((prev : number, curr : any) : number => {
+        return prev + parseFloat(curr['width'] ?? 0)
+      }, 0)
+
+      // 计算当前项的中心位置
+      const currentWidth = parseFloat(currentRect['width'] ?? 0)
+      const itemCenterX = offsetLeft + currentWidth / 2
+
+      // 设置线条位置到当前项的中心，强制使用px单位确保精确定位
+      lineStyle.set('transform', `translateX(${itemCenterX}px) translateX(-50%)`)
+      lineStyle.set('display', 'block')
+
+      if (animation) {
+        lineStyle.set('transition', 'width 300ms ease, transform 300ms ease')
+      }
+
+      state.lineStyle = objToStyle(lineStyle)
+    }).catch(() => {})
+  }
+
+  // 延迟执行确保DOM渲染完成
+  setTimeout(updateStyle, 100)
+}
+
+/**
+ * 滚动到当前激活的标签
+ * scroll-view滑动到active的tab_nav
+ */
+const lineScrollIntoView = () => {
+  if (!inited.value || !pickerShow.value) return
+  Promise.all([getRect($item, true), getRect($container, false)])
+    .then((results : any[]) => {
+      const navItemsRects = results[0]
+      const navRect = results[1]
+      if (!isArray(navItemsRects) || (navItemsRects as any[]).length === 0) return
+      // 选中元素
+      const selectItem = (navItemsRects as any[])[currentCol.value]
+      if (!selectItem) return
+
+      // 选中元素之前的节点的宽度总和
+      const offsetLeft = (navItemsRects as any[])
+        .slice(0, currentCol.value)
+        .reduce((prev : number, curr : any) : number => prev + parseFloat(curr['width'] ?? 0), 0)
+      // scroll-view滑动到selectItem的偏移量
+      scrollLeft.value = offsetLeft - ((navRect['width'] ?? 0) - parseFloat(selectItem['width'] ?? 0)) / 2
+    })
+    .catch(() => {})
+}
+
+// 防抖更新线条和滚动
+const updateLineAndScroll = debounce((animation : boolean = true) => {
+  setLineStyle(animation)
+  lineScrollIntoView()
+}, 50)
+
+/**
+ * 获取选中项
+ * 根据值和列索引从选择列表中获取对应的项目
+ */
+const getSelectedItem = (
+  value : string | number,
+  colIndex : number,
+  selectList : UTSJSONObject[][],
+) : UTSJSONObject => {
+  const valueKey = props.valueKey
+  const labelKey = props.labelKey
+  if (selectList[colIndex]) {
+    const selecteds = selectList[colIndex].filter((item : UTSJSONObject) : boolean => {
+      return item[valueKey] === value
+    })
+
+    if (selecteds.length > 0) {
+      return selecteds[0]
+    }
+  }
+
+  const result = {} as UTSJSONObject
+  result[valueKey] = value
+  result[labelKey] = ''
+  return result
+}
+
+/**
+ * 计算显示值
+ * 根据选中项和格式化函数计算最终显示的文本
+ */
+const showValue = computed(() : string => {
+  // 如果使用内置省市区数据且有自定义格式化函数，使用自定义函数
+  if (isUsingAreaData.value && props.displayFormat != null) {
+    const selectedItems = props.modelValue.map((item : string | number, colIndex : number) : UTSJSONObject => {
+      return getSelectedItem(item, colIndex, selectList.value)
+    })
+    return props.displayFormat!(selectedItems)
+  }
+
+  // 如果使用内置省市区数据且没有自定义格式化函数，使用内置的格式化
+  if (isUsingAreaData.value && props.modelValue.length > 0) {
+    const provinceCode = props.modelValue[0]
+    const cityCode = props.modelValue.length > 1 ? props.modelValue[1] : ''
+    const districtCode = props.modelValue.length > 2 ? props.modelValue[2] : ''
+    return getFullRegionName(provinceCode, cityCode, districtCode)
+  }
+
+  // 使用原有逻辑
+  const selectedItems = props.modelValue.map((item : string | number, colIndex : number) : UTSJSONObject => {
+    return getSelectedItem(item, colIndex, selectList.value)
+  })
+
+  if (props.displayFormat != null) {
+    return props.displayFormat!(selectedItems)
+  } else {
+    return selectedItems
+      .map((item : UTSJSONObject) : string => {
+        return item[props.labelKey] as string
+      })
+      .join('')
+  }
+})
+
+/**
+ * 初始化省市区数据
+ * 当未提供columns时，使用内置的中国省市区数据
+ */
+const initAreaData = () => {
+  if (props.columns.length === 0) {
+    isUsingAreaData.value = true
+    const provinceCode = props.modelValue.length > 0 ? props.modelValue[0] : ''
+    const cityCode = props.modelValue.length > 1 ? props.modelValue[1] : ''
+    selectList.value = getRegionColumns(provinceCode, cityCode)
+
+    // 更新显示文本列表
+    selectShowList.value = props.modelValue.map((item : string | number, colIndex : number) : string => {
+      return getSelectedItem(item, colIndex, selectList.value)[props.labelKey] as string
+    })
+
+    lastSelectList.value = selectList.value.slice(0)
+
+    if (selectList.value.length > 0) {
+      currentCol.value = selectList.value.length - 1
+    }
+  } else {
+    isUsingAreaData.value = false
+  }
+}
+
+/**
+ * 确认选择
+ * 触发确认事件，更新值并关闭选择器
+ */
+const onConfirm = () => {
+  isChange.value = false
+  loading.value = false
+  pickerShow.value = false
+
+  const filteredSelected = pickerColSelected.value.filter((item : string | number | null) : boolean => item != null) as (string | number)[]
+
+  emit('update:modelValue', filteredSelected)
+  emit('confirm', {
+    value: filteredSelected,
+    selectedItems: filteredSelected.map((item : string | number, colIndex : number) : UTSJSONObject => {
+      return getSelectedItem(item, colIndex, selectList.value)
+    }),
+  })
+}
+
+/**
+ * 处理列变化
+ * 触发列变化回调函数，处理下一列数据
+ */
+const handleColChange = (
+  colIndex : number,
+  item : UTSJSONObject,
+  index : number,
+  callback ?: (() => void) | null,
+) => {
+  // 对于内置省市区数据，不显示loading，因为数据是同步获取的
+  if (!isUsingAreaData.value) {
+    loading.value = true
+  }
+
+  // 如果使用内置省市区数据
+  if (isUsingAreaData.value) {
+    if (colIndex === 0) {
+      // 选择了省份，获取城市列表
+      const cities = getCitiesByProvince(item['value'] as string)
+      const newSelectList = selectList.value.slice(0)
+      newSelectList[1] = cities
+      selectList.value = newSelectList
+      currentCol.value = 1
+      updateLineAndScroll(true)
+
+      if (callback != null) {
+        isCompleting.value = false
+        selectShowList.value = pickerColSelected.value.map((item : string | number | null, colIndex : number) : string => {
+          if (item == null) return ''
+          return getSelectedItem(item, colIndex, selectList.value)[props.labelKey] as string
+        })
+        callback()
+      }
+    } else if (colIndex === 1) {
+      // 选择了城市，获取区县列表
+      const districts = getDistrictsByCity(item['value'] as string)
+      if (districts.length > 0) {
+        const newSelectList = selectList.value.slice(0)
+        newSelectList[2] = districts
+        selectList.value = newSelectList
+        currentCol.value = 2
+        updateLineAndScroll(true)
+
+        if (callback != null) {
+          isCompleting.value = false
+          selectShowList.value = pickerColSelected.value.map((item : string | number | null, colIndex : number) : string => {
+            if (item == null) return ''
+            return getSelectedItem(item, colIndex, selectList.value)[props.labelKey] as string
+          })
+          callback()
+        }
+      } else {
+        // 没有区县数据，直接完成选择
+        if (props.beforeConfirm != null) {
+          const filteredSelected = pickerColSelected.value.filter((item : string | number | null) : boolean => item != null) as (string | number)[]
+          props.beforeConfirm!(
+            filteredSelected,
+            filteredSelected.map((item : string | number, colIndex : number) : UTSJSONObject => {
+              return getSelectedItem(item, colIndex, selectList.value)
+            }),
+            (isPass : boolean) => {
+              if (isPass) {
+                onConfirm()
+              }
+            },
+          )
+        } else {
+          onConfirm()
+        }
+      }
+    } else {
+      // 选择了区县，完成选择
+      if (props.beforeConfirm != null) {
+        const filteredSelected = pickerColSelected.value.filter((item : string | number | null) : boolean => item != null) as (string | number)[]
+        props.beforeConfirm!(
+          filteredSelected,
+          filteredSelected.map((item : string | number, colIndex : number) : UTSJSONObject => {
+            return getSelectedItem(item, colIndex, selectList.value)
+          }),
+          (isPass : boolean) => {
+            if (isPass) {
+              onConfirm()
+            }
+          },
+        )
+      } else {
+        onConfirm()
+      }
+    }
+  } else {
+    // 使用自定义 columnChange
+    const columnChange = props.columnChange
+    if (columnChange != null) {
+      columnChange({
+        selectedItem: item,
+        index: colIndex,
+        rowIndex: index,
+        resolve: (nextColumn : UTSJSONObject[]) => {
+          if (!isArray(nextColumn)) {
+            console.error(
+              'error(wd-col-picker): the data of each column of wd-col-picker should be an array',
+            )
+            return
+          }
+
+          const newSelectList = selectList.value.slice(0)
+          newSelectList[colIndex + 1] = nextColumn
+
+          selectList.value = newSelectList
+          loading.value = false
+          currentCol.value = colIndex + 1
+
+          updateLineAndScroll(true)
+          if (callback != null) {
+            isCompleting.value = false
+            selectShowList.value = pickerColSelected.value.map((item : string | number | null, colIndex : number) : string => {
+              if (item == null) return ''
+              return getSelectedItem(item, colIndex, selectList.value)[props.labelKey] as string
+            })
+            callback()
+          }
+        },
+        finish: (isOk ?: boolean) => {
+          // 每设置展示数据回显
+          if (callback != null) {
+            loading.value = false
+            isCompleting.value = false
+            return
+          }
+          if (isBoolean(isOk) && !isOk) {
+            loading.value = false
+            return
+          }
+
+          if (props.beforeConfirm != null) {
+            const filteredSelected = pickerColSelected.value.filter((item : string | number | null) : boolean => item != null) as (string | number)[]
+            props.beforeConfirm!(
+              filteredSelected,
+              filteredSelected.map((item : string | number, colIndex : number) : UTSJSONObject => {
+                return getSelectedItem(item, colIndex, selectList.value)
+              }),
+              (isPass : boolean) => {
+                if (isPass) {
+                  onConfirm()
+                } else {
+                  loading.value = false
+                }
+              },
+            )
+          } else {
+            onConfirm()
+          }
+        },
+      })
+    }
+  }
+}
+
+/**
+ * 递归补齐列数据
+ * 自动补全缺失的列数据
+ */
+const diffColumns = (colIndex : number) => {
+  // colIndex 为 -1 时，item 为空对象，>=0 时则具有 value 属性
+  const item : UTSJSONObject = colIndex === -1 ? {} as UTSJSONObject : { [props.valueKey]: props.modelValue[colIndex] } as UTSJSONObject
+  handleColChange(colIndex, item, -1, () => {
+    // 如果 columns 长度还小于 value 长度，colIndex + 1，继续递归补齐
+    if (selectList.value.length < props.modelValue.length) {
+      diffColumns(colIndex + 1)
+    }
+  })
+}
+
+/**
+ * 处理自动补全
+ * 当需要时自动触发列变化来补齐数据
+ */
+const handleAutoComplete = () => {
+  if (props.autoComplete) {
+    // 如果 columns 数组长度为空，或者长度小于 value 的长度，自动触发 columnChange 来补齐数据
+    if (selectList.value.length < props.modelValue.length || selectList.value.length === 0) {
+      // isCompleting 是否在自动补全，锁操作
+      if (!isCompleting.value) {
+        // 在自动补全时，优先检查是否应该使用内置省市区数据
+        if (props.columns.length === 0) {
+          isUsingAreaData.value = true
+          initAreaData()
+        } else {
+          isUsingAreaData.value = false
+          // 使用原有的自动补全逻辑
+          const colIndex = selectList.value.length === 0 ? -1 : selectList.value.length - 1
+          diffColumns(colIndex)
+        }
+      }
+      isCompleting.value = true
+    }
+  }
+}
+
+/**
+ * 监听 modelValue 变化
+ * 当选中值发生变化时，更新内部状态并处理自动补全
+ */
+watch(
+  () => props.modelValue,
+  (newValue : (string | number)[]) => {
+    const currentSelected = pickerColSelected.value.filter((item : string | number | null) : boolean => item != null)
+    if (JSON.stringify(newValue) === JSON.stringify(currentSelected)) return
+
+    pickerColSelected.value = newValue.map((item : string | number) : string | number => item)
+
+    // 在处理 modelValue 变化时，重新判断是否使用内置数据
+    if (props.columns.length === 0) {
+      isUsingAreaData.value = true
+
+      // 如果使用内置省市区数据，更新列数据
+      if (newValue.length > 0) {
+        const provinceCode = newValue[0]
+        const cityCode = newValue.length > 1 ? newValue[1] : ''
+        selectList.value = getRegionColumns(provinceCode, cityCode)
+      }
+    }
+
+    handleAutoComplete()
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+/**
+ * 监听 columns 变化
+ * 当列数据发生变化时，更新选择列表和显示数据
+ */
+watch(
+  () => props.columns,
+  (newValue : UTSJSONObject[][]) => {
+    // 如果提供了 columns，则不使用内置省市区数据
+    if (newValue.length > 0) {
+      isUsingAreaData.value = false
+
+      if (!isArray(newValue[0])) {
+        return
+      }
+
+      const newSelectedList = newValue.slice(0)
+      selectList.value = newSelectedList
+      selectShowList.value = pickerColSelected.value.map((item : string | number | null, colIndex : number) : string => {
+        if (item == null) return ''
+        return getSelectedItem(item, colIndex, newSelectedList)[props.labelKey] as string
+      })
+      lastSelectList.value = newSelectedList
+
+      if (newSelectedList.length > 0) {
+        currentCol.value = newSelectedList.length - 1
+      }
+    } else {
+      // 如果没有提供 columns，使用内置省市区数据
+      initAreaData()
+    }
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+/**
+ * 监听 columnChange 函数变化
+ * 验证函数类型
+ */
+watch(
+  () => props.columnChange,
+  (fn : ColPickerColumnChange | null) => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of columnChange must be Function')
+    }
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+/**
+ * 监听 displayFormat 函数变化
+ * 验证函数类型
+ */
+watch(
+  () => props.displayFormat,
+  (fn : ColPickerDisplayFormat | null) => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of displayFormat must be Function')
+    }
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+/**
+ * 监听 beforeConfirm 函数变化
+ * 验证函数类型
+ */
+watch(
+  () => props.beforeConfirm,
+  (fn : ColPickerBeforeConfirm | null) => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of beforeConfirm must be Function')
+    }
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+// 使用表单父组件
+const form = inject<FormProvide | null>(FORM_KEY, null)
+
+/**
+ * 计算表单校验错误信息
+ * 从父表单组件获取当前字段的错误信息
+ */
+const errorMessage = computed(() : string => {
+  if (form != null && props.prop != '' && form.errorMessages != null && form.errorMessages[props.prop] != null) {
+    return form.errorMessages[props.prop] as string
+  } else {
+    return ''
+  }
+})
+
+/**
+ * 计算是否为必填字段
+ * 检查组件自身、表单规则和父表单规则中的必填设置
+ */
+const isRequired = computed(() : boolean => {
+  let formRequired = false
+  if (form != null && form.props.rules != null) {
+    const rules = form.props.rules as Map<string, FormItemRule[]>
+    if (props.prop != '' && rules.has(props.prop)) {
+      const ruleList = rules.get(props.prop)!
+      formRequired = ruleList.some((rule : FormItemRule) : boolean => rule.required == true)
+    }
+  }
+  return props.required || props.rules.some((rule : FormItemRule) : boolean => rule.required == true) || formRequired
+})
+
+/**
+ * 显示选择器
+ * 检查禁用和只读状态，保存当前状态
+ */
+const showPicker = () => {
+  if (props.disabled || props.readonly) return
+  pickerShow.value = true
+  lastPickerColSelected.value = pickerColSelected.value.filter((item : string | number | null) : boolean => item != null) as (string | number)[]
+  lastSelectList.value = selectList.value.slice(0)
+}
+
+/**
+ * 处理选择器关闭完成事件
+ * 如果有变化，恢复到上次的状态
+ */
+const handlePickerClosed = () => {
+  if (isChange.value) {
+    setTimeout(() => {
+      selectList.value = lastSelectList.value.slice(0)
+      pickerColSelected.value = lastPickerColSelected.value.map((item : string | number) : string | number => item)
+      selectShowList.value = lastPickerColSelected.value.map((item : string | number, colIndex : number) : string => {
+        return getSelectedItem(item, colIndex, lastSelectList.value)[props.labelKey] as string
+      })
+      currentCol.value = lastSelectList.value.length - 1
+      isChange.value = false
+    }, 250)
+  }
+}
+
+/**
+ * 处理选择器关闭事件
+ */
+const handlePickerClose = () => {
+  pickerShow.value = false
+  emit('close')
+}
+
+/**
+ * 组件挂载后初始化
+ */
+onMounted(() => {
+  inited.value = true
+})
+
+/**
+ * 打开选择器弹框
+ */
+const open = () => {
+  showPicker()
+}
+
+/**
+ * 关闭选择器弹框
+ */
+const close = () => {
+  handlePickerClose()
+}
+
+/**
+ * 处理选择器打开事件
+ * 更新线条位置和滚动位置
+ */
+const handlePickerOpend = () => {
+  updateLineAndScroll(false)
+}
+
+/**
+ * 选择项目
+ * 处理用户点击选择项目的逻辑
+ */
+const chooseItem = (colIndex : number, index : number) => {
+  const item = selectList.value[colIndex][index]
+  if (item['disabled'] == true) return
+
+  const newPickerColSelected : (string | number)[] = []
+  for (let i = 0; i < colIndex; i++) {
+    const val = pickerColSelected.value[i]
+    if (val != null) {
+      newPickerColSelected.push(val)
+    }
+  }
+  newPickerColSelected.push(item[props.valueKey] as string | number)
+
+  isChange.value = true
+  pickerColSelected.value = newPickerColSelected
+  selectList.value = selectList.value.slice(0, colIndex + 1)
+  selectShowList.value = newPickerColSelected.map((item : string | number, colIndex : number) : string => {
+    return getSelectedItem(item, colIndex, selectList.value)[props.labelKey] as string
+  })
+
+  if (selectShowList.value[colIndex] && colIndex === currentCol.value) {
+    updateLineAndScroll(true)
+  }
+
+  handleColChange(colIndex, item, index, null)
+}
+
+/**
+ * 处理列标签点击
+ * 切换到指定的列
+ */
+const handleColClick = (index : number) => {
+  isChange.value = true
+  currentCol.value = index
+  updateLineAndScroll(true)
+}
+
+// 暴露组件方法
+defineExpose({
+  close,
+  open,
+})
+</script>
+
+<style lang="scss">
+// 引入外部样式文件
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+// 暗色主题样式
+.wot-theme-dark {
+  @include b(col-picker) {
+    @include when(border) {
+      .wd-col-picker__cell {
+        border-top: 1rpx solid $-dark-border-color;
+        padding-left: $-cell-padding;
+      }
+    }
+
+    @include e(label) {
+      color: $-dark-color;
+    }
+
+    @include e(cell) {
+      background-color: $-dark-background2;
+      color: $-dark-color;
+
+      @include when(disabled) {
+        .wd-col-picker__value {
+          color: $-dark-color3;
+        }
+      }
+    }
+
+    @include e(list-item) {
+      @include when(disabled) {
+        color: $-dark-color3;
+      }
+    }
+
+    @include e(list-item-tip) {
+      color: $-dark-color-gray;
+    }
+
+    @include e(value) {
+      color: $-dark-color;
+
+      @include m(placeholder) {
+        color: $-dark-color-gray;
+      }
+    }
+
+    .wd-col-picker__arrow {
+      color: $-dark-color;
+    }
+
+    @include e(list) {
+      color: $-dark-color;
+    }
+
+    @include e(selected) {
+      color: $-dark-color;
+    }
+  }
+}
+
+// 多列选择器主体样式
+@include b(col-picker) {
+  @include when(border) {
+    .wd-col-picker__cell {
+      border-top: 1rpx solid $-color-border;
+      padding-left: $-cell-padding;
+    }
+  }
+  @include e(cell) {
+    position: relative;
+    display: flex;
+    padding: $-cell-wrapper-padding $-cell-padding;
+    align-items: flex-start;
+    background-color: $-color-white;
+    text-decoration: none;
+    color: $-cell-title-color;
+    font-size: $-cell-title-fs;
+    overflow: hidden;
+    line-height: $-cell-line-height;
+  }
+  @include e(cell) {
+    @include when(disabled) {
+      .wd-col-picker__value {
+        color: $-input-disabled-color;
+      }
+    }
+    @include when(align-right) {
+      .wd-col-picker__value {
+        text-align: right;
+      }
+    }
+    @include when(error) {
+      .wd-col-picker__value {
+        color: $-input-error-color;
+      }
+      .wd-col-picker__arrow {
+        color: $-input-error-color;
+      }
+    }
+    @include when(large) {
+      font-size: $-cell-title-fs-large;
+
+      .wd-col-picker__arrow {
+        font-size: $-cell-icon-size-large;
+      }
+    }
+  }
+  @include e(error-message) {
+    color: $-form-item-error-message-color;
+    font-size: $-form-item-error-message-font-size;
+    line-height: $-form-item-error-message-line-height;
+    text-align: left;
+    vertical-align: middle;
+  }
+  @include e(label) {
+    position: relative;
+    width: $-input-cell-label-width;
+    margin-right: $-cell-padding;
+    color: $-cell-title-color;
+    box-sizing: border-box;
+
+    @include when(required) {
+      padding-left: 12px;
+
+      /* 必填标记 */
+      &::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 2px;
+        width: 8px;
+        height: 8px;
+      }
+      /* 使用真实元素替代 ::after */
+    }
+  }
+  /* 必填星号 - 使用独立view元素 */
+  @include e(label-required) {
+    position: absolute;
+    left: 0;
+    top: 2px;
+    color: $-cell-required-color;
+    font-size: $-cell-required-size;
+    line-height: 1.1;
+  }
+  @include e(value-wraper) {
+    display: flex;
+  }
+  @include e(value) {
+    flex: 1;
+    margin-right: 10px;
+    color: $-cell-value-color;
+
+    @include when(ellipsis) {
+      @include lineEllipsis;
+    }
+    @include m(placeholder) {
+      color: $-input-placeholder-color;
+    }
+  }
+  @include e(body) {
+    flex: 1;
+  }
+  .wd-col-picker__arrow {
+    display: block;
+    font-size: $-cell-icon-size;
+    color: $-cell-arrow-color;
+    line-height: $-cell-line-height;
+  }
+  @include e(selected) {
+    height: $-col-picker-selected-height;
+    font-size: $-col-picker-selected-fs;
+    color: $-col-picker-selected-color;
+    overflow: hidden;
+  }
+  @include e(selected-container) {
+    position: relative;
+    display: flex;
+    user-select: none;
+  }
+  @include e(selected-item) {
+    flex: 0 0 auto;
+    height: $-col-picker-selected-height;
+    line-height: $-col-picker-selected-height;
+    padding: $-col-picker-selected-padding;
+
+    @include when(selected) {
+      font-weight: $-col-picker-selected-fw;
+    }
+  }
+  @include e(selected-line) {
+    position: absolute;
+    bottom: 5px;
+    width: $-col-picker-line-width;
+    left: 0;
+    height: $-col-picker-line-height;
+    background: $-col-picker-line-color;
+    z-index: 1;
+    border-radius: calc($-col-picker-line-height / 2);
+    box-shadow: $-col-picker-line-box-shadow;
+  }
+  @include e(list-container) {
+    position: relative;
+  }
+  @include e(list) {
+    height: $-col-picker-list-height;
+    padding-bottom: $-col-picker-list-padding-bottom;
+    box-sizing: border-box;
+    overflow: auto;
+    color: $-col-picker-list-color;
+    font-size: $-col-picker-list-fs;
+    -webkit-overflow-scrolling: touch;
+  }
+  @include e(list-item) {
+    display: flex;
+    padding: $-col-picker-list-item-padding;
+    align-items: flex-start;
+
+    @include when(selected) {
+      color: $-col-picker-list-color-checked;
+
+      .wd-col-picker__checked {
+        opacity: 1;
+      }
+    }
+    @include when(disabled) {
+      color: $-col-picker-list-color-disabled;
+    }
+  }
+  @include e(list-item-label) {
+    line-height: 1.285;
+  }
+  @include e(list-item-tip) {
+    margin-top: 2px;
+    font-size: $-col-picker-list-fs-tip;
+    color: $-col-picker-list-color-tip;
+  }
+  .wd-col-picker__checked {
+    display: block;
+    margin-left: 4px;
+    font-size: $-col-picker-list-checked-icon-size;
+    color: $-col-picker-list-color-checked;
+    opacity: 0;
+  }
+  @include e(loading) {
+    display: flex;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+  }
+}
+</style>

@@ -1,0 +1,87 @@
+/**
+ * 岗位信息类型定义 (UTS 格式)
+ * 源文件: plus-app/api/system/core/post/postTypes.ts
+ * 说明: 从 TypeScript 迁移到 UniApp X (UTS) 格式，扁平化 PageQuery 基类字段
+ */
+
+/**
+ * 岗位信息查询类型
+ * extends PageQuery -> 扁平化字段: pageNum?, pageSize?, orderByColumn?, isAsc?, searchValue?, params?
+ */
+export type SysPostQuery = {
+  /* PageQuery 扁平化字段 */
+  /** 当前页码，从1开始 */
+  pageNum?: number
+  /** 每页显示记录数 */
+  pageSize?: number
+  /** 排序字段 */
+  orderByColumn?: string
+  /** 排序方向 asc/desc */
+  isAsc?: string
+  /** 模糊搜索关键词 */
+  searchValue?: string
+  /** 扩展查询参数 */
+  params?: UTSJSONObject
+
+  /* 业务字段 */
+  /** 岗位ID */
+  postId?: string | number
+  /** 部门id */
+  deptId?: string | number
+  /** 所属部门id */
+  belongDeptId?: number | string
+  /** 岗位编码 */
+  postCode?: string
+  /** 岗位名称 */
+  postName?: string
+  /** 岗位类别编码 */
+  postCategory?: string
+  /** 状态 */
+  status?: string
+}
+
+/**
+ * 岗位信息表单类型
+ */
+export type SysPostBo = {
+  /** 岗位ID */
+  postId?: number | string
+  /** 部门id */
+  deptId?: number | string
+  /** 岗位编码 */
+  postCode?: string
+  /** 岗位名称 */
+  postName?: string
+  /** 岗位类别编码 */
+  postCategory?: string
+  /** 显示顺序 */
+  postSort?: number
+  /** 状态 */
+  status?: string
+  /** 备注 */
+  remark?: string
+}
+
+/**
+ * 岗位信息视图类型
+ */
+export type SysPostVo = {
+  /** 岗位ID */
+  postId: string | number
+  /** 部门id */
+  deptId: string | number
+  /** 岗位编码 */
+  postCode: string
+  /** 岗位名称 */
+  postName: string
+  /** 岗位类别编码 */
+  postCategory: string
+  /** 部门名称 */
+  deptName: string
+  /** 显示顺序 */
+  postSort: number
+  /** 状态 */
+  status: string
+  /** 备注 */
+  remark: string
+}

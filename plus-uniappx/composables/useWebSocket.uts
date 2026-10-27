@@ -1,0 +1,853 @@
+/**
+ * WebSocket 通信钩子 (UniApp X 版本)
+ *
+ * 从 plus-app/composables/useWebSocket.ts 迁移的 UTS 版本
+ *
+ * 包含以下功能：
+ * - 消息类型枚举和处理管道
+ * - 自动连接/断开/重连
+ * - 动态退避重连策略
+ * - 心跳检测
+ * - 消息发送/接收
+ * - 全局WebSocket管理器
+ *
+ * UTS 适配说明：
+ * - enum → const 字符串常量（UTS enum 与 Object.values 不兼容）
+ * - interface → type
+ * - constructor.name → handlerName 属性
+ * - ReturnType<typeof useWebSocket> → WebSocketInstance 类型
+ * - readonly() → 直接返回 ref
+ * - UniApp.SocketTask → SocketTask
+ * - setInterval/setTimeout 返回 number
+ * - 可选链调用 → 显式 null 检查
+ */
+import { ref, computed } from 'vue'
+import { SystemConfig } from '@/systemConfig'
+import { useToken } from './useToken'
+import { getCurrentTime } from '@/utils/date'
+
+// ================================
+// 消息类型常量
+// ================================
+
+/** 系统通知（包括通知和公告） */
+export const WS_TYPE_SYSTEM_NOTICE = 'system_notice'
+/** 聊天消息 */
+export const WS_TYPE_CHAT_MESSAGE = 'chat_message'
+/** 心跳消息 */
+export const WS_TYPE_HEARTBEAT = 'heartbeat'
+
+/** 所有有效的消息类型 */
+const VALID_MESSAGE_TYPES : string[] = [
+	WS_TYPE_SYSTEM_NOTICE,
+	WS_TYPE_CHAT_MESSAGE,
+	WS_TYPE_HEARTBEAT,
+]
+
+// ================================
+// 类型定义
+// ================================
+
+/**
+ * WebSocket 消息结构
+ */
+export type WSMessage = {
+	/** 消息类型 */
+	type : string
+	/** 消息数据 */
+	data : any | null
+	/** 时间戳 */
+	timestamp : number
+	/** 消息ID（可选） */
+	id : string | null
+}
+
+/**
+ * 通知消息数据结构
+ */
+export type NotificationData = {
+	/** 通知标题 */
+	title : string | null
+	/** 通知内容 */
+	content : string
+	/** 显示时长 */
+	duration : number | null
+	/** 通知类型 */
+	type : string | null
+}
+
+/**
+ * 消息处理器接口
+ */
+export type MessageHandler = {
+	/** 处理器名称（替代 constructor.name） */
+	handlerName : string
+	/**
+	 * 处理消息
+	 * @returns 是否继续传播消息到下一个处理器
+	 */
+	handle : (message : WSMessage) => boolean
+}
+
+/**
+ * WebSocket 配置选项
+ */
+export type WebSocketOptions = {
+	maxRetries ?: number
+	baseDelay ?: number
+	heartbeatInterval ?: number
+	heartbeatMessage ?: string
+	onMessage ?: (data : any) => void
+	onConnected ?: () => void
+	onDisconnected ?: (code : number, reason : string) => void
+	onError ?: (error : any) => void
+}
+
+/**
+ * WebSocket 实例返回类型
+ */
+export type WebSocketInstance = {
+	connect : () => void
+	disconnect : () => void
+	reconnect : () => void
+	send : (message : string) => boolean
+	status : Ref<string>
+	isConnected : ComputedRef<boolean>
+	data : Ref<any | null>
+}
+
+// ================================
+// 消息处理器实现
+// ================================
+
+/**
+ * 创建系统通知处理器
+ */
+export const createSystemNoticeHandler = () : MessageHandler => {
+	return {
+		handlerName: 'SystemNoticeHandler',
+		handle: (message : WSMessage) : boolean => {
+			if (message.type == WS_TYPE_SYSTEM_NOTICE) {
+				const msgData = message.data
+				let content = '系统通知'
+				if (msgData != null) {
+					const dataObj = msgData as UTSJSONObject
+					const dataContent = dataObj['content']
+					const dataTitle = dataObj['title']
+					if (dataContent != null) {
+						content = dataContent as string
+					} else if (dataTitle != null) {
+						content = dataTitle as string
+					}
+				}
+
+				uni.showToast({
+					title: content,
+					icon: 'none',
+					duration: 3000,
+				})
+
+				console.log('处理系统通知:', content)
+				return false
+			}
+			return true
+		},
+	} as MessageHandler
+}
+
+/**
+ * 创建心跳消息处理器
+ */
+export const createHeartbeatHandler = () : MessageHandler => {
+	return {
+		handlerName: 'HeartbeatHandler',
+		handle: (message : WSMessage) : boolean => {
+			if (message.type == WS_TYPE_HEARTBEAT) {
+				console.log('心跳消息:', message.data)
+				return false
+			}
+			return true
+		},
+	} as MessageHandler
+}
+
+// ================================
+// 消息处理管道
+// ================================
+
+/**
+ * 消息处理管道
+ */
+const createMessagePipeline = () => {
+	const handlers : MessageHandler[] = []
+
+	/**
+	 * 添加消息处理器
+	 */
+	const addHandler = (handler : MessageHandler) : void => {
+		handlers.push(handler)
+	}
+
+	/**
+	 * 移除消息处理器（按名称匹配）
+	 */
+	const removeHandler = (handlerName : string) : void => {
+		const index = handlers.findIndex((h : MessageHandler) : boolean => h.handlerName == handlerName)
+		if (index != -1) {
+			handlers.splice(index, 1)
+		}
+	}
+
+	/**
+	 * 标准化消息格式
+	 */
+	const normalizeMessage = (obj : UTSJSONObject) : WSMessage => {
+		let messageType = WS_TYPE_SYSTEM_NOTICE
+
+		const objType = obj['type']
+		const objMessageType = obj['messageType']
+		if (objType != null && VALID_MESSAGE_TYPES.indexOf(objType as string) != -1) {
+			messageType = objType as string
+		} else if (objMessageType != null && VALID_MESSAGE_TYPES.indexOf(objMessageType as string) != -1) {
+			messageType = objMessageType as string
+		}
+
+		/* 提取消息数据 */
+		let messageData : any | null = obj['data'] ?? obj['message'] ?? obj['content'] ?? obj
+
+		/* 如果数据是字符串且可能是 JSON，尝试解析 */
+		if (typeof messageData == 'string') {
+			try {
+				messageData = JSON.parse(messageData as string)
+			} catch (_e) {
+				const contentObj = {} as UTSJSONObject
+				contentObj['content'] = messageData as string
+				messageData = contentObj
+			}
+		}
+
+		const ts = obj['timestamp']
+		const msgId = obj['id'] ?? obj['messageId']
+
+		return {
+			type: messageType,
+			data: messageData,
+			timestamp: ts != null ? (ts as number) : Date.now(),
+			id: msgId != null ? (msgId as string) : null,
+		} as WSMessage
+	}
+
+	/**
+	 * 解析原始消息
+	 */
+	const parseMessage = (rawMessage : any) : WSMessage | null => {
+		try {
+			if (typeof rawMessage == 'string') {
+				const rawStr = rawMessage as string
+				const lowerMessage = rawStr.toLowerCase()
+
+				/* 快速检查心跳消息 */
+				if (lowerMessage.indexOf('ping') != -1 || lowerMessage.indexOf('pong') != -1) {
+					return {
+						type: WS_TYPE_HEARTBEAT,
+						data: rawStr,
+						timestamp: Date.now(),
+						id: null,
+					} as WSMessage
+				}
+
+				/* 尝试解析为 JSON */
+				try {
+					const parsed = JSON.parse(rawStr) as UTSJSONObject
+					return normalizeMessage(parsed)
+				} catch (_e) {
+					const contentObj = {} as UTSJSONObject
+					contentObj['content'] = rawStr
+					return {
+						type: WS_TYPE_SYSTEM_NOTICE,
+						data: contentObj,
+						timestamp: Date.now(),
+						id: null,
+					} as WSMessage
+				}
+			}
+
+			/* 如果已经是对象 */
+			if (rawMessage != null && typeof rawMessage == 'object') {
+				return normalizeMessage(rawMessage as UTSJSONObject)
+			}
+
+			/* 其他类型 */
+			const contentObj = {} as UTSJSONObject
+			contentObj['content'] = String(rawMessage)
+			return {
+				type: WS_TYPE_SYSTEM_NOTICE,
+				data: contentObj,
+				timestamp: Date.now(),
+				id: null,
+			} as WSMessage
+		} catch (error) {
+			console.error('消息解析异常:', error)
+			return null
+		}
+	}
+
+	/**
+	 * 处理消息
+	 */
+	const process = (rawMessage : any) : void => {
+		try {
+			const message = parseMessage(rawMessage)
+			if (message == null) {
+				console.warn('无法解析的消息，忽略处理')
+				return
+			}
+
+			for (let i = 0; i < handlers.length; i++) {
+				const handler = handlers[i]
+				try {
+					const shouldContinue = handler.handle(message!)
+					if (!shouldContinue) {
+						break
+					}
+				} catch (handlerError) {
+					console.error(`处理器 ${handler.handlerName} 处理消息时出错:`, handlerError)
+				}
+			}
+		} catch (error) {
+			console.error('消息处理管道出错:', error)
+		}
+	}
+
+	/**
+	 * 获取当前处理器名称列表
+	 */
+	const getHandlers = () : string[] => {
+		return handlers.map((h : MessageHandler) : string => h.handlerName)
+	}
+
+	return {
+		addHandler,
+		removeHandler,
+		process,
+		getHandlers,
+	}
+}
+
+// ================================
+// WebSocket Hook
+// ================================
+
+/**
+ * UniApp WebSocket 通信钩子函数
+ *
+ * @param url WebSocket服务器地址
+ * @param options 配置选项
+ * @returns WebSocket 实例控制方法和状态
+ */
+export const useWebSocket = (url : string, options : WebSocketOptions | null = null) : WebSocketInstance => {
+	/* 检查系统配置 */
+	if (!SystemConfig.features.websocket) {
+		console.warn('[WebSocket] 系统未启用WebSocket功能')
+		return {
+			connect: () => { },
+			disconnect: () => { },
+			reconnect: () => { },
+			send: (_msg : string) : boolean => false,
+			status: ref<string>('CLOSED'),
+			isConnected: computed(() : boolean => false),
+			data: ref<any | null>(null),
+		} as WebSocketInstance
+	}
+
+	const { getToken } = useToken()
+
+	/* 退避策略配置 */
+	const maxRetries = options?.maxRetries ?? 8
+	const baseDelay = options?.baseDelay ?? 3
+	const heartbeatInterval = options?.heartbeatInterval ?? 30000
+	const heartbeatMessage = options?.heartbeatMessage ??
+		JSON.stringify({ type: 'ping', timestamp: Date.now() })
+
+	/* 状态管理 */
+	const status = ref<string>('CLOSED')
+	const isConnected = computed(() : boolean => status.value == 'OPEN')
+	const data = ref<any | null>(null)
+
+	/* WebSocket 实例 */
+	let socketTask : SocketTask | null = null
+
+	/* 重试状态 */
+	let currentRetryCount = 0
+	let retryTimeoutId = -1
+	let isManuallyClose = false
+
+	/* 心跳定时器 */
+	let heartbeatTimer = -1
+
+	/**
+	 * 动态计算退避延迟时间
+	 * 规律：3 -> 6 -> 12 -> 24 -> 48 -> 96 -> 192 -> 384...
+	 */
+	const calculateRetryDelay = (retryIndex : number) : number => {
+		const delaySeconds = baseDelay * Math.pow(2, retryIndex)
+		return (delaySeconds as number) * 1000
+	}
+
+	/**
+	 * 构造WebSocket连接URL
+	 */
+	const buildWebSocketUrl = () : string => {
+		const token = getToken()
+		if (token == null || (token as string).length == 0) {
+			console.warn('[WebSocket] 未找到有效token，可能影响连接认证')
+			return url
+		}
+
+		const separator = url.indexOf('?') != -1 ? '&' : '?'
+		return `${url}${separator}Authorization=${encodeURIComponent('Bearer ' + token!)}`
+	}
+
+	/**
+	 * 发送消息
+	 */
+	const send = (message : string) : boolean => {
+		if (!isConnected.value || socketTask == null) {
+			console.warn(`${getCurrentTime()} WebSocket未连接，无法发送消息，当前状态: ${status.value}`)
+			return false
+		}
+
+		try {
+			socketTask!.send({
+				data: message,
+				success: (_res) => {
+					if (!message.startsWith('{"type":"ping"')) {
+						console.log(`${getCurrentTime()} WebSocket发送消息成功`)
+					}
+				},
+				fail: (error) => {
+					console.error(`${getCurrentTime()} WebSocket发送消息失败:`, error)
+				},
+			} as SendSocketMessageOptions)
+
+			return true
+		} catch (error) {
+			console.error(`${getCurrentTime()} WebSocket发送消息异常:`, error)
+			return false
+		}
+	}
+
+	/**
+	 * 启动心跳检测
+	 */
+	const startHeartbeat = () => {
+		if (heartbeatTimer != -1) {
+			clearInterval(heartbeatTimer)
+		}
+
+		heartbeatTimer = setInterval(() => {
+			if (isConnected.value && socketTask != null) {
+				send(heartbeatMessage)
+			}
+		}, heartbeatInterval)
+	}
+
+	/**
+	 * 停止心跳检测
+	 */
+	const stopHeartbeat = () => {
+		if (heartbeatTimer != -1) {
+			clearInterval(heartbeatTimer)
+			heartbeatTimer = -1
+		}
+	}
+
+	/**
+	 * 自定义退避重连逻辑
+	 */
+	const attemptReconnect = () => {
+		if (isManuallyClose) {
+			console.log(`${getCurrentTime()} 手动关闭连接，停止重连`)
+			return
+		}
+
+		if (currentRetryCount >= maxRetries) {
+			console.log(`${getCurrentTime()} WebSocket重试${maxRetries}次后连接失败，停止重试`)
+			return
+		}
+
+		const delay = calculateRetryDelay(currentRetryCount)
+		const delaySeconds = delay / 1000
+
+		console.log(`${getCurrentTime()} WebSocket将在${delaySeconds}秒后进行第${currentRetryCount + 1}次重连...`)
+
+		retryTimeoutId = setTimeout(() => {
+			console.log(`${getCurrentTime()} 开始第${currentRetryCount + 1}次重连尝试...`)
+			currentRetryCount++
+			connect()
+		}, delay)
+	}
+
+	/**
+	 * 建立WebSocket连接
+	 */
+	const connect = () => {
+		/* 如果已有连接，先关闭 */
+		if (socketTask != null) {
+			socketTask!.close({
+				code: 1000,
+				reason: '重新连接',
+			} as CloseSocketOptions)
+			socketTask = null
+		}
+
+		const finalUrl = buildWebSocketUrl()
+		console.log(`${getCurrentTime()} 正在连接WebSocket: ${url}`)
+
+		status.value = 'CONNECTING'
+
+		try {
+			socketTask = uni.connectSocket({
+				url: finalUrl,
+				complete: (_res) => { },
+			} as ConnectSocketOptions)
+
+			/* 连接打开事件 */
+			socketTask!.onOpen((_res) => {
+				console.log(`${getCurrentTime()} WebSocket连接已建立`)
+				status.value = 'OPEN'
+				currentRetryCount = 0
+				isManuallyClose = false
+
+				if (retryTimeoutId != -1) {
+					clearTimeout(retryTimeoutId)
+					retryTimeoutId = -1
+				}
+
+				startHeartbeat()
+
+				if (options != null && options!.onConnected != null) {
+					options!.onConnected!()
+				}
+			})
+
+			/* 消息接收事件 */
+			socketTask!.onMessage((res) => {
+				const messageData = res.data
+				data.value = messageData
+
+				if (options != null && options!.onMessage != null) {
+					options!.onMessage!(messageData)
+				}
+			})
+
+			/* 连接关闭事件 */
+			socketTask!.onClose((res) => {
+				console.log(`${getCurrentTime()} WebSocket连接已断开, code: ${res.code}, reason: ${res.reason}`)
+				status.value = 'CLOSED'
+				socketTask = null
+
+				stopHeartbeat()
+
+				if (options != null && options!.onDisconnected != null) {
+					options!.onDisconnected!(res.code, res.reason)
+				}
+
+				if (!isManuallyClose && res.code != 1000) {
+					attemptReconnect()
+				}
+			})
+
+			/* 连接错误事件 */
+			socketTask!.onError((error) => {
+				console.error(`${getCurrentTime()} WebSocket连接错误:`, error)
+				status.value = 'CLOSED'
+
+				if (options != null && options!.onError != null) {
+					options!.onError!(error)
+				}
+
+				if (!isManuallyClose) {
+					attemptReconnect()
+				}
+			})
+		} catch (error) {
+			console.error(`${getCurrentTime()} WebSocket连接创建失败:`, error)
+			status.value = 'CLOSED'
+
+			if (options != null && options!.onError != null) {
+				options!.onError!(error)
+			}
+
+			if (!isManuallyClose) {
+				attemptReconnect()
+			}
+		}
+	}
+
+	/**
+	 * 断开WebSocket连接
+	 */
+	const disconnect = () => {
+		console.log(`${getCurrentTime()} 手动关闭WebSocket连接`)
+		isManuallyClose = true
+
+		if (retryTimeoutId != -1) {
+			clearTimeout(retryTimeoutId)
+			retryTimeoutId = -1
+		}
+
+		currentRetryCount = 0
+		stopHeartbeat()
+
+		if (socketTask != null) {
+			status.value = 'CLOSING'
+			socketTask!.close({
+				code: 1000,
+				reason: '手动关闭',
+			} as CloseSocketOptions)
+			socketTask = null
+		} else {
+			status.value = 'CLOSED'
+		}
+	}
+
+	/**
+	 * 手动重新连接（重置重试计数）
+	 */
+	const reconnect = () => {
+		console.log(`${getCurrentTime()} 手动重新连接WebSocket...`)
+
+		if (retryTimeoutId != -1) {
+			clearTimeout(retryTimeoutId)
+			retryTimeoutId = -1
+		}
+
+		currentRetryCount = 0
+		isManuallyClose = false
+
+		disconnect()
+		setTimeout(() => {
+			isManuallyClose = false
+			connect()
+		}, 100)
+	}
+
+	return {
+		connect,
+		disconnect,
+		reconnect,
+		send,
+		status,
+		isConnected,
+		data,
+	} as WebSocketInstance
+}
+
+// ================================
+// 全局WebSocket管理器
+// ================================
+
+/**
+ * 全局 WebSocket 管理器（模块级单例）
+ */
+let _wsInstance : WebSocketInstance | null = null
+let _isInitialized = false
+let _isInitializing = false
+const _messagePipeline = createMessagePipeline()
+
+/* 初始化默认消息处理器 */
+_messagePipeline.addHandler(createHeartbeatHandler())
+_messagePipeline.addHandler(createSystemNoticeHandler())
+console.log('消息处理管道初始化完成，处理器列表:', _messagePipeline.getHandlers())
+
+/**
+ * 获取WebSocket URL
+ */
+const getWebSocketUrl = () : string => {
+	const baseUrl = SystemConfig.api.baseUrl
+	const wsUrl = baseUrl.replace(/^https?:/, baseUrl.startsWith('https:') ? 'wss:' : 'ws:')
+	return `${wsUrl}/resource/websocket`
+}
+
+/**
+ * 检查是否应该初始化WebSocket
+ */
+const shouldInitializeWebSocket = () : boolean => {
+	if (!SystemConfig.features.websocket) {
+		return false
+	}
+
+	const { getToken } = useToken()
+	const token = getToken()
+	if (token == null || (token as string).length == 0) {
+		return false
+	}
+
+	return true
+}
+
+/**
+ * 全局 WebSocket 管理 API
+ */
+export const webSocket = {
+	/**
+	 * 初始化全局WebSocket
+	 */
+	initialize: (url : string | null = null, options : WebSocketOptions | null = null) : WebSocketInstance | null => {
+		if (_isInitialized) {
+			return _wsInstance
+		}
+
+		if (_isInitializing) {
+			return null
+		}
+
+		_isInitializing = true
+
+		if (!shouldInitializeWebSocket()) {
+			_isInitializing = false
+			return null
+		}
+
+		try {
+			const wsUrl = url ?? getWebSocketUrl()
+
+			_wsInstance = useWebSocket(wsUrl, {
+				maxRetries: 8,
+				baseDelay: 3,
+				heartbeatInterval: 30000,
+				onMessage: (msgData : any) => {
+					_messagePipeline.process(msgData)
+					if (options != null && options!.onMessage != null) {
+						options!.onMessage!(msgData)
+					}
+				},
+				onConnected: () => {
+					if (options != null && options!.onConnected != null) {
+						options!.onConnected!()
+					}
+				},
+				onDisconnected: (code : number, reason : string) => {
+					if (options != null && options!.onDisconnected != null) {
+						options!.onDisconnected!(code, reason)
+					}
+				},
+				onError: (error : any) => {
+					if (options != null && options!.onError != null) {
+						options!.onError!(error)
+					}
+				},
+			} as WebSocketOptions)
+
+			_isInitialized = true
+		} catch (error) {
+			console.error('[GlobalWebSocket] 初始化失败:', error)
+			_wsInstance = null
+		} finally {
+			_isInitializing = false
+		}
+
+		return _wsInstance
+	},
+
+	/**
+	 * 连接
+	 */
+	connect: () : boolean => {
+		if (_wsInstance == null) {
+			return false
+		}
+
+		if (_wsInstance!.status.value == 'OPEN' || _wsInstance!.status.value == 'CONNECTING') {
+			return true
+		}
+
+		_wsInstance!.connect()
+		return true
+	},
+
+	/**
+	 * 断开连接
+	 */
+	disconnect: () : void => {
+		if (_wsInstance != null) {
+			_wsInstance!.disconnect()
+		}
+	},
+
+	/**
+	 * 重新连接
+	 */
+	reconnect: () : boolean => {
+		if (_wsInstance == null) {
+			return false
+		}
+		_wsInstance!.reconnect()
+		return true
+	},
+
+	/**
+	 * 发送消息
+	 */
+	send: (message : string) : boolean => {
+		if (_wsInstance == null) {
+			return false
+		}
+		return _wsInstance!.send(message)
+	},
+
+	/**
+	 * 添加自定义消息处理器
+	 */
+	addMessageHandler: (handler : MessageHandler) : void => {
+		_messagePipeline.addHandler(handler)
+	},
+
+	/**
+	 * 移除消息处理器
+	 */
+	removeMessageHandler: (handlerName : string) : void => {
+		_messagePipeline.removeHandler(handlerName)
+	},
+
+	/**
+	 * 获取消息处理器列表
+	 */
+	getMessageHandlers: () : string[] => {
+		return _messagePipeline.getHandlers()
+	},
+
+	/**
+	 * 获取连接状态
+	 */
+	getStatus: () : string => {
+		return _wsInstance != null ? _wsInstance!.status.value : 'CLOSED'
+	},
+
+	/**
+	 * 获取是否已连接
+	 */
+	getIsConnected: () : boolean => {
+		return _wsInstance != null ? _wsInstance!.isConnected.value : false
+	},
+
+	/**
+	 * 获取最后接收的消息
+	 */
+	getLastMessage: () : any | null => {
+		return _wsInstance != null ? _wsInstance!.data.value : null
+	},
+
+	/**
+	 * 销毁全局WebSocket
+	 */
+	destroy: () : void => {
+		if (_wsInstance != null) {
+			_wsInstance!.disconnect()
+			_wsInstance = null
+		}
+		_isInitialized = false
+		_isInitializing = false
+	},
+}

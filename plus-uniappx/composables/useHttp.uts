@@ -1,0 +1,628 @@
+/**
+ * HTTP 请求服务 (UniApp X 版本)
+ *
+ * 从 plus-app/composables/useHttp.ts 迁移
+ *
+ * 将请求拦截、响应处理、业务逻辑集中管理，使用组合函数模式。
+ * 支持链式调用配置：http.noAuth().encrypt().skipWait().post(...)
+ *
+ * UTS 适配说明：
+ * - 移除泛型 <T = any>（UTS 不支持泛型参数化返回）
+ * - Record<string, any> → UTSJSONObject
+ * - any → 具体类型或 any（UTS 限制性 any）
+ * - as const → 普通对象
+ * - CustomRequestOptions 使用自定义 UTS 类型
+ * - Result<T> → AsyncResult（从 to.uts 导入）
+ * - 链式调用通过可变配置对象实现
+ * - UniApp.RequestOptions['method'] → string 方法名
+ * - getLanguage → 从 locales/i18n 导入
+ */
+import { SystemConfig } from '@/systemConfig'
+import { getLanguage } from '@/locales/i18n'
+import {
+	decodeBase64,
+	decryptWithAes,
+	encodeBase64,
+	encryptWithAes,
+	generateAesKey,
+} from '@/utils/crypto'
+import { getCurrentPage } from '@/utils/route'
+import { rsaDecrypt, rsaEncrypt } from '@/utils/rsa'
+import { objectToQuery } from '@/utils/string'
+import { getTenantId } from '@/utils/tenant'
+import { to, type AsyncResult } from '@/utils/to'
+import { useToken } from '@/composables/useToken'
+import { useUserStore } from '@/stores/modules/user'
+import { formatDate } from '@/utils/date'
+import type { CustomRequestOptions, ApiResponse } from '@/types/http'
+
+/** HTTP 状态码 */
+const HTTP_SUCCESS = 200
+const HTTP_UNAUTHORIZED = 401
+
+/** 错误消息 */
+const ERR_NETWORK = '网络连接失败，请检查网络'
+const ERR_TIMEOUT = '请求超时，请稍后重试'
+const ERR_REPEAT_SUBMIT = '数据正在处理，请勿重复提交'
+const ERR_DECRYPT_FAILED = '响应数据解密失败'
+const ERR_SESSION_EXPIRED = '未登录或登录已过期~'
+const ERR_REQUEST_CANCELED = '请求已取消'
+const ERR_INIT_TIMEOUT = '应用初始化超时，请重试'
+const ERR_UNKNOWN = '网络错误'
+
+/** 加密请求头名称 */
+const ENCRYPT_HEADER = 'encrypt-key'
+
+/** 请求 ID 请求头名称 */
+const REQUEST_ID_HEADER = 'X-Request-Id'
+
+/**
+ * 生成请求 ID
+ * 格式：yyyyMMddHHmmssSSS
+ */
+const generateRequestId = () : string => {
+	return formatDate(new Date(), 'yyyyMMddHHmmssSSS')
+}
+
+/** 防重复提交 - 最后一次提交信息 */
+type LastSubmitInfo = {
+	key : string
+	time : number
+}
+
+let lastSubmit : LastSubmitInfo | null = null
+
+/** 是否显示重新登录弹窗 */
+let isReLoginShowing = false
+
+/**
+ * 检查重复提交
+ *
+ * @param url 请求 URL
+ * @param data 请求数据
+ * @returns 是否允许提交
+ */
+const checkRepeatSubmit = (url : string, data : any | null) : boolean => {
+	const dataStr = data != null ? JSON.stringify(data) : ''
+	const key = `${url}-${dataStr}`
+	const now = Date.now()
+
+	if (lastSubmit != null && lastSubmit!.key == key && now - lastSubmit!.time < 1000) {
+		return false
+	}
+
+	lastSubmit = { key: key, time: now } as LastSubmitInfo
+	return true
+}
+
+/**
+ * 处理未授权（跳转登录页）
+ */
+const handleUnauthorized = () => {
+	if (isReLoginShowing) return
+
+	isReLoginShowing = true
+
+	try {
+		const userStore = useUserStore()
+		userStore.logoutUser()
+
+		const currentPage = getCurrentPage()
+		let currentPath = '/pages/index/index'
+		if (currentPage != null) {
+			currentPath = `/${currentPage!.route}`
+		}
+
+		uni.navigateTo({
+			url: `/pages/auth/login?redirect=${currentPath}`,
+		})
+	} catch (_e) {
+		/* 忽略导航错误 */
+	}
+
+	/* 延迟重置标志，防止短时间内重复触发 */
+	setTimeout(() => {
+		isReLoginShowing = false
+	}, 3000)
+}
+
+/**
+ * 加密请求数据
+ *
+ * @param data 原始数据
+ * @param header 请求头（会被修改，添加加密密钥）
+ * @returns 加密后的数据（字符串）
+ */
+const encryptRequestData = (data : any, header : UTSJSONObject) : string => {
+	const aesKey = generateAesKey()
+	const encryptedKey = rsaEncrypt(encodeBase64(aesKey))
+	if (encryptedKey != null) {
+		header[ENCRYPT_HEADER] = encryptedKey!
+	}
+
+	if (typeof data == 'string') {
+		return encryptWithAes(data as string, aesKey)
+	}
+	return encryptWithAes(JSON.stringify(data), aesKey)
+}
+
+/**
+ * 解密响应数据
+ *
+ * @param data 加密的响应数据
+ * @param header 响应头
+ * @returns 解密后的数据
+ */
+const decryptResponseData = (data : any, header : UTSJSONObject) : any => {
+	if (!SystemConfig.security.apiEncrypt) return data
+
+	/* bracket notation 兼容 H5（H5 下 UTSJSONObject.getString 不存在） */
+	const rawKey = header[ENCRYPT_HEADER] ?? header[ENCRYPT_HEADER.toLowerCase()]
+	const encryptKey = rawKey != null ? `${rawKey}` : null
+	if (encryptKey == null) return data
+
+	try {
+		const base64Str = rsaDecrypt(encryptKey!)
+		if (base64Str == null) {
+			throw new Error(ERR_DECRYPT_FAILED)
+		}
+		const aesKey = decodeBase64(base64Str!)
+		const decryptedData = decryptWithAes(data as string, aesKey)
+		return JSON.parse(decryptedData)
+	} catch (error) {
+		console.error('[响应解密失败]', error)
+		throw new Error(ERR_DECRYPT_FAILED)
+	}
+}
+
+/**
+ * 判断是否为二进制数据
+ */
+const isBinaryData = (contentType : string) : boolean => {
+	return (
+		contentType.includes('application/octet-stream') ||
+		contentType.includes('application/pdf') ||
+		contentType.includes('image/') ||
+		contentType.includes('video/') ||
+		contentType.includes('audio/')
+	)
+}
+
+/**
+ * 构建请求头 UTSJSONObject
+ *
+ * @param config 自定义请求配置
+ * @returns 构建好的请求头
+ */
+const buildHeaders = (config : CustomRequestOptions | null) : UTSJSONObject => {
+	const header = {} as UTSJSONObject
+	header['Content-Type'] = 'application/json;charset=utf-8'
+	header['Content-Language'] = getLanguage()
+	header[REQUEST_ID_HEADER] = generateRequestId()
+
+	/* 认证处理 */
+	const authDisabled = config != null && config!.header != null && config!.header!.auth == false
+	if (!authDisabled) {
+		const authHeaders = useToken().getAuthHeaders()
+		const authKeys = Object.keys(authHeaders)
+		for (let i = 0; i < authKeys.length; i++) {
+			const k = authKeys[i]
+			header[k] = authHeaders[k]
+		}
+	}
+
+	/* 租户处理 */
+	const tenantDisabled = config != null && config!.header != null && config!.header!.tenant == false
+	if (!tenantDisabled) {
+		const tenantId = getTenantId()
+		if (tenantId.length > 0) {
+			header['X-Tenant-Id'] = tenantId
+		}
+	}
+
+	return header
+}
+
+/**
+ * 处理响应
+ *
+ * @param responseData 响应体数据
+ * @param responseHeader 响应头
+ * @param noMsgError 是否禁用错误提示
+ * @returns 业务数据
+ */
+const handleResponse = (
+	responseData : any,
+	responseHeader : UTSJSONObject,
+	noMsgError : boolean,
+) : any => {
+	/* 1. 解密处理 */
+	let data = responseData
+	/*
+	 * 注意：H5 环境下 responseHeader 实际是普通 JS 对象，
+	 * UTSJSONObject 的 .getString() / .getNumber() 方法不存在。
+	 * 统一使用 bracket notation 访问属性以兼容两端。
+	 */
+	if (typeof data == 'string' && responseHeader[ENCRYPT_HEADER] != null) {
+		data = decryptResponseData(data, responseHeader)
+	}
+
+	/* 2. 二进制数据直接返回 */
+	const contentType = `${responseHeader['content-type'] ?? responseHeader['Content-Type'] ?? ''}`
+	if (isBinaryData(contentType)) {
+		return data
+	}
+
+	/* 3. 处理业务响应 */
+	let code = HTTP_SUCCESS
+	let msg = ''
+	let bizData : any = null
+
+	if (data != null && typeof data == 'object') {
+		const jsonData = data as UTSJSONObject
+		/* 使用 bracket notation 兼容 H5 环境（UTSJSONObject.getNumber 在 H5 不存在） */
+		const rawCode = jsonData['code']
+		code = rawCode != null ? Math.floor(Number(rawCode)) : HTTP_SUCCESS
+		msg = `${jsonData['msg'] ?? ''}`
+		bizData = jsonData['data']
+	}
+
+	/* 4. 根据状态码处理 */
+	if (code == HTTP_SUCCESS) {
+		return bizData
+	}
+
+	if (code == HTTP_UNAUTHORIZED) {
+		handleUnauthorized()
+		if (!noMsgError) {
+			uni.showToast({ title: ERR_SESSION_EXPIRED, icon: 'none' })
+		}
+		throw new Error(ERR_SESSION_EXPIRED)
+	}
+
+	/* 其他错误 */
+	const errorMsg = msg.length > 0 ? msg : ERR_UNKNOWN
+	if (!noMsgError) {
+		uni.showToast({ title: errorMsg, icon: 'none' })
+	}
+	throw new Error(errorMsg)
+}
+
+/**
+ * 处理请求错误
+ *
+ * @param error 错误对象
+ * @param noMsgError 是否禁用错误提示
+ */
+const handleError = (error : any, noMsgError : boolean) : Error => {
+	let message = ERR_UNKNOWN
+
+	if (error instanceof Error) {
+		message = (error as Error).message
+	}
+
+	console.error('[HTTP 错误]', error)
+
+	/* 网络层面的错误信息处理 */
+	if (message.includes('timeout')) {
+		message = ERR_TIMEOUT
+	} else if (message.includes('fail')) {
+		message = ERR_NETWORK
+	} else if (message.includes('abort')) {
+		message = ERR_REQUEST_CANCELED
+	} else if (message.includes('重复提交')) {
+		/* 保持原始消息 */
+	} else if (message.includes('初始化超时')) {
+		message = ERR_INIT_TIMEOUT
+	}
+
+	if (!noMsgError) {
+		uni.showToast({ title: message, icon: 'none' })
+	}
+	return new Error(message)
+}
+
+/**
+ * 基础请求函数
+ *
+ * @param url 请求 URL
+ * @param method 请求方法
+ * @param data 请求数据
+ * @param config 请求配置
+ * @returns Promise<any> 响应数据
+ */
+const request = (
+	url : string,
+	method : string,
+	data : any | null,
+	config : CustomRequestOptions | null,
+) : Promise<any> => {
+	return new Promise<any>((resolve, reject) => {
+		try {
+			/* 1. 处理 URL */
+			let requestUrl = url
+			if (!requestUrl.startsWith('http')) {
+				requestUrl = SystemConfig.api.baseUrl + requestUrl
+			}
+
+			/* 2. 处理查询参数 */
+			let queryParams : UTSJSONObject | null = null
+			if (config != null) {
+				queryParams = config!.query ?? config!.params
+			}
+			if (queryParams != null) {
+				const queryStr = objectToQuery(queryParams!)
+				if (queryStr.length > 0) {
+					requestUrl += (requestUrl.includes('?') ? '&' : '?') + queryStr
+				}
+			}
+
+			/* 3. GET 请求参数处理 */
+			let requestData : any = data
+			if (method == 'GET' && requestData != null) {
+				if (typeof requestData == 'object') {
+					const queryStr = objectToQuery(requestData as UTSJSONObject)
+					if (queryStr.length > 0) {
+						requestUrl += (requestUrl.includes('?') ? '&' : '?') + queryStr
+					}
+				}
+				requestData = null
+			}
+
+			/* 4. 构建请求头 */
+			const header = buildHeaders(config)
+
+			/* 5. 防重复提交 */
+			const repeatDisabled = config != null && config!.header != null && config!.header!.repeatSubmit == false
+			if (!repeatDisabled && (method == 'POST' || method == 'PUT')) {
+				if (!checkRepeatSubmit(requestUrl, requestData)) {
+					reject(new Error(ERR_REPEAT_SUBMIT))
+					return
+				}
+			}
+
+			/* 6. 加密处理 */
+			const doEncrypt = SystemConfig.security.apiEncrypt
+				&& config != null
+				&& config!.header != null
+				&& config!.header!.isEncrypt == true
+				&& (method == 'POST' || method == 'PUT')
+
+			if (doEncrypt && requestData != null) {
+				requestData = encryptRequestData(requestData!, header)
+			}
+
+			/* 7. 确定超时时间 */
+			const timeoutMs = config?.timeout ?? 50000
+
+			/* 8. 确定 noMsgError */
+			const noMsgError = config?.noMsgError ?? false
+
+			/* 9. 发送请求 */
+			uni.request({
+				url: requestUrl,
+				method: method as RequestMethod,
+				data: requestData,
+				header: header,
+				timeout: timeoutMs,
+				success: (response : RequestSuccess<any>) => {
+					try {
+						const responseHeader = response.header != null
+							? response.header! as UTSJSONObject
+							: {} as UTSJSONObject
+						const result = handleResponse(response.data, responseHeader, noMsgError)
+						resolve(result)
+					} catch (error) {
+						reject(error)
+					}
+				},
+				fail: (error : RequestFail) => {
+					reject(handleError(error, noMsgError))
+				},
+			})
+		} catch (error) {
+			const noMsgError = config?.noMsgError ?? false
+			reject(handleError(error, noMsgError))
+		}
+	})
+}
+
+/**
+ * 链式调用配置状态
+ */
+type ChainState = {
+	authDisabled : boolean
+	tenantDisabled : boolean
+	repeatSubmitDisabled : boolean
+	encryptEnabled : boolean
+	skipWaitEnabled : boolean
+	noMsgErrorEnabled : boolean
+	timeoutMs : number
+}
+
+/**
+ * 将 ChainState 转为 CustomRequestOptions
+ */
+const chainToConfig = (chain : ChainState) : CustomRequestOptions => {
+	const config : CustomRequestOptions = {
+		timeout: chain.timeoutMs > 0 ? chain.timeoutMs : null,
+		skipWait: chain.skipWaitEnabled ? true : null,
+		noMsgError: chain.noMsgErrorEnabled ? true : null,
+		header: {
+			auth: chain.authDisabled ? false : null,
+			tenant: chain.tenantDisabled ? false : null,
+			repeatSubmit: chain.repeatSubmitDisabled ? false : null,
+			isEncrypt: chain.encryptEnabled ? true : null,
+		},
+	}
+	return config
+}
+
+/**
+ * 合并两个 CustomRequestOptions
+ */
+const mergeConfigs = (
+	base : CustomRequestOptions | null,
+	override : CustomRequestOptions | null,
+) : CustomRequestOptions => {
+	if (base == null && override == null) {
+		return {} as CustomRequestOptions
+	}
+	if (base == null) return override!
+	if (override == null) return base!
+
+	return {
+		query: override!.query ?? base!.query,
+		params: override!.params ?? base!.params,
+		timeout: override!.timeout ?? base!.timeout,
+		data: override!.data ?? base!.data,
+		skipWait: override!.skipWait ?? base!.skipWait,
+		initTimeout: override!.initTimeout ?? base!.initTimeout,
+		noMsgError: override!.noMsgError ?? base!.noMsgError,
+		header: {
+			auth: override!.header?.auth ?? base!.header?.auth,
+			tenant: override!.header?.tenant ?? base!.header?.tenant,
+			repeatSubmit: override!.header?.repeatSubmit ?? base!.header?.repeatSubmit,
+			isEncrypt: override!.header?.isEncrypt ?? base!.header?.isEncrypt,
+		},
+	} as CustomRequestOptions
+}
+
+/**
+ * 创建默认链式状态
+ */
+const createDefaultChain = () : ChainState => {
+	return {
+		authDisabled: false,
+		tenantDisabled: false,
+		repeatSubmitDisabled: false,
+		encryptEnabled: false,
+		skipWaitEnabled: false,
+		noMsgErrorEnabled: false,
+		timeoutMs: 0,
+	} as ChainState
+}
+
+/**
+ * HTTP 实例类型
+ */
+export type HttpInstance = {
+	/** GET 请求 */
+	get : (url : string, params ?: UTSJSONObject, config ?: CustomRequestOptions) => Promise<AsyncResult>
+	/** POST 请求 */
+	post : (url : string, data ?: any, config ?: CustomRequestOptions) => Promise<AsyncResult>
+	/** PUT 请求 */
+	put : (url : string, data ?: any, config ?: CustomRequestOptions) => Promise<AsyncResult>
+	/** DELETE 请求 */
+	del : (url : string, params ?: UTSJSONObject, config ?: CustomRequestOptions) => Promise<AsyncResult>
+	/** 链式调用：禁用认证 */
+	noAuth : () => HttpInstance
+	/** 链式调用：启用加密 */
+	encrypt : () => HttpInstance
+	/** 链式调用：禁用防重复提交 */
+	noRepeatSubmit : () => HttpInstance
+	/** 链式调用：禁用租户信息 */
+	noTenant : () => HttpInstance
+	/** 链式调用：跳过初始化等待 */
+	skipWait : () => HttpInstance
+	/** 链式调用：禁用错误提示 */
+	noMsgError : () => HttpInstance
+	/** 链式调用：设置超时时间 */
+	timeout : (ms : number) => HttpInstance
+}
+
+/**
+ * HTTP 请求服务
+ *
+ * 支持链式调用配置：http.noAuth().encrypt().skipWait().post(...)
+ *
+ * @example
+ * // 1. 基础请求
+ * const result = await http.get('/api/users')
+ * if (result.err == null) {
+ *   console.log(result.data)
+ * }
+ *
+ * // 2. 链式调用
+ * const result2 = await http.noAuth().encrypt().skipWait().post('/api/login', loginData)
+ */
+export const useHttp = (defaultConfig ?: CustomRequestOptions) : HttpInstance => {
+	/* 链式调用临时状态 */
+	let chain = createDefaultChain()
+
+	/**
+	 * 获取合并后的配置并重置链式状态
+	 */
+	const getAndResetConfig = (config ?: CustomRequestOptions) : CustomRequestOptions => {
+		const chainConfig = chainToConfig(chain)
+		chain = createDefaultChain()
+		return mergeConfigs(mergeConfigs(defaultConfig ?? null, chainConfig), config ?? null)
+	}
+
+	const httpGet = (url : string, params ?: UTSJSONObject, config ?: CustomRequestOptions) : Promise<AsyncResult> => {
+		const merged = getAndResetConfig(config)
+		if (params != null) {
+			merged.query = params
+		}
+		return to(request(url, 'GET', null, merged))
+	}
+
+	const httpPost = (url : string, data ?: any, config ?: CustomRequestOptions) : Promise<AsyncResult> => {
+		const merged = getAndResetConfig(config)
+		return to(request(url, 'POST', data, merged))
+	}
+
+	const httpPut = (url : string, data ?: any, config ?: CustomRequestOptions) : Promise<AsyncResult> => {
+		const merged = getAndResetConfig(config)
+		return to(request(url, 'PUT', data, merged))
+	}
+
+	const httpDel = (url : string, params ?: UTSJSONObject, config ?: CustomRequestOptions) : Promise<AsyncResult> => {
+		const merged = getAndResetConfig(config)
+		if (params != null) {
+			merged.query = params
+		}
+		return to(request(url, 'DELETE', null, merged))
+	}
+
+	/* 创建实例对象 */
+	const instance : HttpInstance = {
+		get: httpGet,
+		post: httpPost,
+		put: httpPut,
+		del: httpDel,
+		noAuth: () : HttpInstance => {
+			chain.authDisabled = true
+			return instance
+		},
+		encrypt: () : HttpInstance => {
+			chain.encryptEnabled = true
+			return instance
+		},
+		noRepeatSubmit: () : HttpInstance => {
+			chain.repeatSubmitDisabled = true
+			return instance
+		},
+		noTenant: () : HttpInstance => {
+			chain.tenantDisabled = true
+			return instance
+		},
+		skipWait: () : HttpInstance => {
+			chain.skipWaitEnabled = true
+			return instance
+		},
+		noMsgError: () : HttpInstance => {
+			chain.noMsgErrorEnabled = true
+			return instance
+		},
+		timeout: (ms : number) : HttpInstance => {
+			chain.timeoutMs = ms
+			return instance
+		},
+	}
+
+	return instance
+}
+
+/* 创建默认全局实例 */
+export const http = useHttp()

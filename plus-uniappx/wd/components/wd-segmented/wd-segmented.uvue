@@ -1,0 +1,301 @@
+<!--
+Segmented 分段器 分段器用于展示多个选项并允许用户选择其中单个选项。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type SegmentedType/SegmentedOption
+- SegmentedType → string
+- SegmentedOption 内联到参数类型
+- CSSProperties → UTSJSONObject
+- edeep → e（UniApp X mixin）
+- :deep() → 直接类选择器
+-->
+<template>
+  <view :class="`wd-segmented ${customClass}`" :style="customStyle">
+    <view
+      v-for="(option, index) in options"
+      :key="index"
+      :class="`wd-segmented__item is-${size} ${activeIndex === index ? 'is-active' : ''} ${
+        disabled || (isObj(option) ? option.disabled : false) ? 'is-disabled' : ''
+      }`"
+      @click="handleClick(option, index)"
+    >
+      <view class="wd-segmented__item-label">
+        <slot
+          v-if="$slots.label"
+          name="label"
+          :option="isObj(option) ? option : { value: option }"
+        />
+        <template v-else>
+          {{ isObj(option) ? option.value : option }}
+        </template>
+      </view>
+    </view>
+    <view
+      :class="`wd-segmented__item--active ${activeDisabled ? 'is-disabled' : ''}`"
+      :style="activeStyle"
+    />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, getCurrentInstance, onMounted, ref, watch } from 'vue'
+import { getRect, isObj, objToStyle } from '../common/util'
+import { pause } from '../../composables/useRaf'
+
+/**
+ * 分段器组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 当前选中的值 */
+  value : string | number
+  /** 是否禁用分段器 */
+  disabled ?: boolean
+  /** 控件尺寸，可选值：'large' | 'middle' | 'small' */
+  size ?: string
+  /** 数据集合 */
+  options : Array<string | number | UTSJSONObject>
+  /** 切换选项时是否振动 */
+  vibrateShort ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  disabled: false,
+  size: 'middle',
+  vibrateShort: false,
+})
+
+/** 组件事件 */
+const emit = defineEmits(['update:value', 'change', 'click'])
+
+/** 响应式数据 */
+const activeIndex = ref<number>(0)
+const activeStyle = ref<string>('')
+
+/** 分段器选择器 */
+const $item = '.wd-segmented__item'
+
+/** 获取组件实例 */
+const instance = getCurrentInstance()!
+
+/**
+ * 计算当前激活项是否禁用
+ */
+const activeDisabled = computed(() : boolean => {
+  const firstOption = props.options[0]
+  return (
+    props.disabled ||
+    (firstOption != null && isObj(firstOption) ? (firstOption as UTSJSONObject)['disabled'] as boolean ?? false : false)
+  )
+})
+
+/**
+ * 更新当前选中项索引
+ */
+const updateCurrentIndex = () => {
+  const index = props.options.findIndex((option : string | number | UTSJSONObject) : boolean => {
+    const value = isObj(option) ? (option as UTSJSONObject)['value'] : option
+    return value === props.value
+  })
+
+  if (index >= 0) {
+    activeIndex.value = index
+  } else {
+    /** 如果未找到匹配项，默认选中第一项 */
+    const firstOption = props.options[0]
+    const value = isObj(firstOption) ? (firstOption as UTSJSONObject)['value'] : firstOption
+    emit('update:value', value)
+    emit('change', isObj(firstOption) ? firstOption : { value })
+  }
+}
+
+/**
+ * 更新滑块偏移量
+ */
+const updateActiveStyle = async (animation : boolean = true) => {
+  const rects = await getRect($item, true, instance) as UTSJSONObject[] | null
+  if (rects == null || rects!.length === 0) return
+
+  const rect = rects![activeIndex.value]
+  const style : UTSJSONObject = {
+    position: 'absolute',
+    width: `${(rect['width'] as number) ?? 0}px`,
+    'z-index': 0,
+  } as UTSJSONObject
+
+  let left = 0
+  for (let i = 0; i < activeIndex.value; i++) {
+    left += (rects![i]['width'] as number) ?? 0
+  }
+  if (left > 0) {
+    style['transform'] = `translateX(${left}px)`
+  }
+
+  if (animation) {
+    style['transition'] = 'all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1)'
+  }
+
+  activeStyle.value = objToStyle(style)
+}
+
+/**
+ * 监听选中值变化
+ */
+watch(
+  () : string | number => props.value,
+  async () => {
+    updateCurrentIndex()
+    await updateActiveStyle()
+    if (props.vibrateShort) {
+      uni.vibrateShort({})
+    }
+  },
+  { immediate: false },
+)
+
+/**
+ * 组件挂载后的处理
+ */
+onMounted(async () => {
+  updateCurrentIndex()
+  await pause()
+  await updateActiveStyle(false)
+})
+
+/**
+ * 处理选项点击事件
+ */
+const handleClick = async (option : string | number | UTSJSONObject, index : number) => {
+  const disabled = props.disabled || (isObj(option) ? (option as UTSJSONObject)['disabled'] as boolean ?? false : false)
+  if (disabled) {
+    return
+  }
+
+  const value = isObj(option) ? (option as UTSJSONObject)['value'] : option
+  activeIndex.value = index
+  await updateActiveStyle()
+
+  emit('update:value', value)
+  emit('change', isObj(option) ? option : { value })
+  emit('click', isObj(option) ? option : { value })
+}
+
+/** 暴露组件方法 */
+defineExpose({
+  updateActiveStyle,
+})
+</script>
+
+<style lang="scss">
+@import '../../common/abstracts/_mixin.scss';
+@import '../../common/abstracts/variable.scss';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(segmented) {
+    background: $-dark-background2;
+
+    @include e(item) {
+      color: $-dark-color3;
+
+      @include when(active) {
+        color: $-dark-color;
+
+        @include when(disabled) {
+          color: $-dark-color3;
+        }
+      }
+
+      @include when(disabled) {
+        color: $-dark-color-gray;
+      }
+
+      @include m(active) {
+        background-color: $-color-theme;
+
+        @include when(disabled) {
+          opacity: 0.6;
+        }
+      }
+    }
+  }
+}
+
+/* 分段器主体样式 */
+@include b(segmented) {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  justify-items: flex-start;
+  width: 100%;
+  background-color: $-segmented-item-bg-color;
+  padding: $-segmented-padding;
+  border-radius: 8rpx;
+  box-sizing: border-box;
+
+  /* 分段器选项样式 */
+  @include e(item) {
+    position: relative;
+    text-align: center;
+    border-radius: 8rpx;
+    flex: 1;
+    min-width: 0;
+    z-index: 1;
+    min-height: 56rpx;
+    line-height: 56rpx;
+    padding: 0 24rpx;
+    font-size: 28rpx;
+    color: $-segmented-item-color;
+    font-weight: 400;
+
+    /* 激活状态 */
+    @include when(active) {
+      font-weight: 550;
+    }
+
+    /* 大尺寸样式 */
+    @include when(large) {
+      min-height: 64rpx;
+      line-height: 64rpx;
+      padding: 0 24rpx;
+      font-size: 32rpx;
+    }
+
+    /* 小尺寸样式 */
+    @include when(small) {
+      min-height: 48rpx;
+      line-height: 48rpx;
+      padding: 0 14rpx;
+      font-size: 24rpx;
+    }
+
+    /* 禁用状态样式 */
+    @include when(disabled) {
+      cursor: no-drop;
+      color: $-segmented-item-disabled-color;
+    }
+
+    /* 激活背景样式 */
+    @include m(active) {
+      background-color: $-segmented-item-acitve-bg;
+      border-radius: 8rpx;
+      height: calc(100% - $-segmented-padding * 2);
+
+      @include when(disabled) {
+        opacity: 0.8;
+      }
+    }
+  }
+
+  /* 选项标签样式 */
+  @include e(item-label) {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+</style>

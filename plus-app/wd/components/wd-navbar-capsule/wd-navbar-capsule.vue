@@ -1,0 +1,296 @@
+<!-- 胶囊组件 一般用于顶部导航栏 -->
+<template>
+  <view
+    :class="`wd-navbar-capsule ${customClass} ${getSingleModeClass()}`"
+    :style="`${bgColor ? `background-color: ${bgColor};` : ''}${borderColor ? `--capsule-border-color: ${borderColor};` : ''}${customStyle}`"
+  >
+    <wd-icon
+      v-if="showBack"
+      :name="backIcon"
+      :size="addUnit(iconSize)"
+      :color="iconColor"
+      :custom-class="`wd-navbar-capsule__icon ${backDisabled ? 'is-disabled' : ''}`"
+      @click="handleBack"
+    />
+    <wd-icon
+      v-if="showHome"
+      :name="homeIcon"
+      :size="addUnit(iconSize)"
+      :color="iconColor"
+      :custom-class="`wd-navbar-capsule__icon ${homeDisabled ? 'is-disabled' : ''}`"
+      @click="handleBackHome"
+    />
+  </view>
+</template>
+
+<script lang="ts" setup>
+import { addUnit } from '@/wd/components/common/util'
+import wdIcon from '../wd-icon/wd-icon.vue'
+
+defineOptions({
+  name: 'WdNavbarCapsule',
+  options: {
+    addGlobalClass: true, // 允许组件使用全局 CSS 类名，不受样式隔离限制
+    virtualHost: true, // 启用虚拟主机节点，组件不会在 DOM 中创建额外的包装元素
+    styleIsolation: 'shared', // 样式隔离模式：'isolated'(完全隔离)、'apply-shared'(应用共享样式)、'shared'(共享样式)
+  },
+})
+
+/**
+ * 导航栏胶囊组件属性接口
+ */
+interface WdNavbarCapsuleProps {
+  /** 自定义根节点样式 */
+  customStyle?: string
+  /** 自定义根节点样式类 */
+  customClass?: string
+
+  /** 是否显示返回按钮 */
+  showBack?: boolean
+  /** 是否显示首页按钮 */
+  showHome?: boolean
+
+  /** 返回按钮图标名称 */
+  backIcon?: string
+  /** 首页按钮图标名称 */
+  homeIcon?: string
+
+  /** 图标大小 */
+  iconSize?: string | number
+  /** 图标颜色 */
+  iconColor?: string
+
+  /** 胶囊背景色 */
+  bgColor?: string
+  /** 胶囊边框颜色 */
+  borderColor?: string
+
+  /** 是否自动返回上一页，为false时需要手动监听back事件 */
+  autoBack?: boolean
+  /** 是否自动返回首页，为false时需要手动监听back-home事件 */
+  autoHome?: boolean
+
+  /** 是否禁用返回按钮 */
+  backDisabled?: boolean
+  /** 是否禁用首页按钮 */
+  homeDisabled?: boolean
+}
+
+/**
+ * 导航栏胶囊组件事件接口
+ */
+interface WdNavbarCapsuleEmits {
+  /** 点击返回按钮时触发 */
+  back: []
+  /** 点击首页按钮时触发 */
+  'back-home': []
+}
+
+// 使用 withDefaults 定义组件属性和默认值
+const props = withDefaults(defineProps<WdNavbarCapsuleProps>(), {
+  customStyle: '',
+  customClass: '',
+  showBack: true,
+  showHome: true,
+  backIcon: 'left',
+  homeIcon: 'home',
+  autoBack: true,
+  autoHome: true,
+  backDisabled: false,
+  homeDisabled: false,
+})
+
+// 定义组件事件
+const emit = defineEmits<WdNavbarCapsuleEmits>()
+
+/**
+ * 计算单按钮模式的样式类
+ */
+const getSingleModeClass = () => {
+  const showBackOnly = props.showBack && !props.showHome
+  const showHomeOnly = !props.showBack && props.showHome
+
+  if (showBackOnly || showHomeOnly) {
+    return 'is-single-mode'
+  }
+  return ''
+}
+
+/**
+ * 处理返回按钮点击事件
+ * 优先执行自动返回，如果禁用自动返回则触发事件让外部处理
+ */
+const handleBack = () => {
+  if (props.backDisabled) return
+
+  if (props.autoBack) {
+    // 自动返回上一页
+    uni.navigateBack({
+      fail: () => {
+        // 如果没有上一页，则触发事件让外部处理
+        emit('back')
+      },
+    })
+  } else {
+    // 手动处理，触发事件
+    emit('back')
+  }
+}
+
+/**
+ * 处理首页按钮点击事件
+ * 优先执行自动返回首页，如果禁用自动返回则触发事件让外部处理
+ */
+const handleBackHome = () => {
+  if (props.homeDisabled) return
+
+  if (props.autoHome) {
+    // 自动返回首页 - 切换到首页tab
+    uni.redirectTo({
+      url: '/pages/index/index',
+      fail: () => {
+        console.error('重定向到首页失败，尝试切换tab')
+        // 如果都失败，则触发事件让外部处理
+        emit('back-home')
+      },
+    })
+  } else {
+    // 手动处理，触发事件
+    emit('back-home')
+  }
+}
+</script>
+
+<style lang="scss">
+// 引入外部样式文件
+@import './../common/abstracts/_mixin.scss';
+@import './../common/abstracts/variable.scss';
+
+// 暗色主题样式
+.wot-theme-dark {
+  @include b(navbar-capsule) {
+    &::before {
+      border: 1px solid $-dark-border-color;
+    }
+
+    &::after {
+      background: $-dark-border-color;
+    }
+
+    :deep(.wd-navbar-capsule__icon) {
+      color: $-dark-color;
+
+      // 暗色主题下的禁用状态
+      &.is-disabled {
+        opacity: $-navbar-disabled-opacity;
+        color: $-color-icon-disabled !important;
+      }
+    }
+
+    @include when(disabled) {
+      opacity: $-navbar-disabled-opacity;
+    }
+
+    // 暗色主题下的单按钮模式
+    &.is-single-mode {
+      &::before {
+        display: none;
+      }
+
+      &::after {
+        display: none;
+      }
+    }
+  }
+}
+
+// 胶囊主体样式
+@include b(navbar-capsule) {
+  position: relative;
+  box-sizing: border-box;
+  width: $-navbar-capsule-width;
+  height: $-navbar-capsule-height;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 200%;
+    height: 200%;
+    transform: scale(0.5);
+    transform-origin: 0 0;
+    box-sizing: border-box;
+    border-radius: calc($-navbar-capsule-border-radius * 2);
+    border: 1px solid $-navbar-capsule-border-color;
+  }
+
+  &::after {
+    content: '';
+    display: block;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2rpx;
+    height: 36rpx;
+    background: $-navbar-capsule-border-color;
+  }
+
+  &:empty {
+    display: none;
+  }
+
+  // 单按钮模式样式
+  &.is-single-mode {
+    justify-content: flex-start; // 图标靠左对齐
+    padding-left: 24rpx; // 添加左边距
+    padding-right: 20rpx; // 添加右边距保持平衡
+
+    // 隐藏边框
+    &::before {
+      display: none;
+    }
+
+    // 隐藏中间竖线
+    &::after {
+      display: none;
+    }
+
+    // 直接设置图标的位置
+    :deep(.wd-navbar-capsule__icon) {
+      flex: none !important; // 强制取消flex拉伸
+      width: auto !important; // 宽度自适应
+      text-align: left !important; // 文字左对齐
+      margin-left: 0 !important; // 清除左边距
+      margin-right: auto !important; // 右边距自动，推向左侧
+    }
+  }
+
+  // 禁用状态样式
+  @include when(disabled) {
+    opacity: $-navbar-disabled-opacity;
+  }
+
+  // 图标样式
+  @include edeep(icon) {
+    flex: 1;
+    position: relative;
+    color: $-navbar-desc-font-color;
+    font-size: $-navbar-capsule-icon-size;
+    transition:
+      opacity 0.3s ease,
+      color 0.3s ease;
+
+    // 禁用状态样式
+    &.is-disabled {
+      opacity: $-navbar-disabled-opacity;
+      color: $-color-icon-disabled !important;
+      cursor: not-allowed;
+    }
+  }
+}
+</style>

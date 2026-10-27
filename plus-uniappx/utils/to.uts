@@ -1,0 +1,175 @@
+/**
+ * 安全异步执行工具函数集 (UniApp X 版本)
+ *
+ * 保持与 plus-app/utils/to.ts 核心功能一致
+ *
+ * 包含以下函数：
+ * - to(): 基础 Promise 异常处理，将 Promise 转换为 [error, data] 格式
+ * - toValidate(): 表单验证专用
+ * - toIf(): 条件执行
+ * - toWithRetry(): 自动重试机制
+ *
+ * UTS 适配说明：
+ * - UTS 不支持泛型参数化的元组返回，使用固定类型
+ * - Ref<any> → 具体组件类型
+ * - 返回值使用 any[] 数组模拟 [Error | null, T | null] 元组
+ */
+
+/**
+ * 异步操作结果类型
+ * 用于表示 [error, data] 元组
+ */
+export type AsyncResult = {
+	err : Error | null
+	data : any | null
+}
+
+/**
+ * 基础 to 函数 - 处理 Promise 异常
+ *
+ * 将任何 Promise 转换为 AsyncResult 格式，避免使用 try-catch
+ *
+ * @example
+ * const result = await to(getUserById('123'))
+ * if (result.err != null) {
+ *   console.error('获取用户失败:', result.err!.message)
+ *   return
+ * }
+ * console.log('用户信息:', result.data)
+ */
+export const to = async (promise : Promise<any>) : Promise<AsyncResult> => {
+	try {
+		const data = await promise
+		return { err: null, data: data } as AsyncResult
+	} catch (error) {
+		const err = error instanceof Error
+			? error as Error
+			: new Error(`${error}`)
+		return { err: err, data: null } as AsyncResult
+	}
+}
+
+/**
+ * 表单验证专用的 to 函数
+ *
+ * @example
+ * const result = await toValidate(formRef.value)
+ * if (result.err != null || !result.valid) {
+ *   toast.error(result.err?.message ?? '表单验证失败')
+ *   return
+ * }
+ */
+export type ValidateResult = {
+	err : Error | null
+	valid : boolean
+}
+
+export const toValidate = async (formRef : any | null) : Promise<ValidateResult> => {
+	if (formRef == null) {
+		return { err: new Error('表单引用不存在'), valid: false } as ValidateResult
+	}
+
+	try {
+		const formObj = formRef as UTSJSONObject
+		const validateFn = formObj['validate'] as (() => Promise<UTSJSONObject>) | null
+		if (validateFn == null) {
+			return { err: new Error('表单不支持 validate 方法'), valid: false } as ValidateResult
+		}
+		const result = await validateFn!() as UTSJSONObject
+		const valid = result.getBoolean('valid') ?? false
+
+		if (!valid) {
+			const errors = result.getArray('errors')
+			if (errors != null && errors!.length > 0) {
+				let errorMessage = '表单验证失败'
+				const messages : string[] = []
+				for (let i = 0; i < errors!.length; i++) {
+					const errorItem = errors![i] as UTSJSONObject
+					const msg = errorItem.getString('message')
+					if (msg != null && msg!.length > 0) {
+						messages.push(msg!)
+					}
+				}
+				if (messages.length > 0) {
+					errorMessage = messages.join(', ')
+				}
+				return { err: new Error(errorMessage), valid: false } as ValidateResult
+			}
+		}
+
+		return { err: null, valid: valid } as ValidateResult
+	} catch (error) {
+		const err = error instanceof Error
+			? error as Error
+			: new Error('表单验证异常')
+		return { err: err, valid: false } as ValidateResult
+	}
+}
+
+/**
+ * 条件执行的 to 函数
+ *
+ * 只有满足条件时才执行 Promise，否则直接返回 null
+ *
+ * @example
+ * const result = await toIf(isOnline, syncDataToCloud(localData))
+ * if (result.err != null) {
+ *   toast.error('同步失败')
+ * } else if (result.data != null) {
+ *   toast.success('同步成功')
+ * } else {
+ *   toast.info('离线状态，跳过同步')
+ * }
+ */
+export const toIf = async (condition : boolean, promise : Promise<any>) : Promise<AsyncResult> => {
+	if (!condition) {
+		return { err: null, data: null } as AsyncResult
+	}
+
+	return to(promise)
+}
+
+/**
+ * 带重试机制的 to 函数
+ *
+ * @example
+ * const result = await toWithRetry(
+ *   () => fetchData(),
+ *   3,    // 重试 3 次
+ *   2000  // 间隔 2 秒
+ * )
+ * if (result.err != null) {
+ *   console.error('重试后仍然失败:', result.err!.message)
+ * }
+ */
+export const toWithRetry = async (
+	promiseFactory : () => Promise<any>,
+	maxRetries : number = 2,
+	retryDelay : number = 1000,
+) : Promise<AsyncResult> => {
+	let lastError : Error = new Error('未知错误')
+
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		try {
+			const data = await promiseFactory()
+			if (attempt > 0) {
+				console.log(`操作在第 ${attempt + 1} 次尝试时成功`)
+			}
+			return { err: null, data: data } as AsyncResult
+		} catch (error) {
+			lastError = error instanceof Error
+				? error as Error
+				: new Error(`${error}`)
+		}
+
+		/* 如果不是最后一次尝试，等待后重试 */
+		if (attempt < maxRetries) {
+			console.warn(`第 ${attempt + 1} 次尝试失败，${retryDelay}ms 后重试:`, lastError.message)
+			await new Promise<void>((resolve) => {
+				setTimeout(() => { resolve() }, retryDelay)
+			})
+		}
+	}
+
+	return { err: lastError, data: null } as AsyncResult
+}

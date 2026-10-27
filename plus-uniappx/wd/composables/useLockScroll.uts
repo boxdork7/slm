@@ -1,0 +1,94 @@
+/**
+ * 页面滚动锁定组合式函数 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 document.getElementsByTagName('body') DOM 操作
+ * - 使用 UniApp 的 page-meta 或 CSS overflow 控制滚动
+ * - UniApp X 中通过事件阻止 + CSS 控制实现滚动锁定
+ * - onDeactivated 在 UniApp X 中可能不触发，保留 onBeforeUnmount
+ *
+ * 使用模式：
+ * 在需要锁定滚动的组件（如弹窗、遮罩）中使用
+ * ```
+ * const showModal = ref(false)
+ * const { lock, unlock } = useLockScroll(() => showModal.value)
+ * ```
+ */
+import { onBeforeUnmount, ref, watch } from 'vue'
+
+/** useLockScroll 返回值类型 */
+export type UseLockScrollReturn = {
+  lock : () => void
+  unlock : () => void
+}
+
+/**
+ * 全局滚动锁定计数器
+ * 支持多个组件同时锁定，只有全部解锁后才恢复滚动
+ */
+let globalLockCount = 0
+
+/**
+ * 页面滚动锁定
+ * @param shouldLock - 返回是否应该锁定滚动的函数
+ */
+export const useLockScroll = (shouldLock : () => boolean) : UseLockScrollReturn => {
+  /** 当前组件是否已锁定 */
+  const isLocked = ref<boolean>(false)
+
+  /**
+   * 锁定页面滚动
+   */
+  const lock = () : void => {
+    if (!isLocked.value) {
+      isLocked.value = true
+      globalLockCount++
+    }
+  }
+
+  /**
+   * 解锁页面滚动
+   */
+  const unlock = () : void => {
+    if (isLocked.value) {
+      isLocked.value = false
+      if (globalLockCount > 0) {
+        globalLockCount--
+      }
+    }
+  }
+
+  /** 销毁时的清理函数 */
+  const destroy = () : void => {
+    if (shouldLock()) {
+      unlock()
+    }
+  }
+
+  /** 监听锁定状态变化 */
+  watch(shouldLock, (value : boolean) => {
+    if (value) {
+      lock()
+    } else {
+      unlock()
+    }
+  })
+
+  /** 组件卸载前自动清理 */
+  onBeforeUnmount(() => {
+    destroy()
+  })
+
+  return {
+    lock,
+    unlock,
+  }
+}
+
+/**
+ * 获取当前全局滚动锁定状态
+ * 组件可用此判断是否需要阻止滚动事件
+ */
+export const isScrollLocked = () : boolean => {
+  return globalLockCount > 0
+}

@@ -1,0 +1,611 @@
+{
+  "globalStyle": {
+    "navigationBarTitleText": "ryplus-uni",
+    "navigationStyle": "custom",
+    "mp-alipay": {
+      "transparentTitle": "always",
+      "titlePenetrate": "YES"
+    },
+    "h5": {
+      "titleNView": false
+    },
+    "app-plus": {
+      "bounce": "none"
+    }
+  },
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^wd-(.*)": "@/wd/components/wd-$1/wd-$1.vue"
+    }
+  },
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "type": "home",
+      "layout": "default"
+    },
+    {
+      "path": "pages/auth/auth",
+      "type": "page",
+      "layout": "default"
+    },
+    {
+      "path": "pages/auth/login",
+      "type": "page",
+      "layout": "default"
+    },
+    {
+      "path": "pages/auth/phoneLogin",
+      "type": "page",
+      "layout": "default"
+    },
+    {
+      "path": "pages/auth/register",
+      "type": "page",
+      "layout": "default"
+    },
+    {
+      "path": "pages/auth/smsVerify",
+      "type": "page",
+      "layout": "default"
+    },
+    {
+      "path": "pages/my/settings",
+      "type": "page",
+      "layout": "default"
+    }
+  ],
+  "subPackages": [
+    {
+      "root": "pages-sub/admin",
+      "pages": [
+        {
+          "path": "user/user",
+          "type": "page",
+          "layout": "default"
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/basic",
+      "pages": [
+        {
+          "path": "button",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "configProvider",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "icon",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "resize",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "text",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "transition",
+          "type": "page",
+          "layout": "default"
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/layout",
+      "pages": [
+        {
+          "path": "divider",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "gap",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "grid",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "rowCol",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "sticky",
+          "type": "page",
+          "layout": "default"
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/navigation",
+      "pages": [
+        {
+          "path": "backtop",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "indexBar",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "navbar",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "pagination",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "paging",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "segmented",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "sidebar",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "tabbar",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "tabs",
+          "type": "page",
+          "layout": "default"
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/form",
+      "pages": [
+        {
+          "path": "calendar",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "calendarView",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "checkbox",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "colPicker",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "datetimePicker",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "datetimePickerView",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "form",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "img",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "input",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "inputNumber",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "passwordInput",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "picker",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "pickerView",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "radio",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "rate",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "search",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "selectPicker",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "signature",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "slider",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "slideVerify",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "switch",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "textarea",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "tooltip",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "upload",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "voiceRecorder",
+          "type": "page",
+          "layout": "default"
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/display",
+      "pages": [
+        {
+          "path": "avatar",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "badge",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "card",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "cell",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "collapse",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "curtain",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "img",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "imgCropper",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "skeleton",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "steps",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "swiper",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "table",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "tag",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "watermark",
+          "type": "page",
+          "layout": "default"
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/feedback",
+      "pages": [
+        {
+          "path": "actionSheet",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "circle",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "countDown",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "countTo",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "dropMenu",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "fab",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "floatingPanel",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "keyboard",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "loading",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "loadmore",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "messageBox",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "noticeBar",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "notify",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "numberKeyboard",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "overlay",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "popover",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "popup",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "progress",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "sortButton",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "statusTip",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "swipeAction",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "toast",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "tooltip",
+          "type": "page",
+          "layout": "default"
+        }
+      ]
+    },
+    {
+      "root": "pages-sub/templates",
+      "pages": [
+        {
+          "path": "corporate/corpBasic",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "ecommerce/mallBasic",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "ecommerce/mallFresh",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "education/eduExam",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "education/eduOnline",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "entertainment/gamePuzzle",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "entertainment/gameVideo",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "finance/financeBudget",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "lifestyle/lifeDelivery",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "lifestyle/lifeMedical",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "news/newsBasic",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "news/newsTech",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "social/socialBlog",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "social/socialForum",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "tools/toolCalculator",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "tools/toolWeather",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "ecommerce/mallBasic/pages/goodsDetail",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "ecommerce/mallBasic/pages/orderConfirm",
+          "type": "page",
+          "layout": "default"
+        },
+        {
+          "path": "ecommerce/mallBasic/pages/orderList",
+          "type": "page",
+          "layout": "default"
+        }
+      ]
+    }
+  ]
+}

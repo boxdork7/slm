@@ -1,0 +1,167 @@
+/**
+ * 字典数据钩子函数 (useDict) - UniApp X 版本
+ *
+ * 从 plus-app/composables/useDict.ts 迁移
+ *
+ * UTS 适配说明：
+ * - DataResult 接口移除索引签名 [key: string]，改为 Map<string, Ref<DictItem[]>>
+ * - Record<string, DictItem[]> → Map<string, Ref<DictItem[]>>
+ * - reactive + toRefs 展开模式 → Map 存储各字典类型的 Ref
+ * - 返回类型改为 UseDictResult { dictLoading, dictData }
+ * - 调用方式变化：
+ *   plus-app:     const { sys_user_gender, dictLoading } = useDict(DictTypes.sys_user_gender)
+ *   plus-uniappx: const { dictData, dictLoading } = useDict(DictTypes.sys_user_gender)
+ *                  const genderList = dictData.get(DictTypes.sys_user_gender)
+ *
+ * 包含以下功能：
+ * - 字典获取: 支持同时获取多个字典类型的数据
+ * - 缓存利用: 优先从缓存获取数据，减少不必要的 API 请求
+ * - 自动缓存: 自动将 API 获取的字典数据存入缓存
+ * - 状态跟踪: 提供加载状态指示器 (dictLoading)
+ * - 并行加载: 支持多个字典类型的并行请求
+ * - 错误处理: 单个字典加载失败不影响其他字典的加载
+ * - 类型转换: 统一转换为标准字典格式，便于在 UI 组件中使用
+ */
+import { ref } from 'vue'
+import type { Ref } from 'vue'
+import { listDictDatasByDictType } from '../api/system/dict/dictData/dictDataApi'
+import { AsyncResult } from '../utils/to'
+import { useDictStore } from '../stores/modules/dict'
+
+/**
+ * 字典类型枚举
+ */
+export enum DictTypes {
+	/** 审核状态 */
+	sys_audit_status = 'sys_audit_status',
+	/** 逻辑标志 */
+	sys_boolean_flag = 'sys_boolean_flag',
+	/** 显示设置 */
+	sys_display_setting = 'sys_display_setting',
+	/** 启用状态 */
+	sys_enable_status = 'sys_enable_status',
+	/** 文件类型 */
+	sys_file_type = 'sys_file_type',
+	/** 消息类型 */
+	sys_message_type = 'sys_message_type',
+	/** 通知状态 */
+	sys_notice_status = 'sys_notice_status',
+	/** 通知类型 */
+	sys_notice_type = 'sys_notice_type',
+	/** 操作结果 */
+	sys_oper_result = 'sys_oper_result',
+	/** 业务操作类型 */
+	sys_oper_type = 'sys_oper_type',
+	/** 支付方式 */
+	sys_payment_method = 'sys_payment_method',
+	/** 平台类型 */
+	sys_platform_type = 'sys_platform_type',
+	/** 用户性别 */
+	sys_user_gender = 'sys_user_gender',
+	/** 数据权限类型 */
+	sys_data_scope = 'sys_data_scope',
+}
+
+/**
+ * useDict 返回结果类型
+ */
+export type UseDictResult = {
+	/** 字典加载状态，false 代表加载完毕 */
+	dictLoading : Ref<boolean>
+	/** 字典数据集合，key 为字典类型，value 为响应式字典项数组 */
+	dictData : Map<string, Ref<DictItem[]>>
+}
+
+/**
+ * 获取字典数据的组合式 API
+ *
+ * 此钩子用于从缓存或 API 动态获取字典数据，支持同时请求多个字典类型。
+ * 返回的对象中包含所有请求字典类型的 Map 以及加载状态。
+ *
+ * @param args 需要获取的字典类型数组
+ * @returns 包含 dictData（Map）和 dictLoading（Ref<boolean>）的结果对象
+ *
+ * @example
+ * // 基本用法
+ * const { dictData, dictLoading } = useDict(DictTypes.sys_user_gender, DictTypes.sys_enable_status)
+ * const genderList = dictData.get(DictTypes.sys_user_gender)
+ *
+ * // 在模板中使用
+ * // <wd-picker :columns="genderList?.value" :loading="dictLoading.value" />
+ */
+export const useDict = (...args : string[]) : UseDictResult => {
+	const dictStore = useDictStore()
+	/* 字典数据集合，每个字典类型对应一个 Ref<DictItem[]> */
+	const dictData = new Map<string, Ref<DictItem[]>>()
+	/* 字典加载状态标志，false 代表加载完毕 */
+	const dictLoading = ref(true)
+
+	/* 收集所有字典请求的 Promise，用于跟踪加载完成状态 */
+	const promises : Promise<void>[] = []
+
+	/* 处理每个请求的字典类型 */
+	for (let i = 0; i < args.length; i++) {
+		const dictType = args[i]
+
+		/* 初始化为空数组，确保在加载前模板可以正常渲染 */
+		const dictRef = ref<DictItem[]>([] as DictItem[])
+		dictData.set(dictType, dictRef)
+
+		/* 尝试从缓存获取字典 */
+		const cachedDict = dictStore.getDict(dictType)
+
+		if (cachedDict != null) {
+			/* 缓存命中，直接使用缓存数据 */
+			dictRef.value = cachedDict!
+			promises.push(Promise.resolve())
+		} else {
+			/* 缓存未命中，从 API 获取数据 */
+			const promise = listDictDatasByDictType(dictType).then((result : AsyncResult) : void => {
+				if (result.err != null) {
+					/* 错误处理后 Promise 仍然解析为 fulfilled 状态，不影响其他字典的加载 */
+					console.error(`获取字典[${dictType}]失败:`, result.err!.message)
+					return
+				}
+
+				const data = result.data
+				if (data == null || !Array.isArray(data)) {
+					console.error(`获取字典[${dictType}]返回数据格式错误`)
+					return
+				}
+
+				/* 转换 API 返回的数据为标准字典格式 */
+				const rawList = data as Array<UTSJSONObject>
+				const dictItems : DictItem[] = []
+				for (let j = 0; j < rawList.length; j++) {
+					const p = rawList[j]
+					const item : DictItem = {
+						label: (p['dictLabel'] as string) ?? '',
+						value: (p['dictValue'] as string) ?? '',
+						status: (p['status'] as string) ?? '',
+						elTagType: (p['listClass'] as string) ?? '',
+						elTagClass: (p['cssClass'] as string) ?? '',
+					}
+					dictItems.push(item)
+				}
+
+				/* 更新响应式数据 */
+				dictRef.value = dictItems
+				/* 将数据存入缓存，避免重复请求 */
+				dictStore.setDict(dictType, dictItems)
+			})
+			promises.push(promise)
+		}
+	}
+
+	/* 当所有字典请求完成后，更新加载状态 */
+	Promise.all(promises).then((_results : void[]) : void => {
+		dictLoading.value = false
+	}).catch((_error : Error | null) : void => {
+		dictLoading.value = false
+	})
+
+	return {
+		dictLoading: dictLoading,
+		dictData: dictData,
+	} as UseDictResult
+}

@@ -1,0 +1,37 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      crypto-js:
+        specifier: ^4.2.0
+        version: 4.2.0
+      miniprogram-sm-crypto:
+        specifier: ^0.4.0
+        version: 0.4.0
+
+packages:
+
+  crypto-js@4.2.0:
+    resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
+
+  jsbn@1.1.0:
+    resolution: {integrity: sha512-4bYVV3aAMtDTTu4+xsDYa6sy9GyJ69/amsu9sYF2zqjiEoZA5xJi3BrfX3uY+/IekIu7MwdObdbDWpoZdBv3/A==}
+
+  miniprogram-sm-crypto@0.4.0:
+    resolution: {integrity: sha512-MN+cCQGn2QPAISYoQojB1bDmZ3p7lhE6UdK8uPL9bap/LuAdUqFk8PzZSfUAwHBY675EQxZfMV3BPckoqBsxRA==}
+
+snapshots:
+
+  crypto-js@4.2.0: {}
+
+  jsbn@1.1.0: {}
+
+  miniprogram-sm-crypto@0.4.0:
+    dependencies:
+      jsbn: 1.1.0

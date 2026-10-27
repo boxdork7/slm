@@ -1,0 +1,272 @@
+/**
+ * 验证码信息
+ */
+export type CaptchaVo = {
+  /** 是否开启多租户 */
+  tenantEnabled: boolean
+  /** 租户标题 */
+  tenantTitle: string
+  /** 是否开启注册 */
+  registerEnabled: boolean
+  /** 是否开启验证码 */
+  captchaEnabled: boolean
+  /** 验证码唯一标识 */
+  uuid: string
+  /** 验证码图片（Base64编码） */
+  img: string
+}
+
+/**
+ * 密码登录对象
+ */
+export type PasswordLoginBody = {
+  /** 认证方式 */
+  authType: string
+  /** 认证类型 - 'password' */
+  type: string
+  /** 用户名 */
+  userName: string
+  /** 用户密码 */
+  password: string
+  /** 验证码 */
+  code?: string
+  /** 唯一标识 */
+  uuid?: string
+  /** 记住密码（仅前端使用，不提交后端） */
+  rememberMe?: boolean
+}
+
+/**
+ * 邮箱登录对象
+ */
+export type EmailLoginBody = {
+  /** 认证方式 */
+  authType: string
+  /** 认证类型 - 'email' */
+  type: string
+  /** 邮箱 */
+  email: string
+  /** 邮箱验证码 */
+  emailCode: string
+  /** 验证码 */
+  code?: string
+  /** 唯一标识 */
+  uuid?: string
+}
+
+/**
+ * 短信登录对象
+ */
+export type SmsLoginBody = {
+  /** 认证方式 */
+  authType: string
+  /** 认证类型 - 'sms' */
+  type: string
+  /** 手机号 */
+  phone: string
+  /** 短信验证码 */
+  smsCode: string
+  /** 验证码 */
+  code?: string
+  /** 唯一标识 */
+  uuid?: string
+}
+
+/**
+ * 三方登录对象
+ */
+export type SocialLoginBody = {
+  /** 认证方式 */
+  authType: string
+  /** 认证类型 - 'social' */
+  type: string
+  /** 第三方登录平台 */
+  source: string
+  /** 第三方登录code */
+  socialCode: string
+  /** 第三方登录socialState */
+  socialState: string
+  /** 验证码 */
+  code?: string
+  /** 唯一标识 */
+  uuid?: string
+}
+
+/**
+ * 小程序登录对象
+ */
+export type MiniappLoginBody = {
+  /** 认证方式 */
+  authType: string
+  /** 认证类型 - 'miniapp' */
+  type: string
+  /** 小程序appid */
+  appid: string
+  /** 平台 */
+  platform: string
+  /** 小程序登录凭证code */
+  platformCode: string
+  /** 加密数据（可选，用于获取用户信息） */
+  encryptedData?: string
+  /** 解密向量（可选，用于获取用户信息） */
+  iv?: string
+  /** 用户信息原始数据（可选） */
+  rawData?: string
+  /** 签名（可选，用于验证用户信息完整性） */
+  signature?: string
+  /** 验证码 */
+  code?: string
+  /** 唯一标识 */
+  uuid?: string
+}
+
+/**
+ * 微信H5登录对象
+ */
+export type WechatOfficialAccountLoginBody = {
+  /** 认证方式 */
+  authType: string
+  /** 认证类型 - 'mp' */
+  type: string
+  /** 微信H5应用appid */
+  appid: string
+  /** 微信授权码 */
+  platformCode: string
+  /** 状态参数 */
+  state?: string
+  /** 验证码 */
+  code?: string
+  /** 唯一标识 */
+  uuid?: string
+}
+
+/**
+ * 统一登录请求类型（兼容所有登录方式）
+ * 包含所有登录方式的可选字段
+ */
+export type LoginRequest = {
+  /** 认证方式 */
+  authType?: string
+  /** 认证类型 */
+  type?: string
+  /** 用户名（密码登录） */
+  userName?: string
+  /** 用户密码（密码登录） */
+  password?: string
+  /** 邮箱（邮箱登录） */
+  email?: string
+  /** 邮箱验证码（邮箱登录） */
+  emailCode?: string
+  /** 手机号（短信登录） */
+  phone?: string
+  /** 短信验证码（短信登录） */
+  smsCode?: string
+  /** 第三方登录平台（三方登录） */
+  source?: string
+  /** 第三方登录code（三方登录） */
+  socialCode?: string
+  /** 第三方登录socialState（三方登录） */
+  socialState?: string
+  /** 小程序appid（小程序登录） */
+  appid?: string
+  /** 平台（小程序登录） */
+  platform?: string
+  /** 小程序登录凭证code（小程序登录） */
+  platformCode?: string
+  /** 加密数据（小程序登录） */
+  encryptedData?: string
+  /** 解密向量（小程序登录） */
+  iv?: string
+  /** 用户信息原始数据（小程序登录） */
+  rawData?: string
+  /** 签名（小程序登录） */
+  signature?: string
+  /** 微信授权状态参数 */
+  state?: string
+  /** 验证码 */
+  code?: string
+  /** 唯一标识 */
+  uuid?: string
+  /** 记住密码（仅前端使用，不提交后端） */
+  rememberMe?: boolean
+}
+
+/**
+ * 用户注册对象
+ */
+export type RegisterBody = {
+  /** 认证方式 */
+  authType: string
+  /** 认证类型 - 'password' */
+  type: string
+  /** 用户名 */
+  userName: string
+  /** 用户密码 */
+  password: string
+  /** 用户类型 */
+  userType?: string
+  /** 确认密码（仅前端校验） */
+  confirmPassword?: string
+  /** 验证码 */
+  code?: string
+  /** 唯一标识 */
+  uuid?: string
+}
+
+/**
+ * 认证令牌响应对象
+ */
+export type AuthTokenVo = {
+  /** 访问令牌 */
+  access_token: string
+  /** 刷新令牌 */
+  refresh_token?: string
+  /** 访问令牌有效期（秒） */
+  expire_in: number
+  /** 刷新令牌有效期（秒） */
+  refresh_expire_in?: number
+  /** 令牌权限范围 */
+  scope?: string
+}
+
+/**
+ * 用户信息更新对象
+ */
+export type UserProfileUpdateBo = {
+  /** 用户昵称 */
+  nickName?: string
+  /** 用户头像 */
+  avatar?: string
+}
+
+/**
+ * 租户配置信息
+ */
+export type TenantConfigVo = {
+  /** 租户功能是否启用 */
+  tenantEnabled: boolean
+  /** 可用租户选项列表 */
+  voList: TenantOptionVo[]
+}
+
+/**
+ * 租户选择选项对象
+ */
+export type TenantOptionVo = {
+  /** 租户ID */
+  tenantId: string
+  /** 企业名称 */
+  companyName: string
+  /** 域名 */
+  domain: string
+}
+
+/**
+ * 平台登录参数（H5微信授权回调参数）
+ */
+export type PlatformLoginParams = {
+  /** 授权码 */
+  code: string
+  /** 状态参数 */
+  state?: string
+}

@@ -1,0 +1,122 @@
+<!--
+Loadmore 加载更多 用于列表底部，在加载更多数据时展示loading/完成/错误状态。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 Partial<WdLoadingProps>（UTS 不支持 Partial）
+- 移除 omitBy/isUndefined
+- <block> 改为 <template>
+- useTranslate 从本地 composables 导入
+-->
+<template>
+  <view :class="`wd-loadmore ${customClass}`" :style="customStyle">
+    <!-- 加载中 -->
+    <template v-if="state === 'loading'">
+      <wd-loading
+        :color="loadingColor"
+        :size="loadingSize"
+        :type="loadingType"
+      />
+      <text class="wd-loadmore__text">{{ loadingText || translate('loading') }}</text>
+    </template>
+
+    <!-- 完成 -->
+    <template v-else-if="state === 'finished'">
+      <view class="wd-loadmore__line" />
+      <text class="wd-loadmore__text">{{ finishedText || translate('finished') }}</text>
+      <view class="wd-loadmore__line" />
+    </template>
+
+    <!-- 错误 -->
+    <template v-else-if="state === 'error'">
+      <text class="wd-loadmore__text" @click="handleReload">{{ errorText || translate('error') }}</text>
+    </template>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { useTranslate } from '../../composables/useTranslate'
+
+const { translate } = useTranslate('loadmore')
+
+/**
+ * 加载更多组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 加载状态：loading / finished / error */
+  state ?: string
+  /** 加载中文案 */
+  loadingText ?: string
+  /** 完成文案 */
+  finishedText ?: string
+  /** 错误文案 */
+  errorText ?: string
+  /** loading 图标颜色 */
+  loadingColor ?: string
+  /** loading 图标大小 */
+  loadingSize ?: string
+  /** loading 图标类型 */
+  loadingType ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  state: 'finished',
+  loadingText: '',
+  finishedText: '',
+  errorText: '',
+  loadingColor: '',
+  loadingSize: '',
+  loadingType: 'ring',
+})
+
+/** 组件事件 */
+const emit = defineEmits(['reload'])
+
+/**
+ * 点击错误状态文字，触发重新加载
+ */
+const handleReload = () => {
+  emit('reload')
+}
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+.wot-theme-dark {
+  @include b(loadmore) {
+    @include e(text) {
+      color: $-dark-color3;
+    }
+
+    @include e(line) {
+      background-color: $-dark-color-gray;
+    }
+  }
+}
+
+@include b(loadmore) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: $-loadmore-height;
+
+  @include e(text) {
+    margin: 0 $-loadmore-text-margin;
+    color: $-loadmore-text-color;
+    font-size: $-loadmore-fs;
+    white-space: nowrap;
+  }
+
+  @include e(line) {
+    flex: 1;
+    height: 1rpx;
+    background-color: $-loadmore-line-color;
+  }
+}
+</style>

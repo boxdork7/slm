@@ -1,0 +1,276 @@
+<!--
+RadioGroup 单选框组 用于在一组备选项中进行单选。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- useChildren → createChildManager + provide
+- useParent(FORM_KEY) → inject(FORM_KEY)
+- useSlots → prop-based 条件渲染
+- linkChildren → provide 扁平化
+- export type → 移到 wd-radio-group-key.uts
+- string | number | boolean → string
+- FormItemRule → 从 wd-form-key.uts 导入
+-->
+<template>
+  <view v-if="cell" :class="`wd-radio-group ${customClass}`" :style="customStyle">
+    <wd-cell
+      :title="label"
+      :required="required"
+      :center="center"
+      :border="border"
+      :title-width="labelWidth"
+      :size="size"
+      :is-link="isLink"
+      :clickable="clickable"
+    >
+      <view class="wd-radio-group__cell-body">
+        <!-- options 模式 -->
+        <template v-if="options.length > 0">
+          <wd-radio
+            v-for="(item, index) in options"
+            :key="index"
+            :value="item.value"
+            :disabled="item.disabled == true"
+          >
+            {{ item.label }}
+          </wd-radio>
+        </template>
+        <!-- slot 模式 -->
+        <slot v-else />
+      </view>
+    </wd-cell>
+    <!-- 错误提示 -->
+    <view v-if="errorMessage != ''" class="wd-radio-group__error">
+      <text class="wd-radio-group__error-text">{{ errorMessage }}</text>
+    </view>
+  </view>
+  <view v-else :class="`wd-radio-group ${inline ? 'is-inline' : ''} ${customClass}`" :style="customStyle">
+    <!-- options 模式 -->
+    <template v-if="options.length > 0">
+      <wd-radio
+        v-for="(item, index) in options"
+        :key="index"
+        :value="item.value"
+        :disabled="item.disabled == true"
+      >
+        {{ item.label }}
+      </wd-radio>
+    </template>
+    <!-- slot 模式 -->
+    <slot v-else />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, inject, provide, watch } from 'vue'
+import { createChildManager } from '../../composables/useChildren'
+import { FORM_KEY, type FormProvide } from '../wd-form/wd-form-key'
+import { RADIO_GROUP_KEY, type RadioGroupProvide, type RadioOption } from './wd-radio-group-key'
+
+/**
+ * RadioGroup 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 当前选中的值 */
+  modelValue ?: string
+  /** 表单模式（使用 cell 包裹） */
+  cell ?: boolean
+  /** 单选框形状：dot / button / check */
+  shape ?: string
+  /** 选中的颜色 */
+  checkedColor ?: string
+  /** 是否禁用 */
+  disabled ?: boolean
+  /** 设置大小：default / small / large */
+  size ?: string
+  /** 同行展示 */
+  inline ?: boolean
+  /** 图标位置：left / right */
+  iconPlacement ?: string
+  /** 每个单选框的宽度 */
+  itemWidth ?: string
+  /** 选项数组（options 模式） */
+  options ?: RadioOption[]
+  /** 表单字段名 */
+  prop ?: string
+  /** 标签文本（cell 模式） */
+  label ?: string
+  /** 是否必填（cell 模式） */
+  required ?: boolean
+  /** 是否居中（cell 模式） */
+  center ?: boolean
+  /** 是否显示边框（cell 模式） */
+  border ?: boolean
+  /** 标签宽度（cell 模式） */
+  labelWidth ?: string
+  /** 是否显示右侧箭头（cell 模式） */
+  isLink ?: boolean
+  /** 开启点击反馈（cell 模式） */
+  clickable ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  modelValue: '',
+  cell: false,
+  shape: 'check',
+  checkedColor: '',
+  disabled: false,
+  size: '',
+  inline: false,
+  iconPlacement: 'left',
+  itemWidth: '',
+  options: () : RadioOption[] => ([] as RadioOption[]),
+  prop: '',
+  label: '',
+  required: false,
+  center: false,
+  border: true,
+  labelWidth: '70',
+  isLink: false,
+  clickable: false,
+})
+
+const emit = defineEmits(['update:modelValue', 'change'])
+
+/* 获取父组件 Form 的 provide 数据 */
+const form = inject<FormProvide | null>(FORM_KEY, null)
+
+/* 子组件管理器 */
+const manager = createChildManager()
+
+/**
+ * 计算错误信息
+ */
+const errorMessage = computed(() : string => {
+  if (form != null && props.prop != '' && form!.errorMessages.has(props.prop)) {
+    return form!.errorMessages.get(props.prop)!
+  }
+  return ''
+})
+
+/**
+ * 更新值
+ */
+const updateValue = (value : string) => {
+  emit('update:modelValue', value)
+  emit('change', { value: value })
+
+  /* 清除表单错误信息 */
+  if (form != null && form!.resetOnChange && props.prop != '') {
+    form!.clearFieldMessage(props.prop)
+  }
+}
+
+/**
+ * 监听 modelValue 变化同步清除表单错误
+ */
+watch(
+  () : string => props.modelValue,
+  () => {
+    if (form != null && form!.resetOnChange && props.prop != '') {
+      form!.clearFieldMessage(props.prop)
+    }
+  },
+)
+
+/**
+ * Provide 数据给子组件
+ */
+const radioGroupProvide : RadioGroupProvide = {
+  modelValue: props.modelValue,
+  shape: props.shape,
+  checkedColor: props.checkedColor,
+  disabled: props.disabled,
+  cell: props.cell,
+  size: props.size,
+  inline: props.inline,
+  iconPlacement: props.iconPlacement,
+  itemWidth: props.itemWidth,
+  childUids: manager.childUids,
+  addChild: manager.addChild,
+  removeChild: manager.removeChild,
+  updateValue: updateValue,
+}
+
+/* 监听 props 变化，同步更新 provide */
+watch(
+  () : string => props.modelValue,
+  (val : string) => { radioGroupProvide.modelValue = val },
+)
+watch(
+  () : string => props.shape,
+  (val : string) => { radioGroupProvide.shape = val },
+)
+watch(
+  () : string => props.checkedColor,
+  (val : string) => { radioGroupProvide.checkedColor = val },
+)
+watch(
+  () : boolean => props.disabled,
+  (val : boolean) => { radioGroupProvide.disabled = val },
+)
+watch(
+  () : boolean => props.cell,
+  (val : boolean) => { radioGroupProvide.cell = val },
+)
+watch(
+  () : string => props.size,
+  (val : string) => { radioGroupProvide.size = val },
+)
+watch(
+  () : boolean => props.inline,
+  (val : boolean) => { radioGroupProvide.inline = val },
+)
+watch(
+  () : string => props.iconPlacement,
+  (val : string) => { radioGroupProvide.iconPlacement = val },
+)
+watch(
+  () : string => props.itemWidth,
+  (val : string) => { radioGroupProvide.itemWidth = val },
+)
+
+provide(RADIO_GROUP_KEY, radioGroupProvide)
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(radio-group) {
+  }
+}
+
+/* 单选框组样式 */
+@include b(radio-group) {
+  /* cell 模式内容区域 */
+  @include e(cell-body) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* 错误提示 */
+  @include e(error) {
+    padding: 0 32rpx;
+  }
+
+  @include e(error-text) {
+    color: $-form-item-error-message-color;
+    font-size: $-form-item-error-message-font-size;
+  }
+
+  /* 同行展示 */
+  @include when(inline) {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+</style>

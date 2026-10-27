@@ -1,0 +1,240 @@
+<!--
+Pagination 分页 当数据量过多时,使用分页分解数据
+
+UniApp X 版本
+- 移除 defineOptions
+- useTranslate → 直接使用中文字面量
+- 移除国际化依赖
+-->
+<template>
+  <view
+    v-if="!(hideIfOnePage && totalPageNum === 1)"
+    :class="`wd-pager ${customClass}`"
+    :style="customStyle"
+  >
+    <view class="wd-pager__content">
+      <wd-button
+        :plain="modelValue > 1"
+        type="info"
+        size="small"
+        :disabled="modelValue <= 1"
+        custom-class="wd-pager__nav"
+        @click="handlePrev"
+      >
+        <text v-if="!showIcon">{{ prevText != '' ? prevText : '上一页' }}</text>
+        <wd-icon
+          v-else
+          :custom-class="`wd-pager__left wd-pager__icon ${modelValue <= 1 ? 'wd-pager__nav--disabled' : 'wd-pager__nav--active'}`"
+          name="right"
+        />
+      </wd-button>
+
+      <view class="wd-pager__size">
+        <text class="wd-pager__current">
+          {{ modelValue }}
+        </text>
+        <text class="wd-pager__separator">/</text>
+        <text>{{ totalPageNum }}</text>
+      </view>
+
+      <wd-button
+        :plain="modelValue < totalPageNum"
+        type="info"
+        size="small"
+        :disabled="modelValue >= totalPageNum"
+        custom-class="wd-pager__nav"
+        @click="handleNext"
+      >
+        <text v-if="!showIcon">{{ nextText != '' ? nextText : '下一页' }}</text>
+        <wd-icon
+          v-else
+          :custom-class="`wd-pager__icon ${modelValue >= totalPageNum ? 'wd-pager__nav--disabled' : 'wd-pager__nav--active'}`"
+          name="right"
+        />
+      </wd-button>
+    </view>
+
+    <view v-if="showMessage" class="wd-pager__message">
+      <text>第{{ modelValue }}页，</text>
+      <text v-if="total > 0">共{{ total }}条，</text>
+      <text>每页{{ pageSize }}条</text>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { ref, watch } from 'vue'
+
+/**
+ * 分页组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 当前页码 */
+  modelValue : number
+  /** 总页数,如果有total,则优先使用total计算页数 */
+  totalPage ?: number
+  /** 是否展示分页为Icon图标 */
+  showIcon ?: boolean
+  /** 是否展示总条数信息 */
+  showMessage ?: boolean
+  /** 总条数 */
+  total ?: number
+  /** 每页条数 */
+  pageSize ?: number
+  /** 上一页文本 */
+  prevText ?: string
+  /** 下一页文本 */
+  nextText ?: string
+  /** 总页数只有一页时是否隐藏 */
+  hideIfOnePage ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  totalPage: 1,
+  showIcon: false,
+  showMessage: false,
+  total: 0,
+  pageSize: 10,
+  prevText: '',
+  nextText: '',
+  hideIfOnePage: true,
+})
+
+/** 组件事件 */
+const emit = defineEmits<{
+  /** 页码变化时触发 */
+  change: [event: { value: number }]
+  /** 更新当前页码 */
+  'update:modelValue': [value: number]
+}>()
+
+/** 响应式数据:总页数 */
+const totalPageNum = ref<number>(0)
+
+/**
+ * 监听 totalPage 属性变化
+ */
+watch(() => props.totalPage, (newValue : number) => {
+  if (totalPageNum.value == 0 && newValue > 0) {
+    totalPageNum.value = newValue
+  }
+}, { immediate: true, deep: true })
+
+/**
+ * 更新总页数
+ */
+const updateTotalPage = () : void => {
+  const { total, pageSize } = props
+  if (total > 0 && pageSize > 0) {
+    totalPageNum.value = Math.ceil(total / pageSize)
+  }
+}
+
+/**
+ * 监听 total 属性变化
+ */
+watch(() => props.total, () => {
+  updateTotalPage()
+}, { immediate: true, deep: true })
+
+/**
+ * 处理下一页点击事件
+ */
+const handleNext = () : void => {
+  const { modelValue } = props
+  if (modelValue >= totalPageNum.value) {
+    return
+  }
+
+  const newValue = modelValue + 1
+  emit('change', { value: newValue })
+  emit('update:modelValue', newValue)
+}
+
+/**
+ * 处理上一页点击事件
+ */
+const handlePrev = () : void => {
+  const { modelValue } = props
+  if (modelValue <= 1) {
+    return
+  }
+
+  const newValue = modelValue - 1
+  emit('change', { value: newValue })
+  emit('update:modelValue', newValue)
+}
+</script>
+
+<style lang="scss">
+@import './../common/abstracts/_mixin.scss';
+@import './../common/abstracts/variable.scss';
+
+.wot-theme-dark {
+  @include b(pager) {
+    background-color: $-dark-background;
+
+    @include e(message) {
+      color: $-dark-color3;
+    }
+  }
+}
+
+@include b(pager) {
+  user-select: none;
+  background-color: #fff;
+
+  @include e(icon) {
+    font-size: $-pagination-icon-size;
+  }
+
+  @include e(content) {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    padding: $-pagination-content-padding;
+  }
+
+  @include e(message) {
+    text-align: center;
+    color: $-pagination-message-color;
+    font-size: $-pagination-message-fs;
+    padding: $-pagination-message-padding;
+  }
+
+  @include e(nav) {
+    min-width: $-pagination-nav-width;
+
+    @include m(active) {
+      color: rgba(0, 0, 0, 0.65);
+    }
+
+    @include m(disabled) {
+      color: rgba(0, 0, 0, 0.15);
+    }
+  }
+
+  @include e(size) {
+    flex: 1;
+    text-align: center;
+    font-size: $-pagination-nav-content-fs;
+  }
+
+  @include e(separator) {
+    padding: $-pagination-nav-sepatator-padding;
+  }
+
+  @include e(left) {
+    transform: rotate(180deg) translateY(2rpx);
+    display: flex;
+  }
+
+  @include e(current) {
+    color: $-pagination-nav-current-color;
+  }
+}
+</style>

@@ -1,0 +1,785 @@
+<!-- Voice Recorder 录音组件 用户可以录制音频内容 -->
+<!-- TODO: 完善录音管理器API适配和音频播放功能 -->
+<template>
+  <view :class="rootClass" :style="customStyle" @click="handleClick">
+    <!-- 默认插槽 - 传递录音状态和控制方法 -->
+    <slot
+      :recording="isRecording"
+      :paused="isPaused"
+      :duration="duration"
+      :audio-file="audioFile"
+      :status="recordStatus"
+      :start="startRecord"
+      :stop="stopRecord"
+      :pause="pauseRecord"
+      :resume="resumeRecord"
+      :play="playAudio"
+      :delete="deleteRecord"
+      :toggle="toggleRecord"
+    >
+      <!-- 默认录音界面 -->
+      <view v-if="showButton" class="wd-voice-recorder__default">
+        <!-- 录音按钮区域 -->
+        <view class="wd-voice-recorder__record-area" @click="toggleRecord">
+          <view
+            class="wd-voice-recorder__record-button"
+            :class="{
+              'is-recording': isRecording,
+              'is-completed': recordStatus === 'completed',
+              'is-error': recordStatus === 'error',
+            }"
+          >
+            <!-- 录音图标 -->
+            <view>
+              <wd-icon
+                v-if="!isRecording && recordStatus !== 'completed'"
+                name="audio"
+                color="white"
+                size="80"
+                custom-class="wd-voice-recorder__icon"
+              />
+              <wd-icon
+                v-else-if="isRecording"
+                name="pause-fill"
+                color="white"
+                size="80"
+                custom-class="wd-voice-recorder__icon"
+              />
+              <wd-icon
+                v-else
+                name="play-fill"
+                color="white"
+                size="80"
+                custom-class="wd-voice-recorder__icon"
+              />
+            </view>
+
+            <!-- 录音动画波纹 -->
+            <view v-if="isRecording" class="wd-voice-recorder__ripple-container">
+              <view
+                v-for="i in 3"
+                :key="i"
+                class="wd-voice-recorder__ripple"
+                :style="{ animationDelay: `${i * 0.3}s` }"
+              />
+            </view>
+          </view>
+        </view>
+
+        <!-- 状态显示 -->
+        <view class="wd-voice-recorder__status">
+          <text class="wd-voice-recorder__duration">{{ formatDuration(duration) }}</text>
+          <text class="wd-voice-recorder__status-text">{{ statusText }}</text>
+        </view>
+
+        <!-- 控制按钮组（录音完成后显示） -->
+        <view v-if="recordStatus === 'completed'" class="wd-voice-recorder__controls">
+          <view
+            class="wd-voice-recorder__control-btn wd-voice-recorder__control-btn--secondary"
+            @click.stop="playAudio"
+          >
+            {{ isPlaying ? '暂停播放' : '试听' }}
+          </view>
+          <view
+            class="wd-voice-recorder__control-btn wd-voice-recorder__control-btn--danger"
+            @click.stop="deleteRecord"
+          >
+            删除
+          </view>
+          <view
+            class="wd-voice-recorder__control-btn wd-voice-recorder__control-btn--primary"
+            @click.stop="startRecord"
+          >
+            重录
+          </view>
+        </view>
+      </view>
+    </slot>
+
+    <!-- 权限提示弹窗 -->
+    <view
+      v-if="showPermissionModal"
+      class="wd-voice-recorder__permission-modal"
+      @click="showPermissionModal = false"
+    >
+      <view class="wd-voice-recorder__permission-content" @click.stop>
+        <text class="wd-voice-recorder__permission-title">需要录音权限</text>
+        <text class="wd-voice-recorder__permission-desc">请在设置中开启录音权限后重试</text>
+        <view class="wd-voice-recorder__permission-buttons">
+          <view
+            class="wd-voice-recorder__permission-btn wd-voice-recorder__permission-btn--cancel"
+            @click="showPermissionModal = false"
+          >
+            取消
+          </view>
+          <view
+            class="wd-voice-recorder__permission-btn wd-voice-recorder__permission-btn--confirm"
+            @click="openSetting"
+          >
+            去设置
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
+
+/**
+ * 录音状态类型
+ */
+type RecordStatus = 'idle' | 'recording' | 'paused' | 'completed' | 'error'
+
+/**
+ * 音频格式类型
+ */
+type AudioFormat = 'mp3' | 'wav' | 'aac'
+
+/**
+ * 录音组件属性接口
+ */
+interface WdVoiceRecorderProps {
+  /** 自定义根节点样式 */
+  customStyle?: string
+  /** 自定义根节点样式类 */
+  customClass?: string
+
+  /** 绑定值 - 音频文件路径 */
+  modelValue?: string
+  /** 最大录音时长（秒） */
+  maxDuration?: number
+  /** 最小录音时长（秒） */
+  minDuration?: number
+  /** 音频格式 */
+  format?: AudioFormat
+  /** 采样率 */
+  sampleRate?: number
+  /** 声道数 */
+  numberOfChannels?: number
+  /** 编码码率 */
+  encodeBitRate?: number
+  /** 是否显示默认按钮 */
+  showButton?: boolean
+  /** 是否自动停止 */
+  autoStop?: boolean
+  /** 是否进行质量检测 */
+  qualityCheck?: boolean
+  /** 是否禁用 */
+  disabled?: boolean
+  /** 只读模式 */
+  readonly?: boolean
+}
+
+/**
+ * 录音组件事件接口
+ */
+interface WdVoiceRecorderEmits {
+  /** 更新绑定值 */
+  'update:modelValue': [value: string | null]
+  /** 录音开始 */
+  start: [event: UTSJSONObject]
+  /** 录音停止 */
+  stop: [event: UTSJSONObject]
+  /** 录音暂停 */
+  pause: [event: UTSJSONObject]
+  /** 录音恢复 */
+  resume: [event: UTSJSONObject]
+  /** 录音完成 */
+  complete: [event: UTSJSONObject]
+  /** 录音错误 */
+  error: [event: UTSJSONObject]
+  /** 录音进度 */
+  progress: [event: UTSJSONObject]
+  /** 点击组件 */
+  click: [event: MouseEvent]
+  /** 播放音频 */
+  play: []
+  /** 删除录音 */
+  delete: []
+}
+
+// 使用 withDefaults 定义组件属性和默认值
+const props = withDefaults(defineProps<WdVoiceRecorderProps>(), {
+  customStyle: '',
+  customClass: '',
+  modelValue: null,
+  maxDuration: 60,
+  minDuration: 1,
+  format: 'mp3',
+  sampleRate: 16000,
+  numberOfChannels: 1,
+  encodeBitRate: 96000,
+  showButton: true,
+  autoStop: true,
+  qualityCheck: true,
+  disabled: false,
+  readonly: false,
+})
+
+// 定义组件事件
+const emit = defineEmits<WdVoiceRecorderEmits>()
+
+// 录音管理器变量声明
+// TODO: 需要适配 UniApp X 的录音管理器 API
+let timer: number | null = null
+
+/**
+ * 获取初始音频文件
+ */
+const getInitAudioFile = (): string | null => {
+  return props.modelValue || null
+}
+
+/**
+ * 获取初始录音状态
+ */
+const getInitStatus = (): RecordStatus => {
+  return props.modelValue ? 'completed' : 'idle'
+}
+
+// 响应式数据声明
+const isRecording = ref<boolean>(false)
+const isPaused = ref<boolean>(false)
+const duration = ref<number>(0)
+const audioFile = ref<string | null>(getInitAudioFile())
+const recordStatus = ref<RecordStatus>(getInitStatus())
+const isPlaying = ref<boolean>(false)
+const showPermissionModal = ref<boolean>(false)
+
+/**
+ * 格式化时长显示
+ */
+const formatDuration = (seconds: number): string => {
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+}
+
+/**
+ * 打开设置页面
+ */
+const openSetting = () => {
+  uni.openSetting({
+    success: () => {
+      showPermissionModal.value = false
+    },
+  })
+}
+
+/**
+ * 停止录音
+ */
+const stopRecord = () => {
+  if (!isRecording.value) return
+  // TODO: 调用录音管理器的停止方法
+  console.log('[VoiceRecorder] TODO: 实现停止录音')
+  isRecording.value = false
+  recordStatus.value = 'completed'
+  stopTimer()
+}
+
+/**
+ * 定时器相关方法
+ */
+const startTimer = () => {
+  timer = setInterval(() => {
+    duration.value += 0.1
+    emit('progress', { duration: duration.value })
+
+    // 自动停止
+    if (props.autoStop && duration.value >= props.maxDuration) {
+      stopRecord()
+    }
+  }, 100)
+}
+
+const stopTimer = () => {
+  if (timer !== null) {
+    clearInterval(timer)
+    timer = null
+  }
+}
+
+/**
+ * 初始化录音管理器
+ */
+const initRecorder = () => {
+  // TODO: 完善录音管理器初始化
+  console.log('[VoiceRecorder] TODO: 初始化录音管理器')
+}
+
+/**
+ * 初始化音频播放器
+ */
+const initAudioContext = () => {
+  // TODO: 完善音频播放器初始化
+  console.log('[VoiceRecorder] TODO: 初始化音频播放器')
+}
+
+/**
+ * 开始录音
+ */
+const startRecord = () => {
+  if (isRecording.value || props.disabled || props.readonly) return
+
+  duration.value = 0
+  recordStatus.value = 'recording'
+  audioFile.value = null
+  emit('update:modelValue', null)
+
+  isRecording.value = true
+  startTimer()
+  emit('start', { duration: duration.value })
+
+  // TODO: 调用录音管理器的开始方法
+  console.log('[VoiceRecorder] TODO: 实现开始录音')
+}
+
+/**
+ * 暂停录音
+ */
+const pauseRecord = () => {
+  if (!isRecording.value || isPaused.value) return
+  // TODO: 调用录音管理器的暂停方法
+  console.log('[VoiceRecorder] TODO: 实现暂停录音')
+  isPaused.value = true
+  recordStatus.value = 'paused'
+  stopTimer()
+}
+
+/**
+ * 恢复录音
+ */
+const resumeRecord = () => {
+  if (!isPaused.value) return
+  // TODO: 调用录音管理器的恢复方法
+  console.log('[VoiceRecorder] TODO: 实现恢复录音')
+  recordStatus.value = 'recording'
+  isPaused.value = false
+  startTimer()
+  emit('resume', { duration: duration.value })
+}
+
+/**
+ * 切换录音状态
+ */
+const toggleRecord = () => {
+  if (props.disabled || props.readonly) return
+
+  if (recordStatus.value === 'completed') {
+    // 已完成状态，点击重新录制
+    startRecord()
+  } else if (isRecording.value) {
+    // 录音中，点击停止
+    stopRecord()
+  } else {
+    // 未录音，点击开始
+    startRecord()
+  }
+}
+
+/**
+ * 播放音频
+ */
+const playAudio = () => {
+  if (!audioFile.value || props.disabled) return
+
+  // TODO: 实现音频播放
+  console.log('[VoiceRecorder] TODO: 实现播放音频')
+  isPlaying.value = !isPlaying.value
+  emit('play')
+}
+
+/**
+ * 删除录音
+ */
+const deleteRecord = () => {
+  if (props.disabled || props.readonly) return
+
+  audioFile.value = null
+  duration.value = 0
+  recordStatus.value = 'idle'
+  emit('update:modelValue', null)
+  emit('delete')
+}
+
+/**
+ * 处理点击事件
+ */
+const handleClick = (event: MouseEvent) => {
+  if (!props.disabled) {
+    emit('click', event)
+  }
+}
+
+/**
+ * 计算状态文本
+ */
+const statusText = computed<string>(() => {
+  switch (recordStatus.value) {
+    case 'recording':
+      return '录音中...'
+    case 'paused':
+      return '录音暂停'
+    case 'completed':
+      return '录音完成'
+    case 'error':
+      return '录音出错'
+    default:
+      return '点击开始录音'
+  }
+})
+
+/**
+ * 计算根元素类名
+ */
+const rootClass = computed<string>(() => {
+  const classes = ['wd-voice-recorder']
+
+  if (props.disabled) classes.push('is-disabled')
+  if (props.readonly) classes.push('is-readonly')
+  if (isRecording.value) classes.push('is-recording')
+  if (recordStatus.value === 'completed') classes.push('is-completed')
+  if (recordStatus.value === 'error') classes.push('is-error')
+  if (props.customClass) classes.push(props.customClass)
+
+  return classes.join(' ')
+})
+
+/**
+ * 监听 modelValue 属性变化
+ */
+watch(
+  () => props.modelValue,
+  (newValue: string | null) => {
+    audioFile.value = newValue || null
+    if (newValue) {
+      recordStatus.value = 'completed'
+    } else {
+      recordStatus.value = 'idle'
+      duration.value = 0
+    }
+  },
+)
+
+// 生命周期
+onMounted(() => {
+  initRecorder()
+  initAudioContext()
+})
+
+onUnmounted(() => {
+  stopTimer()
+})
+
+// 暴露方法给外部调用
+defineExpose({
+  startRecord,
+  stopRecord,
+  pauseRecord,
+  resumeRecord,
+  playAudio,
+  deleteRecord,
+  toggleRecord,
+  isRecording: () => isRecording.value,
+  duration: () => duration.value,
+  status: () => recordStatus.value,
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+// 暗色主题样式
+.wot-theme-dark {
+  @include b(voice-recorder) {
+    @include e(record-button) {
+      background: linear-gradient(135deg, $-dark-background3 0%, $-dark-background2 100%);
+      border-color: $-dark-border-color;
+
+      @include when(recording) {
+        background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+      }
+
+      @include when(completed) {
+        background: linear-gradient(135deg, #00b894 0%, #00a085 100%);
+      }
+    }
+
+    @include e(status-text) {
+      color: $-dark-color;
+    }
+
+    @include e(duration) {
+      color: $-dark-color;
+    }
+
+    @include e(control-btn) {
+      border-color: $-dark-border-color;
+      color: $-dark-color;
+
+      @include m(primary) {
+        background: linear-gradient(135deg, #86C9FF 0%, #5EA9FF 100%);
+        color: white;
+      }
+
+      @include m(danger) {
+        background: #ff6b6b;
+        color: white;
+      }
+    }
+
+    @include e(permission-content) {
+      background: $-dark-background2;
+      border-color: $-dark-border-color;
+    }
+
+    @include e(permission-title) {
+      color: $-dark-color;
+    }
+
+    @include e(permission-desc) {
+      color: $-dark-color3;
+    }
+  }
+}
+
+// 录音组件样式
+@include b(voice-recorder) {
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+
+  @include when(disabled) {
+    opacity: 0.6;
+    pointer-events: none;
+  }
+
+  @include when(readonly) {
+    pointer-events: none;
+  }
+
+  @include e(default) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40rpx 20rpx;
+  }
+
+  @include e(record-area) {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 60rpx;
+    cursor: pointer;
+  }
+
+  @include e(record-button) {
+    position: relative;
+    width: 180rpx;
+    height: 180rpx;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #86C9FF 0%, #5EA9FF 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    box-shadow: 0 6rpx 24rpx rgba(102, 126, 234, 0.3);
+
+    &:active {
+      transform: scale(0.95);
+    }
+
+    @include when(recording) {
+      background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+      box-shadow: 0 6rpx 24rpx rgba(255, 107, 107, 0.4);
+    }
+
+    @include when(completed) {
+      background: linear-gradient(135deg, #00b894 0%, #00a085 100%);
+      box-shadow: 0 6rpx 24rpx rgba(0, 184, 148, 0.3);
+    }
+
+    @include when(error) {
+      background: linear-gradient(135deg, #fd6584 0%, #e056fd 100%);
+      box-shadow: 0 6rpx 24rpx rgba(253, 101, 132, 0.3);
+    }
+  }
+
+  // 录音动画波纹效果
+  @include e(ripple-container) {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  @include e(ripple) {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 180rpx;
+    height: 180rpx;
+    border-radius: 50%;
+    border: 4rpx solid rgba(255, 107, 107, 0.3);
+    animation: ripple 1.5s infinite;
+  }
+
+  @keyframes ripple {
+    0% {
+      width: 180rpx;
+      height: 180rpx;
+      opacity: 1;
+    }
+    100% {
+      width: 360rpx;
+      height: 360rpx;
+      opacity: 0;
+    }
+  }
+
+  @include e(status) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 60rpx;
+    min-height: 120rpx;
+  }
+
+  @include e(duration) {
+    font-size: 40rpx;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 16rpx;
+    font-family: 'Helvetica Neue', 'Arial', sans-serif;
+    letter-spacing: 2rpx;
+  }
+
+  @include e(status-text) {
+    font-size: 28rpx;
+    color: #666;
+    text-align: center;
+    line-height: 1.4;
+  }
+
+  @include e(controls) {
+    display: flex;
+    gap: 30rpx;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  @include e(control-btn) {
+    padding: 24rpx 48rpx;
+    border-radius: 60rpx;
+    font-size: 28rpx;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: 2rpx solid #e9ecef;
+    background: #f8f9fa;
+    color: #666;
+    min-width: 120rpx;
+
+    &:active {
+      transform: scale(0.95);
+    }
+
+    @include m(primary) {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-color: transparent;
+    }
+
+    @include m(secondary) {
+      background: #f8f9fa;
+      color: #666;
+      border: 2rpx solid #e9ecef;
+    }
+
+    @include m(danger) {
+      background: #ff6b6b;
+      color: white;
+      border-color: transparent;
+    }
+  }
+
+  // 权限提示弹窗
+  @include e(permission-modal) {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    backdrop-filter: blur(4rpx);
+  }
+
+  @include e(permission-content) {
+    background: white;
+    border-radius: 32rpx;
+    padding: 60rpx 40rpx 40rpx;
+    margin: 40rpx;
+    max-width: 600rpx;
+    box-shadow: 0 24rpx 48rpx rgba(0, 0, 0, 0.1);
+  }
+
+  @include e(permission-title) {
+    display: block;
+    font-size: 36rpx;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 30rpx;
+    text-align: center;
+  }
+
+  @include e(permission-desc) {
+    display: block;
+    font-size: 28rpx;
+    color: #666;
+    margin-bottom: 60rpx;
+    line-height: 1.6;
+    text-align: center;
+  }
+
+  @include e(permission-buttons) {
+    display: flex;
+    gap: 30rpx;
+  }
+
+  @include e(permission-btn) {
+    flex: 1;
+    padding: 32rpx;
+    border-radius: 60rpx;
+    font-size: 32rpx;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+
+    @include m(cancel) {
+      background: #f8f9fa;
+      color: #666;
+      border: 2rpx solid #e9ecef;
+    }
+
+    @include m(confirm) {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+    }
+
+    &:active {
+      transform: scale(0.95);
+    }
+  }
+}
+</style>

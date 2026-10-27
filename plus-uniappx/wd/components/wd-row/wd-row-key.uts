@@ -1,0 +1,34 @@
+/**
+ * 行布局组件提供的数据接口 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 InjectionKey 泛型（UTS 不支持 Symbol/InjectionKey）
+ * - 改用字符串 key + type 定义
+ * - 子组件管理通过 ChildManager 模式实现
+ */
+
+/**
+ * 行布局属性接口
+ */
+export type RowProps = {
+  gutter : number
+}
+
+/**
+ * 行布局容器 Provide 接口
+ */
+export type RowProvide = {
+  /** 子组件 UID 列表 */
+  childUids : number[]
+  /** 注册子组件 */
+  addChild : (uid : number) => void
+  /** 注销子组件 */
+  removeChild : (uid : number) => void
+  /** 组件属性 */
+  props : RowProps
+}
+
+/**
+ * 行布局容器注入键（字符串 key）
+ */
+export const ROW_KEY = 'wd-row'

@@ -1,0 +1,55 @@
+/**
+ * 索引栏提供的数据接口 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 InjectionKey 泛型（UTS 不支持 Symbol/InjectionKey）
+ * - 改用字符串 key + type 定义
+ * - 锚点索引类型在此统一定义
+ * - 子组件管理通过 ChildManager 模式实现
+ */
+
+/**
+ * 锚点索引类型
+ */
+export type AnchorIndex = number | string
+
+/**
+ * 锚点状态接口
+ */
+export type AnchorState = {
+  /** 当前激活的索引 */
+  activeIndex : AnchorIndex | null
+}
+
+/**
+ * 索引栏属性（业务需要的部分）
+ */
+export type IndexBarProps = {
+  /** 索引是否吸顶 */
+  sticky : boolean
+}
+
+/**
+ * 索引栏 Provide 接口
+ */
+export type IndexBarProvide = {
+  /** 子组件 UID 列表 */
+  childUids : number[]
+  /** 注册子组件 */
+  addChild : (uid : number) => void
+  /** 注销子组件 */
+  removeChild : (uid : number) => void
+  /** 属性 */
+  props : IndexBarProps
+  /** 锚点状态 */
+  anchorState : AnchorState
+  /** 注册子组件数据 */
+  registerChildData : (uid : number, index : AnchorIndex, top : number) => void
+  /** 更新子组件 top 值 */
+  updateChildTop : (uid : number, top : number) => void
+}
+
+/**
+ * 索引栏注入键（字符串 key）
+ */
+export const INDEX_BAR_KEY = 'wd-index-bar'

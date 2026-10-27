@@ -1,0 +1,83 @@
+/**
+ * RSA加密解密工具 (UniApp X 版本)
+ *
+ * 保持与 plus-app/utils/rsa.ts 完全相同的导出接口
+ *
+ * 注意: tq-encrypt 的 web SDK 不包含 RSA 实现（仅原生端支持）
+ * Web 端使用 SM2 非对称加密作为替代方案，接口保持一致
+ * 如需真正的 RSA 加密，请在原生端运行
+ *
+ * 依赖: tq-encrypt 插件（需在 HBuilderX 插件市场导入）
+ */
+import {
+	sm2EncryptSync,
+	sm2DecryptSync,
+} from '@/uni_modules/tq-encrypt'
+import { SystemConfig } from '@/systemConfig'
+
+/* 从系统配置获取默认密钥 */
+const defaultPublicKey = SystemConfig.security.rsaPublicKey
+const defaultPrivateKey = SystemConfig.security.rsaPrivateKey
+
+/**
+ * 使用公钥加密文本
+ * Web 端使用 SM2 替代 RSA，原生端后续可切换为真正的 RSA
+ * @param txt 要加密的文本
+ * @param pubKey 可选的自定义公钥，不提供则使用默认公钥
+ * @returns 加密后的文本，失败返回 null
+ */
+export const rsaEncrypt = (txt : string, pubKey ?: string) : string | null => {
+	try {
+		if (txt.length == 0) {
+			return null
+		}
+
+		const keyToUse = pubKey != null ? pubKey as string : defaultPublicKey
+		if (keyToUse.length == 0) {
+			console.warn('RSA/SM2 加密: 未配置公钥，返回原文')
+			return txt
+		}
+
+		const result = sm2EncryptSync(txt, keyToUse)
+		return result
+	} catch (err) {
+		console.error('RSA/SM2 加密失败:', err)
+		return null
+	}
+}
+
+/**
+ * 使用私钥解密文本
+ * Web 端使用 SM2 替代 RSA
+ * @param txt 要解密的文本
+ * @param privKey 可选的自定义私钥，不提供则使用默认私钥
+ * @returns 解密后的文本，失败返回 null
+ */
+export const rsaDecrypt = (txt : string, privKey ?: string) : string | null => {
+	try {
+		if (txt.length == 0) {
+			return null
+		}
+
+		const keyToUse = privKey != null ? privKey as string : defaultPrivateKey
+		if (keyToUse.length == 0) {
+			console.warn('RSA/SM2 解密: 未配置私钥，返回原文')
+			return txt
+		}
+
+		const result = sm2DecryptSync(txt, keyToUse)
+		return result
+	} catch (err) {
+		console.error('RSA/SM2 解密失败:', err)
+		return null
+	}
+}
+
+/**
+ * 检查文本是否可以使用指定的私钥解密
+ * @param txt 要检查的加密文本
+ * @param privKey 可选的私钥
+ */
+export const rsaCanDecrypt = (txt : string, privKey ?: string) : boolean => {
+	return rsaDecrypt(txt, privKey) != null
+}

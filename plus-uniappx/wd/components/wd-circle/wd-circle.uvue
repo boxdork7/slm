@@ -1,0 +1,326 @@
+<!--
+Circle 环形进度条 圆环形的进度条组件,支持进度渐变动画。
+
+UniApp X 版本
+- 移除 defineOptions
+- type StrokeLinecapType = 'butt' | 'round' | 'square' → string
+- Record<string, string> → UTSJSONObject
+- ReturnType<typeof setTimeout> → number
+- isObj 判断改为 typeof value === 'object'
+- 移除 canvas2dAdapter(UniApp X 使用 DrawableContext)
+- Canvas API 适配 UniApp X 的 getDrawableContext
+- 移除微信小程序和支付宝小程序条件编译
+- display: inline-block → display: flex
+-->
+<template>
+  <view :class="`wd-circle ${customClass}`" :style="customStyle">
+    <canvas
+      :id="canvasId"
+      :ref="(el: any) => { canvasRef = el }"
+      :style="`width: ${addUnit(size)}; height: ${addUnit(size)}`"
+    />
+
+    <view v-if="text == ''" class="wd-circle__text">
+      <slot />
+    </view>
+
+    <text v-else class="wd-circle__text">
+      {{ text }}
+    </text>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import {
+  computed,
+  onBeforeMount,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+} from 'vue'
+import { addUnit, rpxToPx, uuid, isDef } from '../common/util'
+
+/**
+ * 圆形进度条组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 当前进度,取值范围 0-100 */
+  modelValue ?: number
+  /** 圆环直径,默认单位为 rpx */
+  size ?: number
+  /** 进度条颜色,支持字符串或对象格式定义渐变色 */
+  color ?: string | UTSJSONObject
+  /** 轨道颜色,即进度条背景颜色 */
+  layerColor ?: string
+  /** 填充颜色,设置后会填充整个圆环 */
+  fill ?: string
+  /** 动画速度,单位为 rate/s,设置为 0 则无动画效果 */
+  speed ?: number
+  /** 进度条中心显示的文字内容 */
+  text ?: string
+  /** 进度条宽度,单位 rpx */
+  strokeWidth ?: number
+  /** 进度条端点的形状,butt-方形端点,round-圆形端点,square-正方形端点 */
+  strokeLinecap ?: string
+  /** 是否顺时针方向增长进度 */
+  clockwise ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  modelValue: 0,
+  size: 200,
+  color: '#4d80f0',
+  layerColor: '#EBEEF5',
+  speed: 50,
+  text: '',
+  strokeWidth: 20,
+  strokeLinecap: 'round',
+  clockwise: true,
+  fill: '',
+})
+
+/** 响应式数据 */
+const currentValue = ref<number>(0)
+const interval = ref<number | null>(null)
+const pixelRatio = ref<number>(1)
+const canvasId = ref<string>(`wd-circle${uuid()}`)
+const canvasRef = ref<UniElement | null>(null)
+
+/** 绘制相关常量 */
+const PERIMETER = 2 * Math.PI
+const BEGIN_ANGLE = -Math.PI / 2
+const STEP = 1
+
+/**
+ * 计算 Canvas 渲染大小(px)
+ */
+const canvasSize = computed(() : number => {
+  return rpxToPx(props.size)
+})
+
+/**
+ * 计算进度条实际宽度(px)
+ */
+const sWidth = computed(() : number => {
+  return rpxToPx(props.strokeWidth)
+})
+
+/**
+ * 清除定时器
+ */
+const clearTimeInterval = () : void => {
+  if (interval.value != null) {
+    clearTimeout(interval.value!)
+    interval.value = null
+  }
+}
+
+/**
+ * 格式化进度值,确保在 0-100 之间
+ */
+const format = (rate : number) : number => {
+  return Math.min(Math.max(rate, 0), 100)
+}
+
+/**
+ * 设置 Canvas 绘制参数
+ */
+const presetCanvas = (
+  context : DrawableContext,
+  strokeStyle : string,
+  beginAngle : number,
+  endAngle : number,
+  fillStyle : string | null = null,
+) : void => {
+  const width = sWidth.value
+  const position = canvasSize.value / 2
+  const radius = position - width / 2
+
+  context.strokeStyle = strokeStyle
+  context.lineWidth = width
+  context.lineCap = props.strokeLinecap
+
+  context.beginPath()
+  context.arc(position, position, radius, beginAngle, endAngle, !props.clockwise)
+  context.stroke()
+
+  if (fillStyle != null && fillStyle != '') {
+    context.lineWidth = width
+    context.fillStyle = fillStyle
+    context.fill()
+  }
+}
+
+/**
+ * 渲染轨道圆环
+ */
+const renderLayerCircle = (context : DrawableContext) : void => {
+  presetCanvas(context, props.layerColor, 0, PERIMETER, props.fill)
+}
+
+/**
+ * 渲染进度条
+ */
+const renderHoverCircle = (context : DrawableContext, formatValue : number) : void => {
+  const progress = PERIMETER * (formatValue / 100)
+  const endAngle = props.clockwise ? BEGIN_ANGLE + progress : 3 * Math.PI - (BEGIN_ANGLE + progress)
+
+  let strokeStyle = props.color as string
+
+  // 处理渐变色
+  if (typeof props.color === 'object' && props.color != null) {
+    const colorObj = props.color as UTSJSONObject
+    const gradient = context.createLinearGradient(canvasSize.value, 0, 0, 0)
+    const keys = Object.keys(colorObj)
+    const sortedKeys = keys.sort((a : string, b : string) : number => {
+      return parseFloat(a) - parseFloat(b)
+    })
+    for (let i = 0; i < sortedKeys.length; i++) {
+      const key = sortedKeys[i]
+      gradient.addColorStop(parseFloat(key) / 100, colorObj[key] as string)
+    }
+    strokeStyle = String(gradient)
+  }
+
+  presetCanvas(context, strokeStyle, BEGIN_ANGLE, endAngle)
+}
+
+/**
+ * 渲染圆点
+ */
+const renderDot = (context : DrawableContext) : void => {
+  const strokeWidth = sWidth.value
+  const position = canvasSize.value / 2
+
+  let fillStyle = props.color as string
+
+  // 处理渐变色
+  if (typeof props.color === 'object' && props.color != null) {
+    const colorObj = props.color as UTSJSONObject
+    const gradient = context.createLinearGradient(canvasSize.value, 0, 0, 0)
+    const keys = Object.keys(colorObj)
+    const sortedKeys = keys.sort((a : string, b : string) : number => {
+      return parseFloat(a) - parseFloat(b)
+    })
+    for (let i = 0; i < sortedKeys.length; i++) {
+      const key = sortedKeys[i]
+      gradient.addColorStop(parseFloat(key) / 100, colorObj[key] as string)
+    }
+    fillStyle = String(gradient)
+  }
+
+  context.beginPath()
+  context.arc(position, strokeWidth / 4, strokeWidth / 4, 0, PERIMETER, false)
+  context.fillStyle = fillStyle
+  context.fill()
+}
+
+/**
+ * 绘制圆形进度条
+ */
+const drawCircle = (value : number) : void => {
+  const ctx = canvasRef.value?.getDrawableContext()
+  if (ctx == null) return
+
+  ctx.clearRect(0, 0, canvasSize.value, canvasSize.value)
+  renderLayerCircle(ctx)
+
+  const formatValue = format(value)
+  if (formatValue !== 0) {
+    renderHoverCircle(ctx, formatValue)
+  } else {
+    renderDot(ctx)
+  }
+  ctx.update()
+}
+
+/**
+ * 重新渲染组件
+ */
+const reRender = () : void => {
+  if (props.speed <= 0 || props.speed > 1000) {
+    drawCircle(props.modelValue)
+    return
+  }
+
+  clearTimeInterval()
+  currentValue.value = currentValue.value
+
+  const run = () : void => {
+    interval.value = setTimeout(() => {
+      if (currentValue.value !== props.modelValue) {
+        if (Math.abs(currentValue.value - props.modelValue) < STEP) {
+          currentValue.value = props.modelValue
+        } else if (currentValue.value < props.modelValue) {
+          currentValue.value += STEP
+        } else {
+          currentValue.value -= STEP
+        }
+        drawCircle(currentValue.value)
+        run()
+      } else {
+        clearTimeInterval()
+      }
+    }, 1000 / props.speed)
+  }
+  run()
+}
+
+/** 监听器 */
+watch(() => props.modelValue, () => {
+  reRender()
+}, { immediate: true })
+
+watch(() => props.size, () => {
+  const timer = setTimeout(() => {
+    drawCircle(currentValue.value)
+    clearTimeout(timer)
+  }, 50)
+}, { immediate: false })
+
+watch(() => props.color, () => {
+  drawCircle(currentValue.value)
+}, { immediate: false, deep: true })
+
+onBeforeMount(() => {
+  pixelRatio.value = uni.getSystemInfoSync().pixelRatio
+})
+
+onMounted(() => {
+  currentValue.value = props.modelValue
+  const timer = setTimeout(() => {
+    drawCircle(currentValue.value)
+    clearTimeout(timer)
+  }, 100)
+})
+
+onUnmounted(() => {
+  clearTimeInterval()
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable.scss';
+@import '../common/abstracts/_mixin.scss';
+
+@include b(circle) {
+  position: relative;
+  display: flex;
+  text-align: center;
+
+  @include e(text) {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    left: 0;
+    width: 100%;
+    transform: translateY(-50%);
+    color: $-circle-text-color;
+  }
+}
+</style>

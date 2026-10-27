@@ -1,0 +1,323 @@
+<!--
+RichText 富文本编辑器 简化版
+
+UniApp X 版本改动说明：
+- 移除 Quill.js（WebView 不可用）
+- 移除 fab-tool/color-picker/link-edit 子组件
+- 改用 UniApp X 原生 editor 组件
+- 简化工具栏（仅保留基础格式）
+- 移除 assets 目录依赖
+- 移除国际化支持（直接使用中文）
+- 移除复杂的类型系统（UTS 限制）
+-->
+
+<template>
+  <view
+    :class="`wd-rich-text ${customClass}`"
+    :style="computedStyle"
+  >
+    <!-- 只读模式：使用 rich-text 组件展示 -->
+    <rich-text
+      v-if="readOnly"
+      class="wd-rich-text-viewer"
+      :nodes="modelValue"
+    />
+
+    <!-- 编辑模式：使用 editor 组件 -->
+    <template v-else>
+      <!-- 简化工具栏 -->
+      <view class="wd-rich-text-toolbar">
+        <text class="toolbar-btn" @tap="formatBold">粗体</text>
+        <text class="toolbar-btn" @tap="formatItalic">斜体</text>
+        <text class="toolbar-btn" @tap="formatUnderline">下划线</text>
+        <text class="toolbar-btn" @tap="clearContent">清空</text>
+      </view>
+
+      <!-- 编辑器容器 -->
+      <view class="wd-rich-text-wrapper">
+        <editor
+          :id="editorId"
+          class="editor-container"
+          :placeholder="placeholder"
+          :read-only="false"
+          @ready="onEditorReady"
+          @input="onEditorInput"
+        />
+      </view>
+    </template>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { ref, computed, watch, nextTick, getCurrentInstance } from 'vue'
+
+// 获取当前组件实例
+const instance = getCurrentInstance()
+
+// ========== Props 定义 ==========
+interface WdRichTextProps {
+  customStyle?: string
+  customClass?: string
+  modelValue?: string
+  editorId?: string
+  placeholder?: string
+  readOnly?: boolean
+}
+
+const props = withDefaults(defineProps<WdRichTextProps>(), {
+  customStyle: '',
+  customClass: '',
+  modelValue: '',
+  editorId: 'editor',
+  placeholder: '写点什么吧 ~',
+  readOnly: false,
+})
+
+// ========== Emits 定义 ==========
+const emit = defineEmits<{
+  'update:modelValue': [value: string]
+  input: [data: { html: string; text: string }, editorId: string]
+  ready: [editorId: string]
+}>()
+
+// ========== 响应式数据 ==========
+const editorCtx = ref<any>(null)
+const internalHtml = ref<string>('')
+
+// ========== 计算属性 ==========
+const computedStyle = computed(() => {
+  let style = ''
+
+  if (props.customStyle) {
+    style += props.customStyle
+  }
+
+  return style
+})
+
+// ========== 监听器 ==========
+watch(
+  () : string => props.modelValue,
+  (newValue: string) => {
+    if (newValue !== internalHtml.value && editorCtx.value && !props.readOnly) {
+      internalHtml.value = newValue
+      editorCtx.value.setContents({ html: newValue })
+    }
+  },
+  { immediate: true },
+)
+
+// ========== 编辑器事件处理 ==========
+/**
+ * 编辑器准备就绪
+ */
+const onEditorReady = async () => {
+  const initEditor = () => {
+    if (instance === null) {
+      return
+    }
+
+    uni
+      .createSelectorQuery()
+      .in(instance.proxy)
+      .select(`#${props.editorId}`)
+      .context((res: any) => {
+        if (res && res.context) {
+          editorCtx.value = res.context
+
+          // 设置初始内容
+          if (props.modelValue) {
+            nextTick(() => {
+              if (editorCtx.value) {
+                editorCtx.value.setContents({ html: props.modelValue })
+              }
+            })
+          }
+
+          emit('ready', props.editorId)
+        } else {
+          // 重试
+          setTimeout(initEditor, 100)
+        }
+      })
+      .exec()
+  }
+
+  await nextTick()
+  setTimeout(initEditor, 50)
+}
+
+/**
+ * 编辑器输入事件
+ */
+const onEditorInput = (e: any) => {
+  if (!e.detail || Object.keys(e.detail).length <= 0) {
+    return
+  }
+
+  const html = e.detail.html as string
+  const text = e.detail.text as string
+
+  internalHtml.value = html
+  emit('update:modelValue', html)
+  emit('input', { html, text }, props.editorId)
+}
+
+// ========== 工具栏操作 ==========
+/**
+ * 粗体格式化
+ */
+const formatBold = () => {
+  if (editorCtx.value) {
+    editorCtx.value.format('bold')
+  }
+}
+
+/**
+ * 斜体格式化
+ */
+const formatItalic = () => {
+  if (editorCtx.value) {
+    editorCtx.value.format('italic')
+  }
+}
+
+/**
+ * 下划线格式化
+ */
+const formatUnderline = () => {
+  if (editorCtx.value) {
+    editorCtx.value.format('underline')
+  }
+}
+
+/**
+ * 清空内容
+ */
+const clearContent = () => {
+  if (editorCtx.value) {
+    editorCtx.value.clear()
+    internalHtml.value = ''
+    emit('update:modelValue', '')
+  }
+}
+
+// ========== 暴露方法 ==========
+defineExpose({
+  editorCtx,
+
+  /**
+   * 获取编辑器内容
+   */
+  getContents: () : Promise<any> => {
+    return new Promise((resolve: (value: any) => void) => {
+      if (props.readOnly) {
+        resolve({
+          html: props.modelValue,
+          text: '',
+          delta: null,
+        })
+      } else {
+        if (editorCtx.value) {
+          editorCtx.value.getContents({
+            success: (res: any) => {
+              resolve(res)
+            },
+          })
+        }
+      }
+    })
+  },
+
+  /**
+   * 设置编辑器内容
+   */
+  setContents: (content: any) => {
+    if (props.readOnly) {
+      if (content.html) {
+        internalHtml.value = content.html as string
+        emit('update:modelValue', content.html as string)
+      }
+    } else {
+      if (editorCtx.value) {
+        editorCtx.value.setContents(content)
+        if (content.html) {
+          internalHtml.value = content.html as string
+          emit('update:modelValue', content.html as string)
+        }
+      }
+    }
+  },
+
+  /**
+   * 清空编辑器
+   */
+  clear: () => {
+    if (props.readOnly) {
+      internalHtml.value = ''
+      emit('update:modelValue', '')
+    } else {
+      if (editorCtx.value) {
+        editorCtx.value.clear()
+        internalHtml.value = ''
+        emit('update:modelValue', '')
+      }
+    }
+  },
+})
+</script>
+
+<style lang="scss">
+/* 富文本编辑器根容器 */
+.wd-rich-text {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* 只读模式查看器 */
+.wd-rich-text-viewer {
+  flex: 1;
+  padding: 16rpx;
+  box-sizing: border-box;
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+
+/* 工具栏容器 */
+.wd-rich-text-toolbar {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 16rpx;
+  border-bottom: 1rpx solid #e4e4e4;
+  display: flex;
+  gap: 16rpx;
+}
+
+/* 工具栏按钮 */
+.toolbar-btn {
+  padding: 8rpx 16rpx;
+  background-color: #f5f5f5;
+  border-radius: 8rpx;
+  font-size: 24rpx;
+  color: #333333;
+}
+
+/* 编辑器包装器 */
+.wd-rich-text-wrapper {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 编辑器容器 */
+.editor-container {
+  padding: 16rpx;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+</style>

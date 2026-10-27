@@ -1,0 +1,1200 @@
+<!--
+SelectPicker 单复选选择器
+用于从一组选项中进行单选或多选。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type/interface
+- 移除手动组件导入（easycom 自动注册）
+- import type → 移除
+- FormItemRule 从 wd-form-key 导入
+- useParent → inject(FORM_KEY)
+- Record<string, any> → UTSJSONObject
+- any → 具体类型
+- ComponentPublicInstance → 移除
+- getCurrentInstance as any → 移除
+- useTranslate → 直接使用中文文本
+- Union literal 类型 → string
+- :deep() → 直接类选择器
+- edeep → e
+- halfPixelBorder → border: 1rpx solid
+- Array.isArray → isArray
+- ::after → 真实 view 元素
+- 计算属性返回类型显式标注
+- watch 回调参数显式类型标注
+- CheckSize → string
+-->
+<template>
+  <view
+    :class="`wd-select-picker ${cell.border.value ? 'is-border' : ''} ${customClass}`"
+    :style="customStyle"
+  >
+    <view class="wd-select-picker__field" @click="open">
+      <slot v-if="useDefaultSlot" />
+      <view
+        v-else
+        :class="`wd-select-picker__cell ${disabled ? 'is-disabled' : ''} ${readonly ? 'is-readonly' : ''} ${alignRight ? 'is-align-right' : ''} ${
+          error ? 'is-error' : ''
+        } ${size != '' ? `is-${size}` : ''}`"
+      >
+        <view
+          v-if="label != '' || useLabelSlot"
+          :class="`wd-select-picker__label ${isRequired ? 'is-required' : ''} ${customLabelClass}`"
+          :style="labelWidth != '' ? `min-width:${labelWidth};max-width:${labelWidth};` : ''"
+        >
+          <template v-if="label != ''">{{ label }}</template>
+          <slot v-else name="label" />
+        </view>
+        <view class="wd-select-picker__body">
+          <view class="wd-select-picker__value-wraper">
+            <view
+              :class="`wd-select-picker__value ${ellipsis ? 'is-ellipsis' : ''} ${customValueClass} ${
+                showValue != '' ? '' : 'wd-select-picker__value--placeholder'
+              }`"
+            >
+              {{ showValue != '' ? showValue : (placeholder != '' ? placeholder : '请选择') }}
+            </view>
+            <wd-icon v-if="showArrow" custom-class="wd-select-picker__arrow" name="right" />
+            <view v-else-if="showClear" @click.stop="handleClear">
+              <wd-icon custom-class="wd-select-picker__clear" name="close-fill" />
+            </view>
+          </view>
+
+          <view v-if="errorMessage != ''" class="wd-select-picker__error-message">
+            {{ errorMessage }}
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 使用 ActionSheet，根据类型显示不同内容 -->
+    <wd-action-sheet
+      v-model="pickerShow"
+      :custom-header-class="`wd-select-picker__header ${customHeaderClass}`"
+      :duration="250"
+      :title="title != '' ? title : '请选择'"
+      :close-on-click-modal="closeOnClickModal"
+      :z-index="zIndex"
+      :safe-area-inset-bottom="safeAreaInsetBottom"
+      @close="close"
+      @opened="scrollIntoView && type !== 'custom' ? setScrollIntoView() : ''"
+    >
+      <!-- 搜索框（仅 checkbox/radio 类型显示） -->
+      <wd-search
+        v-if="filterable && type !== 'custom'"
+        v-model="filterVal"
+        :placeholder="filterPlaceholder != '' ? filterPlaceholder : '搜索'"
+        hide-cancel
+        placeholder-left
+        @change="handleFilterChange"
+      />
+
+      <!-- checkbox/radio 类型的内容 -->
+      <scroll-view
+        v-if="type !== 'custom'"
+        :class="`wd-select-picker__wrapper ${filterable ? 'is-filterable' : ''} ${loading ? 'is-loading' : ''} ${customContentClass}`"
+        :scroll-y="!loading"
+        :scroll-top="scrollTop"
+        :scroll-with-animation="true"
+      >
+        <!-- 多选 -->
+        <view v-if="type === 'checkbox' && isArray(selectList)" id="wd-checkbox-group">
+          <wd-checkbox-group
+            v-model="selectList"
+            cell
+            :size="selectSize"
+            :checked-color="checkedColor"
+            :min="min"
+            :max="max"
+            @change="handleChange"
+          >
+            <view
+              v-for="item in filterColumns"
+              :id="`check${item[valueKey]}`"
+              :key="item[valueKey] as string"
+            >
+              <wd-checkbox :model-value="item[valueKey] as string | number | boolean" :disabled="item['disabled'] == true">
+                <template v-if="filterable && filterVal != ''">
+                  <text
+                    v-for="(text, textIndex) in item[labelKey]"
+                    :key="textIndex"
+                    :class="text['type'] === 'active' ? 'wd-select-picker__text-active' : ''"
+                  >
+                    {{ text['label'] }}
+                  </text>
+                </template>
+                <template v-else>
+                  {{ item[labelKey] }}
+                </template>
+              </wd-checkbox>
+            </view>
+          </wd-checkbox-group>
+        </view>
+        <!-- 单选 -->
+        <view v-if="type === 'radio' && !isArray(selectList)" id="wd-radio-group">
+          <wd-radio-group
+            v-model="selectList"
+            cell
+            :size="selectSize"
+            :checked-color="checkedColor"
+            @change="handleChange"
+          >
+            <view
+              v-for="(item, index) in filterColumns"
+              :id="`radio${item[valueKey]}`"
+              :key="index"
+            >
+              <wd-radio :value="item[valueKey] as string | number | boolean" :disabled="item['disabled'] == true">
+                <template v-if="filterable && filterVal != ''">
+                  <text
+                    v-for="(text, textIndex) in item[labelKey]"
+                    :key="textIndex"
+                    :class="text['type'] === 'active' ? 'wd-select-picker__text-active' : ''"
+                  >
+                    {{ text['label'] }}
+                  </text>
+                </template>
+                <template v-else>
+                  {{ item[labelKey] }}
+                </template>
+              </wd-radio>
+            </view>
+          </wd-radio-group>
+        </view>
+        <view v-if="loading" class="wd-select-picker__loading" @touchmove="noop">
+          <wd-loading :color="loadingColor" />
+        </view>
+      </scroll-view>
+
+      <!-- custom 类型的自定义内容插槽 -->
+      <view v-if="type === 'custom'" :class="`wd-select-picker__custom-content ${customContentClass}`">
+        <slot
+          name="content"
+          :value="internalValue"
+          :update-value="updateValue"
+          :confirm="handleCustomConfirm"
+          :close="close"
+        >
+          <view class="wd-select-picker__custom-placeholder">
+            请在 content 插槽中自定义内容
+          </view>
+        </slot>
+      </view>
+
+      <!-- 确认按钮 -->
+      <view v-if="showConfirmBtn" class="wd-select-picker__footer">
+        <wd-button
+          block
+          size="medium"
+          :custom-class="confirmButtonCustomClass"
+          :custom-style="confirmButtonCustomStyle"
+          :disabled="loading"
+          @click="type === 'custom' ? handleCustomConfirm() : onConfirm()"
+        >
+          {{ confirmButtonText != '' ? confirmButtonText : '确定' }}
+        </wd-button>
+      </view>
+    </wd-action-sheet>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, nextTick, onBeforeMount, ref, watch, inject } from 'vue'
+import { getRect, isArray, isDef, isFunction, pause } from '../common/util'
+import { useCell } from '../../composables/useCell'
+import { FORM_KEY, type FormProvide, type FormItemRule } from '../wd-form/wd-form-key'
+
+/**
+ * 显示格式化函数类型
+ */
+export type SelectPickerDisplayFormat = (
+  items : string | number | boolean | (string | number | boolean)[] | any | null,
+  columns : UTSJSONObject[],
+) => string
+
+/**
+ * 确认前校验函数类型
+ */
+export type SelectPickerBeforeConfirm = (
+  value : string | number | boolean | (string | number | boolean)[] | any | null,
+  resolve : (isPass : boolean) => void,
+) => void
+
+/**
+ * 自定义值变化回调函数类型
+ */
+export type SelectPickerCustomChangeHandler = (value : any | null) => void
+
+/**
+ * 选择器组件属性接口
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** header 头部样式 */
+  customHeaderClass ?: string
+
+  /** 选择器左侧文案 */
+  label ?: string
+  /** 设置左侧标题宽度 */
+  labelWidth ?: string
+  /** 禁用 */
+  disabled ?: boolean
+  /** 只读 */
+  readonly ?: boolean
+  /** 选择器占位符 */
+  placeholder ?: string
+  /** 弹出层标题 */
+  title ?: string
+  /** 选择器的值靠右展示 */
+  alignRight ?: boolean
+  /** 是否为错误状态，错误状态时右侧内容为红色 */
+  error ?: boolean
+  /** 必填样式 */
+  required ?: boolean
+  /** 使用 label 插槽时设置该选项 */
+  useLabelSlot ?: boolean
+  /** 使用默认插槽时设置该选项 */
+  useDefaultSlot ?: boolean
+  /** 设置选择器大小 */
+  size ?: string
+  /** 选中的颜色（单/复选框） */
+  checkedColor ?: string
+  /** 最小选中的数量（仅在复选框类型下生效，`type`类型为`checkbox`） */
+  min ?: number
+  /** 最大选中的数量，0 为无限数量，默认为 0（仅在复选框类型下生效，`type`类型为`checkbox`） */
+  max ?: number
+  /** 设置 picker 内部的选项组尺寸大小 （单/复选框） */
+  selectSize ?: string
+  /** 加载中 */
+  loading ?: boolean
+  /** 加载的颜色，只能使用十六进制的色值写法，且不能使用缩写 */
+  loadingColor ?: string
+  /** 点击遮罩是否关闭 */
+  closeOnClickModal ?: boolean
+  /** 选中项，`type`类型为`checkbox`时，类型为 array；`type`为`radio` 时 ，类型为 number / boolean / string；`type`为`custom`时，类型为 any */
+  modelValue : string | number | boolean | (string | number | boolean)[] | any | null
+  /** 选择器数据，一维数组 */
+  columns ?: UTSJSONObject[]
+  /** 单复选选择器类型 */
+  type ?: string
+  /** 选项对象中，value 对应的 key */
+  valueKey ?: string
+  /** 选项对象中，展示的文本对应的 key */
+  labelKey ?: string
+  /** 确认按钮文案 */
+  confirmButtonText ?: string
+  /** 确认按钮自定义样式类 */
+  confirmButtonCustomClass ?: string
+  /** 确认按钮自定义样式 */
+  confirmButtonCustomStyle ?: string
+  /** 自定义展示文案的格式化函数，返回一个字符串 */
+  displayFormat ?: SelectPickerDisplayFormat | null
+  /** 确定前校验函数，接收 (value, resolve) 参数，通过 resolve 继续执行 picker，resolve 接收 1 个 boolean 参数 */
+  beforeConfirm ?: SelectPickerBeforeConfirm | null
+  /** 弹窗层级 */
+  zIndex ?: number
+  /** 弹出面板是否设置底部安全距离（iphone X 类型的机型） */
+  safeAreaInsetBottom ?: boolean
+  /** 可搜索（目前只支持本地搜索） */
+  filterable ?: boolean
+  /** 搜索框占位符 */
+  filterPlaceholder ?: string
+  /** 是否超出隐藏 */
+  ellipsis ?: boolean
+  /** 重新打开是否滚动到选中项 */
+  scrollIntoView ?: boolean
+  /** 表单域 `model` 字段名，在使用表单校验功能的情况下，该属性是必填的 */
+  prop ?: string
+  /** 表单验证规则，结合`wd-form`组件使用 */
+  rules ?: FormItemRule[]
+  /** 自定义内容样式类 */
+  customContentClass ?: string
+  /** 自定义标签样式类 */
+  customLabelClass ?: string
+  /** 自定义值样式类 */
+  customValueClass ?: string
+  /** 是否显示确认按钮，默认值为：true（radio/custom类型生效） */
+  showConfirm ?: boolean
+  /** 显示清空按钮 */
+  clearable ?: boolean
+
+  // ========== 自定义类型新增属性 ==========
+  /** 是否自动确认（选择后立即确认，不需要点击确认按钮） */
+  autoConfirm ?: boolean
+  /** 自定义值变化回调函数 */
+  onCustomChange ?: SelectPickerCustomChangeHandler | null
+}>(), {
+  customStyle: '',
+  customClass: '',
+  labelWidth: '',
+  disabled: false,
+  readonly: false,
+  alignRight: false,
+  error: false,
+  required: false,
+  useLabelSlot: false,
+  useDefaultSlot: false,
+  min: 0,
+  max: 0,
+  loading: false,
+  loadingColor: '#4D80F0',
+  closeOnClickModal: true,
+  columns: () : UTSJSONObject[] => [] as UTSJSONObject[],
+  type: 'checkbox',
+  valueKey: 'value',
+  labelKey: 'label',
+  zIndex: 100,
+  safeAreaInsetBottom: true,
+  filterable: false,
+  ellipsis: false,
+  scrollIntoView: true,
+  rules: () : FormItemRule[] => [] as FormItemRule[],
+  customContentClass: '',
+  customLabelClass: '',
+  customValueClass: '',
+  showConfirm: true,
+  clearable: false,
+
+  // 自定义类型默认值
+  autoConfirm: false,
+  onCustomChange: null,
+  displayFormat: null,
+  beforeConfirm: null,
+  customHeaderClass: '',
+  label: '',
+  placeholder: '',
+  title: '',
+  size: '',
+  checkedColor: '',
+  selectSize: '',
+  confirmButtonText: '',
+  confirmButtonCustomClass: '',
+  confirmButtonCustomStyle: '',
+  filterPlaceholder: '',
+  prop: '',
+})
+
+// 定义组件事件
+const emit = defineEmits<{
+  (e : 'change', data : { value : string | number | boolean | (string | number | boolean)[] | any | null }) : void
+  (e : 'cancel') : void
+  (e : 'confirm', data : {
+    value : string | number | boolean | (string | number | boolean)[] | any | null
+    selectedItems : UTSJSONObject | UTSJSONObject[] | any | null
+  }) : void
+  (e : 'clear') : void
+  (e : 'update:modelValue', value : string | number | boolean | (string | number | boolean)[] | any | null) : void
+  (e : 'open') : void
+  (e : 'close') : void
+  (e : 'custom-change', data : { value : any | null }) : void
+  (e : 'custom-confirm', data : { value : any | null }) : void
+}>()
+
+// 响应式数据
+const pickerShow = ref<boolean>(false)
+const selectList = ref<(number | boolean | string)[] | number | boolean | string>([])
+const isConfirm = ref<boolean>(false)
+const lastSelectList = ref<(number | boolean | string)[] | number | boolean | string>([])
+const filterVal = ref<string>('')
+const filterColumns = ref<UTSJSONObject[]>([])
+const scrollTop = ref<number>(0) // 滚动位置
+
+// 自定义类型相关的响应式数据
+const internalValue = ref<any | null>(props.modelValue)
+
+// 使用单元格组合式函数
+const cell = useCell()
+
+// 使用表单父组件
+const form = inject<FormProvide | null>(FORM_KEY, null)
+
+/**
+ * 判断初始 modelValue 是否为字符串类型
+ */
+const isInitialValueString = computed(() : boolean => {
+  return typeof props.modelValue === 'string'
+})
+
+/**
+ * 格式化值 - 保持原始类型格式
+ * @param value 原始值
+ * @returns 格式化后的值
+ */
+const valueFormat = (value : string | number | boolean | (string | number | boolean)[] | any | null) : (number | boolean | string)[] | number | boolean | string => {
+  if (props.type === 'custom') {
+    return value
+  }
+
+  if (props.type === 'checkbox') {
+    if (isInitialValueString.value) {
+      // 如果初始值是字符串，转换为数组进行内部处理
+      if (typeof value === 'string') {
+        return value != '' ? (value as string).split(',').map((item : string) : string => item.trim()) : []
+      }
+      return isArray(value) ? value as (number | boolean | string)[] : []
+    } else {
+      // 如果初始值是数组，直接使用数组格式
+      return isArray(value) ? value as (number | boolean | string)[] : []
+    }
+  }
+  return value as number | boolean | string
+}
+
+/**
+ * 格式化输出值 - 根据初始类型返回对应格式
+ * @param value 内部值（数组格式）
+ * @returns 输出值
+ */
+const formatOutputValue = (value : (number | boolean | string)[] | number | boolean | string) : string | number | boolean | (string | number | boolean)[] | any | null => {
+  if (props.type === 'custom') {
+    return value
+  }
+
+  if (props.type === 'checkbox' && isInitialValueString.value && isArray(value)) {
+    // 如果初始值是字符串格式，返回逗号分隔的字符串
+    return (value as (number | boolean | string)[]).map((item : number | boolean | string) : string => String(item)).join(',')
+  }
+  return value
+}
+
+/**
+ * 获取选中项
+ * @param value 选中值
+ * @returns 选中项对象
+ */
+const getSelectedItem = (value : string | number | boolean) : UTSJSONObject => {
+  const valueKey = props.valueKey
+  const labelKey = props.labelKey
+  const columns = props.columns
+
+  const selecteds = columns.filter((item : UTSJSONObject) : boolean => {
+    return item[valueKey] === value
+  })
+
+  if (selecteds.length > 0) {
+    return selecteds[0]
+  }
+
+  const result = {} as UTSJSONObject
+  result[valueKey] = value
+  result[labelKey] = ''
+  return result
+}
+
+/**
+ * 获取过滤文本
+ * @param label 标签文本
+ * @param filterVal 过滤值
+ * @returns 格式化后的文本数组
+ */
+const getFilterText = (label : string, filterVal : string) : UTSJSONObject[] => {
+  const reg = new RegExp(`(${filterVal})`, 'g')
+
+  return (label as string).split(reg).map((text : string) : UTSJSONObject => {
+    const result = {} as UTSJSONObject
+    result['type'] = text === filterVal ? 'active' : 'normal'
+    result['label'] = text
+    return result
+  })
+}
+
+/**
+ * 格式化过滤列
+ * @param columns 列数据
+ * @param filterVal 过滤值
+ */
+const formatFilterColumns = (columns : UTSJSONObject[], filterVal : string) => {
+  const filterColumnsTemp = columns.filter((item : UTSJSONObject) : boolean => {
+    const labelValue = item[props.labelKey]
+    if (typeof labelValue === 'string') {
+      return (labelValue as string).includes(filterVal)
+    }
+    return false
+  })
+
+  const formatFilterColumns = filterColumnsTemp.map((item : UTSJSONObject) : UTSJSONObject => {
+    const newItem = {} as UTSJSONObject
+    for (const key in item) {
+      if (key === props.labelKey) {
+        newItem[key] = getFilterText(item[key] as string, filterVal)
+      } else {
+        newItem[key] = item[key]
+      }
+    }
+    return newItem
+  })
+  filterColumns.value = []
+  nextTick(() => {
+    filterColumns.value = formatFilterColumns
+  })
+}
+
+/**
+ * 设置滚动到选中项
+ */
+const setScrollIntoView = () => {
+  let wraperSelector : string = ''
+  let selectorPromise : Promise<any | null>[] = []
+  if (isDef(selectList.value) && selectList.value !== '' && !isArray(selectList.value)) {
+    wraperSelector = '#wd-radio-group'
+    selectorPromise = [getRect(`#radio${selectList.value}`, false)]
+  } else if (isArray(selectList.value) && (selectList.value as (number | boolean | string)[]).length > 0) {
+    (selectList.value as (number | boolean | string)[]).forEach((value : number | boolean | string) => {
+      selectorPromise.push(getRect(`#check${value}`, false))
+    })
+    wraperSelector = '#wd-checkbox-group'
+  }
+  if (wraperSelector != '') {
+    pause(2000 / 30).then(() => {
+      Promise.all([
+        getRect('.wd-select-picker__wrapper', false),
+        getRect(wraperSelector, false),
+        ...selectorPromise,
+      ]).then((res : any[]) => {
+        if (isDef(res) && isArray(res)) {
+          const scrollView = res[0]
+          const wraper = res[1]
+          const target = res.slice(2)
+          if (isDef(wraper) && isDef(scrollView)) {
+            const index = target.findIndex((item : any) : boolean => {
+              return item['bottom'] > scrollView['top'] && item['top'] < scrollView['bottom']
+            })
+            if (index < 0) {
+              scrollTop.value = -1
+              nextTick(() => {
+                scrollTop.value = Math.max(0, target[0]['top'] - wraper['top'] - scrollView['height'] / 2)
+              })
+            }
+          }
+        }
+      })
+    })
+  }
+}
+
+/**
+ * 空函数
+ */
+const noop = () => {}
+
+/**
+ * 处理确认
+ */
+const handleConfirm = () => {
+  isConfirm.value = true
+  pickerShow.value = false
+  lastSelectList.value = valueFormat(selectList.value)
+
+  // 格式化输出值，保持与初始值相同的类型
+  const outputValue = formatOutputValue(lastSelectList.value)
+
+  let selectedItems : UTSJSONObject | UTSJSONObject[] | any | null
+  if (props.type === 'checkbox') {
+    const arrayValue = isArray(lastSelectList.value) ? lastSelectList.value as (number | boolean | string)[] : []
+    selectedItems = arrayValue.map((item : number | boolean | string) : UTSJSONObject => {
+      return getSelectedItem(item)
+    })
+  } else {
+    selectedItems = getSelectedItem(lastSelectList.value as string | number | boolean)
+  }
+
+  emit('update:modelValue', outputValue)
+  emit('confirm', {
+    value: outputValue,
+    selectedItems,
+  })
+  emit('close')
+}
+
+/**
+ * 处理自定义确认
+ */
+const handleCustomConfirm = () => {
+  isConfirm.value = true
+  pickerShow.value = false
+
+  const outputValue = internalValue.value
+
+  emit('update:modelValue', outputValue)
+  emit('custom-confirm', { value: outputValue })
+  emit('confirm', {
+    value: outputValue,
+    selectedItems: outputValue,
+  })
+  emit('close')
+}
+
+/**
+ * 确认选择
+ */
+const onConfirm = () => {
+  if (props.loading) {
+    pickerShow.value = false
+    emit('confirm', { value: selectList.value, selectedItems: {} })
+    emit('close')
+    return
+  }
+  if (props.beforeConfirm != null) {
+    props.beforeConfirm!(selectList.value, (isPass : boolean) => {
+      if (isPass) {
+        handleConfirm()
+      }
+    })
+  } else {
+    handleConfirm()
+  }
+}
+
+/**
+ * 更新值（自定义类型使用）
+ * @param value 新值
+ */
+const updateValue = (value : any | null) => {
+  internalValue.value = value
+  emit('custom-change', { value })
+
+  // 调用外部自定义变化回调
+  if (props.onCustomChange != null) {
+    props.onCustomChange!(value)
+  }
+
+  // 如果开启了自动确认，则立即确认
+  if (props.autoConfirm) {
+    nextTick(() => {
+      handleCustomConfirm()
+    })
+  }
+}
+
+/**
+ * 手动确认自定义选择（暴露给外部调用）
+ */
+const confirmCustom = () => {
+  if (props.type === 'custom') {
+    handleCustomConfirm()
+  }
+}
+
+/**
+ * 处理选择器值变化
+ * @param value 新值 - 直接接收值，不使用对象解构
+ */
+const handleChange = (value : string | number | boolean | (string | number | boolean)[]) => {
+  selectList.value = value
+  emit('change', { value })
+  if (props.type === 'radio' && !props.showConfirm) {
+    onConfirm()
+  }
+}
+
+/**
+ * 处理过滤变化
+ * @param value 过滤值
+ */
+const handleFilterChange = (data : { value : string }) => {
+  const value = data.value
+  if (value === '') {
+    filterColumns.value = []
+    filterVal.value = value
+    nextTick(() => {
+      filterColumns.value = props.columns
+    })
+  } else {
+    filterVal.value = value
+    formatFilterColumns(props.columns, value)
+  }
+}
+
+/**
+ * 处理清空
+ */
+const handleClear = () => {
+  let emptyValue : any | null
+
+  if (props.type === 'custom') {
+    emptyValue = null
+    internalValue.value = null
+  } else if (props.type === 'checkbox') {
+    emptyValue = isInitialValueString.value ? '' : []
+  } else {
+    emptyValue = ''
+  }
+
+  emit('update:modelValue', emptyValue)
+  emit('clear')
+}
+
+/**
+ * 关闭选择器
+ */
+const close = () => {
+  pickerShow.value = false
+  // 未确定选项时，数据还原复位
+  if (!isConfirm.value) {
+    if (props.type === 'custom') {
+      internalValue.value = props.modelValue
+    } else {
+      selectList.value = valueFormat(lastSelectList.value)
+    }
+  }
+  emit('cancel')
+  emit('close')
+}
+
+/**
+ * 打开选择器
+ */
+const open = () => {
+  if (props.disabled || props.readonly) return
+
+  if (props.type === 'custom') {
+    internalValue.value = props.modelValue
+  } else {
+    selectList.value = valueFormat(props.modelValue)
+  }
+
+  pickerShow.value = true
+  isConfirm.value = false
+  emit('open')
+}
+
+/**
+ * 计算显示值
+ * 根据选中值和格式化函数计算要显示的文本
+ */
+const showValue = computed(() : string => {
+  let value = props.modelValue
+
+  // 自定义类型处理
+  if (props.type === 'custom') {
+    if (props.displayFormat != null) {
+      return props.displayFormat!(value, props.columns)
+    }
+
+    // 默认显示逻辑：如果是对象或数组，转为 JSON 字符串
+    if (value === null || value === undefined || value === '') {
+      return ''
+    }
+
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value)
+      } catch (e) {
+        return String(value)
+      }
+    }
+
+    return String(value)
+  }
+
+  // 如果是字符串格式的复选框，转换为数组进行处理
+  if (props.type === 'checkbox' && typeof value === 'string') {
+    value = value != '' ? (value as string).split(',').map((item : string) : string => item.trim()) : []
+  } else {
+    value = valueFormat(props.modelValue)
+  }
+
+  let showValueTemp : string = ''
+
+  if (props.displayFormat != null) {
+    showValueTemp = props.displayFormat!(value, props.columns)
+  } else {
+    const type = props.type
+    const labelKey = props.labelKey
+    if (type === 'checkbox') {
+      const selectedItems = (isArray(value) ? value as (number | boolean | string)[] : [])
+        .map((item : number | boolean | string) : UTSJSONObject => {
+          return getSelectedItem(item)
+        })
+        .filter((item : UTSJSONObject) : boolean => item[labelKey] != '') // 过滤掉空标签
+      showValueTemp = selectedItems
+        .map((item : UTSJSONObject) : string => {
+          return item[labelKey] as string
+        })
+        .join(', ')
+    } else if (type === 'radio') {
+      if (value !== '' && value !== null && value !== undefined) {
+        const selectedItem = getSelectedItem(value as string | number | boolean)
+        showValueTemp = (selectedItem[labelKey] as string) ?? ''
+      }
+    } else {
+      showValueTemp = value as string
+    }
+  }
+  return showValueTemp
+})
+
+/**
+ * 计算是否显示确认按钮
+ */
+const showConfirmBtn = computed(() : boolean => {
+  if (props.type === 'custom') {
+    return props.showConfirm
+  }
+  return (props.type === 'radio' && props.showConfirm) || props.type === 'checkbox'
+})
+
+/**
+ * 计算是否显示清除按钮
+ */
+const showClear = computed(() : boolean => {
+  return props.clearable && !props.disabled && !props.readonly && showValue.value.length > 0
+})
+
+/**
+ * 计算是否显示箭头
+ */
+const showArrow = computed(() : boolean => {
+  return !props.disabled && !props.readonly && !showClear.value
+})
+
+/**
+ * 计算表单校验错误信息
+ */
+const errorMessage = computed(() : string => {
+  if (form != null && props.prop != '' && form.errorMessages != null && form.errorMessages[props.prop] != null) {
+    return form.errorMessages[props.prop] as string
+  } else {
+    return ''
+  }
+})
+
+/**
+ * 计算是否展示必填标识
+ */
+const isRequired = computed(() : boolean => {
+  let formRequired = false
+  if (form != null && form.props.rules != null) {
+    const rules = form.props.rules as Map<string, FormItemRule[]>
+    if (props.prop != '' && rules.has(props.prop)) {
+      const ruleList = rules.get(props.prop)!
+      formRequired = ruleList.some((rule : FormItemRule) : boolean => rule.required == true)
+    }
+  }
+  return props.required || props.rules.some((rule : FormItemRule) : boolean => rule.required == true) || formRequired
+})
+
+/**
+ * 监听模型值变化
+ */
+watch(
+  () => props.modelValue,
+  (newValue : string | number | boolean | (string | number | boolean)[] | any | null) => {
+    if (props.type === 'custom') {
+      // 自定义类型直接同步
+      if (newValue !== internalValue.value) {
+        internalValue.value = newValue
+      }
+    } else {
+      // 其他类型原有逻辑
+      if (JSON.stringify(newValue) === JSON.stringify(selectList.value)) return
+      selectList.value = valueFormat(newValue)
+      lastSelectList.value = valueFormat(newValue)
+    }
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+/**
+ * 监听列数据变化
+ */
+watch(
+  () => props.columns,
+  (newValue : UTSJSONObject[]) => {
+    if (props.filterable && filterVal.value != '') {
+      formatFilterColumns(newValue, filterVal.value)
+    } else {
+      filterColumns.value = newValue
+    }
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+/**
+ * 监听显示格式化函数变化
+ */
+watch(
+  () => props.displayFormat,
+  (fn : SelectPickerDisplayFormat | null) => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of displayFormat must be Function')
+    }
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+/**
+ * 监听确认前校验函数变化
+ */
+watch(
+  () => props.beforeConfirm,
+  (fn : SelectPickerBeforeConfirm | null) => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of beforeConfirm must be Function')
+    }
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+/**
+ * 组件挂载前初始化
+ */
+onBeforeMount(() => {
+  if (props.type === 'custom') {
+    internalValue.value = props.modelValue
+  } else {
+    selectList.value = valueFormat(props.modelValue)
+  }
+  filterColumns.value = props.columns
+})
+
+// 暴露组件方法
+defineExpose({
+  close,
+  open,
+  confirmCustom,
+  updateValue,
+})
+</script>
+
+<style lang="scss">
+// 引入外部样式文件
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+// 暗色主题样式
+.wot-theme-dark {
+  @include b(select-picker) {
+    @include when(border) {
+      .wd-select-picker__cell {
+        border-top: 1rpx solid $-dark-border-color;
+        padding-left: $-cell-padding;
+      }
+    }
+
+    @include e(cell) {
+      background-color: $-dark-background2;
+      color: $-dark-color;
+      @include when(disabled) {
+        .wd-select-picker__value {
+          color: $-dark-color3;
+        }
+      }
+    }
+
+    @include e(label) {
+      color: $-dark-color;
+    }
+    @include e(value) {
+      color: $-dark-color;
+      @include m(placeholder) {
+        color: $-dark-color-gray;
+      }
+    }
+
+    .wd-select-picker__arrow,
+    .wd-select-picker__close,
+    .wd-select-picker__clear {
+      color: $-dark-color;
+    }
+
+    // 自定义内容样式 - 暗色模式
+    @include e(custom-content) {
+      background-color: $-dark-background2;
+    }
+
+    @include e(custom-placeholder) {
+      color: $-dark-color-gray;
+    }
+  }
+}
+
+// 选择器组件样式
+@include b(select-picker) {
+  @include when(border) {
+    .wd-select-picker__cell {
+      border-top: 1rpx solid $-color-border;
+      padding-left: $-cell-padding;
+    }
+  }
+  @include e(cell) {
+    position: relative;
+    display: flex;
+    padding: $-cell-wrapper-padding $-cell-padding;
+    align-items: flex-start;
+    background-color: $-color-white;
+    text-decoration: none;
+    color: $-cell-title-color;
+    font-size: $-cell-title-fs;
+    overflow: hidden;
+    line-height: $-cell-line-height;
+  }
+  @include e(cell) {
+    @include when(disabled) {
+      .wd-select-picker__value {
+        color: $-input-disabled-color;
+      }
+    }
+    @include when(align-right) {
+      .wd-select-picker__value {
+        text-align: right;
+      }
+    }
+    @include when(error) {
+      .wd-select-picker__value {
+        color: $-input-error-color;
+      }
+      .wd-select-picker__arrow {
+        color: $-input-error-color;
+      }
+    }
+    @include when(large) {
+      font-size: $-cell-title-fs-large;
+
+      .wd-select-picker__arrow,
+      .wd-select-picker__clear {
+        font-size: $-cell-icon-size-large;
+      }
+    }
+  }
+  @include e(error-message) {
+    color: $-form-item-error-message-color;
+    font-size: $-form-item-error-message-font-size;
+    line-height: $-form-item-error-message-line-height;
+    text-align: left;
+    vertical-align: middle;
+  }
+  @include e(label) {
+    position: relative;
+    display: flex;
+    width: $-input-cell-label-width;
+    color: $-cell-title-color;
+    margin-right: $-cell-padding;
+    box-sizing: border-box;
+
+    @include when(required) {
+      padding-left: 24rpx;
+
+      /* 必填标记 */
+      &::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 4rpx;
+        width: 8rpx;
+        height: 8rpx;
+      }
+    }
+  }
+  /* 必填星号 - 使用独立view元素 */
+  @include e(label-required) {
+    position: absolute;
+    left: 0;
+    top: 4rpx;
+    color: $-cell-required-color;
+    font-size: $-cell-required-size;
+    line-height: 1.1;
+  }
+  @include e(value-wraper) {
+    display: flex;
+  }
+  @include e(value) {
+    flex: 1;
+    margin-right: 20rpx;
+    color: $-cell-value-color;
+
+    @include when(ellipsis) {
+      @include lineEllipsis;
+    }
+    @include m(placeholder) {
+      color: $-input-placeholder-color;
+    }
+  }
+  @include e(body) {
+    flex: 1;
+  }
+  .wd-select-picker__arrow,
+  .wd-select-picker__clear {
+    display: block;
+    font-size: $-cell-icon-size;
+    color: $-cell-arrow-color;
+    line-height: $-cell-line-height;
+  }
+
+  .wd-select-picker__clear {
+    color: $-cell-clear-color;
+  }
+
+  @include e(loading) {
+    position: absolute;
+    display: flex;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    align-items: center;
+    justify-content: center;
+    z-index: 3;
+    background: $-picker-loading-bg;
+  }
+  // selectPicker多出的样式
+  .wd-select-picker__header {
+    height: 144rpx;
+    line-height: 144rpx;
+  }
+  @include e(wrapper) {
+    padding: 0 20rpx;
+    position: relative;
+    max-height: 712rpx;
+    box-sizing: border-box;
+    overflow: auto;
+
+    @include when(filterable) {
+      height: 628rpx;
+      max-height: 628rpx;
+    }
+
+    @include when(loading) {
+      overflow: hidden;
+    }
+  }
+  @include e(text-active) {
+    color: $-color-theme;
+  }
+
+  @include e(footer) {
+    padding: 48rpx 30rpx;
+  }
+
+  // ========== 自定义内容样式 ==========
+  @include e(custom-content) {
+    background-color: #fff;
+    min-height: 200rpx;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  @include e(custom-placeholder) {
+    text-align: center;
+    color: #999;
+    font-size: 28rpx;
+    padding: 80rpx 20rpx;
+    line-height: 1.6;
+  }
+}
+</style>

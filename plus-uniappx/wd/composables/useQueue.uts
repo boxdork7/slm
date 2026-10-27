@@ -1,0 +1,98 @@
+/**
+ * 队列管理组合式函数 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 Vue provide/inject 依赖
+ * - 使用组件 uid（string）作为标识符，替代 comp.$.uid
+ * - 关闭方法通过回调函数实现，替代 comp.$.exposed.close()
+ * - 队列项类型从 any 改为 QueueItem 接口
+ *
+ * 使用模式：
+ * 父组件调用 useQueue()，子组件通过 Provide 接口注册/注销
+ */
+import { ref } from 'vue'
+
+/** 队列项接口 */
+export type QueueItem = {
+  /** 唯一标识符 */
+  uid : string
+  /** 关闭方法 */
+  close : () => void
+}
+
+/** Queue Provide 接口 */
+export type QueueProvide = {
+  pushToQueue : (item : QueueItem) => void
+  removeFromQueue : (uid : string) => void
+  closeOther : (uid : string) => void
+  closeOutside : () => void
+}
+
+/** Queue Provide key */
+export const QUEUE_KEY = '__WD_QUEUE_KEY__'
+
+/** useQueue 返回值类型 */
+export type UseQueueReturn = {
+  closeOther : (uid : string) => void
+  closeOutside : () => void
+  queueProvide : QueueProvide
+}
+
+/**
+ * 队列管理
+ * 常用于弹窗/Toast/下拉菜单的互斥显示
+ */
+export const useQueue = () : UseQueueReturn => {
+  const queue = ref<QueueItem[]>([])
+
+  /**
+   * 将组件添加到队列
+   */
+  const pushToQueue = (item : QueueItem) => {
+    queue.value.push(item)
+  }
+
+  /**
+   * 从队列中移除组件
+   */
+  const removeFromQueue = (uid : string) => {
+    queue.value = queue.value.filter((item : QueueItem) : boolean => {
+      return item.uid !== uid
+    })
+  }
+
+  /**
+   * 关闭除指定组件外的其他组件
+   */
+  const closeOther = (uid : string) => {
+    for (let i = 0; i < queue.value.length; i++) {
+      const item = queue.value[i]
+      if (item.uid !== uid) {
+        item.close()
+      }
+    }
+  }
+
+  /**
+   * 关闭所有组件
+   */
+  const closeOutside = () => {
+    for (let i = 0; i < queue.value.length; i++) {
+      queue.value[i].close()
+    }
+  }
+
+  /** 供子组件使用的 Provide 接口 */
+  const queueProvide : QueueProvide = {
+    pushToQueue,
+    removeFromQueue,
+    closeOther,
+    closeOutside,
+  }
+
+  return {
+    closeOther,
+    closeOutside,
+    queueProvide,
+  }
+}

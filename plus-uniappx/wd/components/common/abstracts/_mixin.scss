@@ -1,0 +1,196 @@
+/**
+ * 混合宏 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 edeep/mdeep（:deep() 在 UniApp X 中不可用）
+ * - 移除 multiEllipsis（-webkit-line-clamp 在原生渲染中不可用）
+ * - 移除 clearFloat（::after 伪元素在原生渲染中不可用）
+ * - 移除 halfPixelBorder/halfPixelBorderSurround（::after 伪元素不可用）
+ * - 移除 squareArrow（&:after 伪元素不可用）
+ * - 保留 triangleArrow（使用 border 实现，不依赖伪元素）
+ * - 保留所有 BEM mixin（b, e, m, me, when）
+ */
+@import "config";
+@import "function";
+
+/**
+  * BEM，定义块（b)
+  */
+@mixin b($block) {
+  $B: $namespace + "-"+ $block !global;
+
+  .#{$B} {
+    @content;
+  }
+}
+
+/* 定义元素（e），对于伪类，会自动将 e 嵌套在 伪类 底下 */
+@mixin e($element...) {
+  $selector: &;
+  $selectors: "";
+
+  @if containsPseudo($selector) {
+    @each $item in $element {
+      $selectors: #{$selectors + "." + $B + $elementSeparator + $item + ","};
+    }
+
+    @at-root {
+      #{$selector} {
+        #{$selectors} {
+          @content;
+        }
+      }
+    }
+  } @else {
+    @each $item in $element {
+      $selectors: #{$selectors + $selector + $elementSeparator + $item + ","};
+    }
+
+    @at-root {
+      #{$selectors} {
+        @content;
+      }
+    }
+  }
+}
+
+/* edeep 和 mdeep 在 UniApp X 中不可用（:deep() 不支持） */
+/* 替代方案：通过 class props 传入样式类名 */
+
+/* 定义状态（m） */
+@mixin m($modifier...) {
+  $selectors: "";
+
+  @each $item in $modifier {
+    $selectors: #{$selectors + & + $modifierSeparator + $item + ","};
+  }
+
+  @at-root {
+    #{$selectors} {
+      @content;
+    }
+  }
+}
+
+/* 对于需要需要嵌套在 m 底下的 e，调用这个混合宏，一般在切换整个组件的状态，如切换颜色的时候 */
+@mixin me($element...) {
+  $selector: &;
+  $selectors: "";
+
+  @if containsModifier($selector) {
+    @each $item in $element {
+      $selectors: #{$selectors + "." + $B + $elementSeparator + $item + ","};
+    }
+
+    @at-root {
+      #{$selector} {
+        #{$selectors} {
+          @content;
+        }
+      }
+    }
+  } @else {
+    @each $item in $element {
+      $selectors: #{$selectors + $selector + $elementSeparator + $item + ","};
+    }
+
+    @at-root {
+      #{$selectors} {
+        @content;
+      }
+    }
+  }
+}
+
+/* 状态，生成 is-$state 类名 */
+@mixin when($states...) {
+  @at-root {
+    @each $state in $states {
+      &.#{$state-prefix + $state} {
+        @content;
+      }
+    }
+  }
+}
+
+/**
+  * 常用混合宏
+  */
+
+/* 单行超出隐藏 */
+@mixin lineEllipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * multiEllipsis 在 UniApp X 中不可用（-webkit-line-clamp 不支持原生渲染）
+ * 替代方案：使用 lines 属性（wd-text 组件）或 JS 截断文本
+ */
+
+/* buttonClear - 保留，移除 -webkit 前缀 */
+@mixin buttonClear {
+  outline: none;
+  background: transparent;
+}
+
+/**
+  * 三角形实现尖角样式，适用于背景透明情况
+  * @param $size 三角形高，底边为 $size * 2
+  * @param $bg 三角形背景颜色
+  */
+@mixin triangleArrow($size, $bg) {
+  @include e(arrow) {
+    position: absolute;
+    width: 0;
+    height: 0;
+  }
+
+  @include e(arrow-down) {
+    border-left: $size solid transparent;
+    border-right: $size solid transparent;
+    border-top: $size solid $bg;
+    transform: translateX(-50%);
+    bottom: calc(-1 * $size)
+  }
+
+  @include e(arrow-up) {
+    border-left: $size solid transparent;
+    border-right: $size solid transparent;
+    border-bottom: $size solid $bg;
+    transform: translateX(-50%);
+    top: calc(-1 * $size)
+  }
+
+  @include e(arrow-left) {
+    border-top: $size solid transparent;
+    border-bottom: $size solid transparent;
+    border-right: $size solid $bg;
+    transform: translateY(-50%);
+    left: calc(-1 * $size)
+  }
+
+  @include e(arrow-right) {
+    border-top: $size solid transparent;
+    border-bottom: $size solid transparent;
+    border-left: $size solid $bg;
+    transform: translateY(-50%);
+    right: calc(-1 * $size)
+  }
+}
+
+/*
+ * squareArrow 在 UniApp X 中不可用（&:after 伪元素不支持原生渲染）
+ * 替代方案：使用 <view> 节点实现箭头效果
+ */
+
+/*
+ * halfPixelBorder / halfPixelBorderSurround 在 UniApp X 中不可用（::after 伪元素不支持）
+ * 替代方案：直接使用 border: 1rpx solid $color
+ */
+
+/*
+ * clearFloat 在 UniApp X 中不可用（::after 伪元素不支持）
+ * UniApp X 使用 flex 布局，不需要清除浮动
+ */

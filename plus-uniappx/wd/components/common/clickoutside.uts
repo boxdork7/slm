@@ -1,0 +1,63 @@
+/**
+ * 点击外部关闭功能管理模块 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 ComponentInstance 接口（comp.$.uid / comp.$.exposed 不可用）
+ * - 改为基于 uid(string) + close 回调函数的队列管理
+ * - 与 useQueue composable 使用相同的 QueueItem 模式
+ *
+ * 注意：本模块为模块级单例（全局共享一个队列）
+ * 若需要组件级别的互斥管理，请使用 useQueue composable
+ */
+
+/** 队列项接口 */
+export type ClickOutsideItem = {
+  /** 唯一标识符 */
+  uid : string
+  /** 关闭方法 */
+  close : () => void
+}
+
+/** 存储需要管理的组件队列 */
+let queue : ClickOutsideItem[] = []
+
+/**
+ * 将组件添加到管理队列中
+ * @param item - 包含 uid 和 close 方法的对象
+ */
+export const pushToQueue = (item : ClickOutsideItem) : void => {
+  queue.push(item)
+}
+
+/**
+ * 从管理队列中移除指定组件
+ * @param uid - 要移除的组件唯一标识
+ */
+export const removeFromQueue = (uid : string) : void => {
+  queue = queue.filter((item : ClickOutsideItem) : boolean => {
+    return item.uid !== uid
+  })
+}
+
+/**
+ * 关闭除指定组件外的所有其他组件
+ * @param uid - 不需要关闭的组件唯一标识
+ */
+export const closeOther = (uid : string) : void => {
+  for (let i = 0; i < queue.length; i++) {
+    const item = queue[i]
+    if (item.uid !== uid) {
+      item.close()
+    }
+  }
+}
+
+/**
+ * 关闭队列中的所有组件
+ * 通常在点击外部区域时调用
+ */
+export const closeOutside = () : void => {
+  for (let i = 0; i < queue.length; i++) {
+    queue[i].close()
+  }
+}

@@ -1,0 +1,242 @@
+<template>
+	<view>
+		<wd-navbar title="点餐" />
+
+		<view class="wraper">
+			<wd-sidebar v-model="active" @change="handleChange">
+				<wd-sidebar-item
+					v-for="(item, index) in categories"
+					:key="index"
+					:value="index"
+					:label="`${(item as UTSJSONObject)['label'] ?? ''}`"
+				/>
+			</wd-sidebar>
+			<scroll-view
+				class="content"
+				scroll-y
+				:scroll-with-animation="scrollWithAnimation"
+				:scroll-top="scrollTop"
+				:throttle="false"
+				@scroll="onScroll"
+			>
+				<view v-for="(item, index) in categories" :key="index" class="category">
+					<wd-cell-group :title="`${(item as UTSJSONObject)['title'] ?? ''}`" border>
+						<wd-cell
+							v-for="(cell, cellIndex) in ((item as UTSJSONObject)['items'] as any[] ?? ([] as any[]))"
+							:key="cellIndex"
+							:title="`${(cell as UTSJSONObject)['title'] ?? ''}`"
+							:label="`${(cell as UTSJSONObject)['label'] ?? ''}`"
+						>
+							<wd-icon name="github-fill" size="24px" />
+						</wd-cell>
+					</wd-cell-group>
+				</view>
+			</scroll-view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+import { ref, onMounted } from 'vue'
+
+const active = ref<number>(0)
+const scrollTop = ref<number>(0)
+const itemScrollTop = ref<number[]>([])
+const scrollWithAnimation = ref<boolean>(true)
+const isScrolling = ref<boolean>(false)
+
+/**
+ * 构建子分类数据
+ * 替代 Array.from({ length: 24 }).fill(...)
+ */
+const buildSubCategories = (count : number) : UTSJSONObject[] => {
+	const result : UTSJSONObject[] = []
+	for (let i = 0; i < count; i++) {
+		result.push({
+			title: '标题文字',
+			label: '这是描述这是描述',
+		} as UTSJSONObject)
+	}
+	return result
+}
+
+const subCategories24 = buildSubCategories(24)
+const subCategories18 = buildSubCategories(18)
+const subCategories21 = buildSubCategories(21)
+
+const categories = ref<UTSJSONObject[]>([
+	{ label: '分类一', title: '标题一', items: subCategories24 } as UTSJSONObject,
+	{ label: '分类二', title: '标题二', items: subCategories24 } as UTSJSONObject,
+	{ label: '分类三', title: '标题三', items: subCategories18 } as UTSJSONObject,
+	{ label: '分类四', title: '标题四', items: subCategories21 } as UTSJSONObject,
+	{ label: '分类五', title: '标题五', items: subCategories24 } as UTSJSONObject,
+	{ label: '分类六', title: '标题六', items: subCategories18 } as UTSJSONObject,
+	{ label: '分类七', title: '标题七', items: subCategories24 } as UTSJSONObject,
+])
+
+onMounted(() => {
+	/* 使用 uni.createSelectorQuery() 替代 getCurrentInstance() + CommonUtil.getRect() */
+	setTimeout(() => {
+		const query = uni.createSelectorQuery()
+		query.selectAll('.category').boundingClientRect()
+		query.exec((results : any[]) => {
+			if (results.length > 0 && results[0] != null) {
+				const rects = results[0] as any[]
+				if (rects.length > 0) {
+					const tops : number[] = []
+					for (let i = 0; i < rects.length; i++) {
+						const rect = rects[i] as UTSJSONObject
+						const topValue = Number(rect['top'] ?? 0)
+						tops.push(topValue)
+					}
+					itemScrollTop.value = tops
+					if (active.value < tops.length) {
+						scrollTop.value = tops[active.value]
+					}
+				}
+			}
+		})
+	}, 300)
+})
+
+/**
+ * 动态调整动画状态的优化滚动
+ * 根据滚动距离智能调整滚动策略
+ */
+function handleChangeOptimized(targetValue : number) {
+	if (targetValue < 0 || targetValue >= itemScrollTop.value.length) return
+
+	const currentScrollTop = scrollTop.value
+	const targetScrollTop = itemScrollTop.value[targetValue]
+	const distance = Math.abs(targetScrollTop - currentScrollTop)
+
+	/* 设置滚动状态，防止重复触发 */
+	isScrolling.value = true
+
+	if (distance > 2000) {
+		/* 超长距离滚动：先关闭动画快速跳转，再开启动画微调 */
+		console.log('超长距离滚动，距离:', distance)
+
+		/* 第一步：关闭动画，快速跳转到接近目标位置 */
+		scrollWithAnimation.value = false
+		const jumpPosition = targetScrollTop - 100
+		scrollTop.value = jumpPosition
+
+		/* 第二步：短暂延迟后开启动画，精确滚动到目标位置 */
+		setTimeout(() => {
+			scrollWithAnimation.value = true
+			scrollTop.value = targetScrollTop
+
+			/* 第三步：滚动完成后重置状态 */
+			setTimeout(() => {
+				isScrolling.value = false
+			}, 300)
+		}, 50)
+
+	} else if (distance > 800) {
+		/* 中等距离滚动：使用动画但缩短时间 */
+		console.log('中等距离滚动，距离:', distance)
+
+		scrollWithAnimation.value = true
+		scrollTop.value = targetScrollTop
+
+		/* 400ms后重置状态 */
+		setTimeout(() => {
+			isScrolling.value = false
+		}, 400)
+
+	} else {
+		/* 短距离滚动：正常滚动动画 */
+		console.log('短距离滚动，距离:', distance)
+
+		scrollWithAnimation.value = true
+		scrollTop.value = targetScrollTop
+
+		/* 300ms后重置状态 */
+		setTimeout(() => {
+			isScrolling.value = false
+		}, 300)
+	}
+}
+
+/**
+ * 处理侧边栏切换事件
+ */
+function handleChange(value : any) {
+	/* 如果正在滚动中，忽略新的切换请求 */
+	if (isScrolling.value) {
+		console.log('正在滚动中，忽略切换请求')
+		return
+	}
+
+	/* 提取 value 值（可能是 number 或者对象中的 value） */
+	let targetValue = 0
+	if (typeof value == 'number') {
+		targetValue = value as number
+	} else if (typeof value == 'object' && value != null) {
+		const obj = value as UTSJSONObject
+		/* Math.floor 替代 .toInt()（UTS 独有方法，Web 运行时不存在） */
+		targetValue = Math.floor(Number(obj['value'] ?? 0))
+	}
+
+	console.log('切换到分类:', targetValue, '当前分类:', active.value)
+
+	/* 更新活动分类 */
+	active.value = targetValue
+
+	/* 执行优化滚动 */
+	handleChangeOptimized(targetValue)
+}
+
+/**
+ * 处理内容滚动事件
+ */
+function onScroll(e : any) {
+	/* 如果是程序控制的滚动，不响应用户滚动事件 */
+	if (isScrolling.value) {
+		return
+	}
+
+	const detail = (e as UTSJSONObject)['detail'] as UTSJSONObject
+	const currentScrollTop = Number(detail['scrollTop'] ?? 0)
+	const threshold = 50
+
+	/* 如果滚动到顶部附近，激活第一个分类 */
+	if (currentScrollTop < threshold) {
+		if (active.value != 0) {
+			active.value = 0
+		}
+		return
+	}
+
+	/* 查找当前应该激活的分类（替代 .findIndex()） */
+	let foundIndex = -1
+	for (let i = 0; i < itemScrollTop.value.length; i++) {
+		const top = itemScrollTop.value[i]
+		if (top > currentScrollTop && top - currentScrollTop <= threshold) {
+			foundIndex = i
+			break
+		}
+	}
+
+	/* 如果找到了匹配的分类且与当前不同，则更新 */
+	if (foundIndex > -1 && active.value != foundIndex) {
+		active.value = foundIndex
+	}
+}
+</script>
+
+<style lang="scss" scoped>
+.wraper {
+	display: flex;
+	flex-direction: row;
+	height: calc(100vh - var(--window-top));
+	height: calc(100vh - var(--window-top) - constant(safe-area-inset-bottom));
+	height: calc(100vh - var(--window-top) - env(safe-area-inset-bottom));
+}
+
+.content {
+	flex: 1;
+	background: #fff;
+}
+</style>

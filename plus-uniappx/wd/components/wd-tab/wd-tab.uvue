@@ -1,0 +1,187 @@
+<!--
+Tab 标签页 标签页组件,用于在不同的内容区域之间进行切换。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- 使用 inject + genChildUid 替代 useParent
+- WdBadgeProps → UTSJSONObject
+- CSSProperties → UTSJSONObject
+- getCurrentInstance 替代方案：onMounted/onUnmounted 注册
+- watch immediate: true → 在 onMounted 中执行初始化逻辑
+-->
+<template>
+  <view :class="`wd-tab ${customClass}`" :style="customStyle">
+    <view
+      v-if="shouldBeRender"
+      class="wd-tab__body"
+      :class="[{ 'wd-tab__body--inactive': !active }]"
+      :style="tabBodyStyle"
+    >
+      <slot />
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, inject, ref, watch, onMounted, onUnmounted, getCurrentInstance } from 'vue'
+import { isDef, isNumber, isString, objToStyle } from '../common/util'
+import { genChildUid } from '../../composables/useChildren'
+import { TABS_KEY, type TabsProvide } from '../wd-tabs/wd-tabs-key'
+
+/**
+ * 标签页组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 唯一标识符 */
+  name ?: string | number
+  /** tab的标题 */
+  title ?: string
+  /** 是否禁用,无法点击 */
+  disabled ?: boolean
+  /** 是否懒加载,切换到该tab时才加载内容 */
+  lazy ?: boolean
+  /** 徽标属性,透传给 Badge 组件 */
+  badgeProps ?: UTSJSONObject | null
+}>(), {
+  customStyle: '',
+  customClass: '',
+  name: null,
+  title: '',
+  disabled: false,
+  lazy: true,
+  badgeProps: null,
+})
+
+/** 获取父组件（Tabs）实例 */
+const tabs = inject<TabsProvide | null>(TABS_KEY, null)
+
+/** 当前组件的唯一 ID */
+const myUid = ref<number>(0)
+
+/** 当前组件在父组件中的索引 */
+const index = computed(() : number => {
+  if (tabs == null) return -1
+  const idx = tabs.childUids.indexOf(myUid.value)
+  return idx
+})
+
+/** 初始状态tab不会渲染,必须通过tabs来设置painted使tab渲染 */
+const painted = ref<boolean>(false)
+
+/**
+ * 是否为激活状态
+ */
+const active = computed(() : boolean => {
+  return isDef(tabs) && tabs != null ? tabs.state.activeIndex === index.value : false
+})
+
+/**
+ * 计算标签页内容区域的样式
+ */
+const tabBodyStyle = computed(() : string => {
+  const style : Map<string, any> = new Map<string, any>()
+  if (!active.value && (tabs == null || !tabs.props.animated)) {
+    style.set('display', 'none')
+  }
+  return objToStyle(style)
+})
+
+/**
+ * 判断是否应该渲染
+ */
+const shouldBeRender = computed(() : boolean => {
+  return !props.lazy || painted.value || active.value
+})
+
+/**
+ * 检测tab绑定的name是否和其它tab的name冲突
+ */
+const checkName = () => {
+  const myName = props.name
+  if (myName === undefined || myName === null || myName === '') {
+    return
+  }
+
+  // UTS 中无法直接访问其他组件实例的 props,这里仅做基础检查
+  // 完整的重名检查应在父组件中进行
+}
+
+/**
+ * 监听激活状态变化
+ */
+watch(active, (val : boolean) => {
+  if (val) {
+    painted.value = true
+  }
+})
+
+/**
+ * 监听name属性变化
+ */
+watch(
+  () => props.name,
+  (newValue : string | number | null) => {
+    if (isDef(newValue) && !isNumber(newValue) && !isString(newValue)) {
+      console.error('error(wd-tab): the type of name should be number or string')
+      return
+    }
+    if (tabs != null) {
+      checkName()
+    }
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+/**
+ * 组件挂载时注册到父组件
+ */
+onMounted(() => {
+  myUid.value = genChildUid()
+  if (tabs != null) {
+    tabs.addChild(myUid.value)
+  }
+
+  // 初始化painted状态
+  if (active.value) {
+    painted.value = true
+  }
+
+  checkName()
+})
+
+/**
+ * 组件卸载时从父组件注销
+ */
+onUnmounted(() => {
+  if (tabs != null) {
+    tabs.removeChild(myUid.value)
+  }
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 标签页内容样式 */
+@include b(tab) {
+  width: 100%;
+  flex-shrink: 0;
+  box-sizing: border-box;
+
+  @include e(body) {
+    @include m(inactive) {
+      height: 0;
+      transition: height 0.3s ease-in-out;
+    }
+  }
+}
+</style>

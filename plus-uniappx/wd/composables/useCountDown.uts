@@ -1,0 +1,164 @@
+/**
+ * 倒计时组合式函数 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - isDef 调用简化为直接判空
+ * - computed 返回类型显式声明
+ * - onBeforeUnmount 替代 onBeforeUnmount（等效）
+ */
+import { computed, onBeforeUnmount, ref, type Ref } from 'vue'
+import { useRaf } from './useRaf'
+
+/** 倒计时时间数据结构 */
+export type CurrentTime = {
+  days : number
+  hours : number
+  total : number
+  minutes : number
+  seconds : number
+  milliseconds : number
+}
+
+/** 倒计时配置选项 */
+export type UseCountDownOptions = {
+  time : number
+  millisecond ?: boolean
+  onChange ?: ((current : CurrentTime) => void) | null
+  onFinish ?: (() => void) | null
+}
+
+/** useCountDown 返回值类型 */
+export type UseCountDownReturn = {
+  start : () => void
+  pause : () => void
+  reset : (totalTime ?: number) => void
+  current : Ref<CurrentTime>
+}
+
+const SECOND = 1000
+const MINUTE = 60 * SECOND
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
+/**
+ * 将时间转换为倒计时数据结构
+ */
+const parseTime = (time : number) : CurrentTime => {
+  const days = Math.floor(time / DAY)
+  const hours = Math.floor((time % DAY) / HOUR)
+  const minutes = Math.floor((time % HOUR) / MINUTE)
+  const seconds = Math.floor((time % MINUTE) / SECOND)
+  const milliseconds = Math.floor(time % SECOND)
+
+  return {
+    total: time,
+    days,
+    hours,
+    minutes,
+    seconds,
+    milliseconds,
+  } as CurrentTime
+}
+
+/**
+ * 判断两个时间是否在同一秒内
+ */
+const isSameSecond = (time1 : number, time2 : number) : boolean => {
+  return Math.floor(time1 / 1000) === Math.floor(time2 / 1000)
+}
+
+/**
+ * 倒计时组合式函数
+ */
+export const useCountDown = (options : UseCountDownOptions) : UseCountDownReturn => {
+  let endTime : number = 0
+  let counting : boolean = false
+
+  const remain = ref<number>(options.time)
+  const current = computed<CurrentTime>(() : CurrentTime => parseTime(remain.value))
+
+  /** tick 回调 */
+  const tickFn = () : void => {
+    if (options.millisecond == true) {
+      microTick()
+    } else {
+      macroTick()
+    }
+  }
+
+  const { start: startRaf, cancel: cancelRaf } = useRaf((_time : number) => {
+    tickFn()
+  })
+
+  /** 暂停倒计时 */
+  const pause = () : void => {
+    counting = false
+    cancelRaf()
+  }
+
+  /** 获取当前剩余时间 */
+  const getCurrentRemain = () : number => Math.max(endTime - Date.now(), 0)
+
+  /** 设置剩余时间并触发回调 */
+  const setRemain = (value : number) : void => {
+    remain.value = value
+    if (options.onChange != null) {
+      options.onChange!(current.value)
+    }
+    if (value === 0) {
+      pause()
+      if (options.onFinish != null) {
+        options.onFinish!()
+      }
+    }
+  }
+
+  /** 毫秒级更新 */
+  const microTick = () : void => {
+    if (counting) {
+      setRemain(getCurrentRemain())
+      if (remain.value > 0) {
+        startRaf()
+      }
+    }
+  }
+
+  /** 秒级更新 */
+  const macroTick = () : void => {
+    if (counting) {
+      const remainRemain = getCurrentRemain()
+      if (!isSameSecond(remainRemain, remain.value) || remainRemain === 0) {
+        setRemain(remainRemain)
+      }
+      if (remain.value > 0) {
+        startRaf()
+      }
+    }
+  }
+
+  /** 开始倒计时 */
+  const start = () : void => {
+    if (!counting) {
+      endTime = Date.now() + remain.value
+      counting = true
+      startRaf()
+    }
+  }
+
+  /** 重置倒计时 */
+  const reset = (totalTime : number = options.time) : void => {
+    pause()
+    remain.value = totalTime
+  }
+
+  onBeforeUnmount(() => {
+    pause()
+  })
+
+  return {
+    start,
+    pause,
+    reset,
+    current,
+  }
+}

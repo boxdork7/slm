@@ -1,0 +1,456 @@
+/**
+ * 认证与授权组合函数 (useAuth) - UTS 版本
+ * 从 plus-app/composables/useAuth.ts 迁移
+ *
+ * 提供用户认证与权限检查功能，包括权限字符串检查、角色校验和路由访问控制。
+ * 此组合函数集成了用户状态管理，简化了权限相关操作。
+ *
+ * 包含以下功能：
+ * - 用户状态: 登录状态、管理员类型判断 (isLoggedIn, isSuperAdmin, isTenantAdmin)
+ * - 权限检查: 单个或多个权限检查，支持OR和AND逻辑 (hasPermission, hasAllPermissions)
+ * - 角色检查: 单个或多个角色检查，支持OR和AND逻辑 (hasRole, hasAllRoles)
+ * - 租户权限: 租户上下文中的权限检查 (hasTenantPermission)
+ * - 路由控制: 基于权限的路由访问控制 (canAccessRoute, filterAuthorizedRoutes)
+ *
+ * UTS 适配说明：
+ * - any → UTSJSONObject（路由对象等）
+ * - includes() → indexOf() > -1
+ * - some() / every() → for 循环
+ * - 可选参数使用 UTS 的 ?: 语法
+ * - route: any → route: UTSJSONObject | null
+ * - routes: any[] → UTSJSONObject[]
+ * - userInfo?.tenantId → 显式 null 检查
+ */
+import { computed } from 'vue'
+import { useUserStore } from '../stores/modules/user'
+
+/**
+ * 认证与授权组合函数
+ *
+ * @example
+ * const { hasPermission, hasRole, isSuperAdmin } = useAuth()
+ * const canAddUser = hasPermission('system:user:add')
+ * const isEditor = hasRole('editor')
+ */
+export const useAuth = () => {
+	/* 获取用户状态管理 */
+	const userStore = useUserStore()
+
+	/* 超级管理员角色标识 */
+	const SUPER_ADMIN = 'superadmin'
+
+	/* 租户管理员角色标识 */
+	const TENANT_ADMIN = 'admin'
+
+	/* 通配符权限标识 */
+	const ALL_PERMISSION = '*:*:*'
+
+	/**
+	 * 当前用户登录状态
+	 * 直接复用 userStore 中已定义的 isLoggedIn computed
+	 */
+	const isLoggedIn = computed(() : boolean => {
+		return userStore.token.value != null && userStore.token.value.length > 0
+	})
+
+	/**
+	 * 检查当前用户是否为超级管理员
+	 * @param roleToCheck 可选，要检查的超级管理员角色标识，不传则使用默认值
+	 * @returns 是否为超级管理员
+	 */
+	const isSuperAdmin = (roleToCheck ?: string) : boolean => {
+		const targetRole = roleToCheck != null ? roleToCheck! : SUPER_ADMIN
+		const userRoles = userStore.roles.value
+		for (let i = 0; i < userRoles.length; i++) {
+			if (userRoles[i] == targetRole) {
+				return true
+			}
+		}
+		return false
+	}
+
+	/**
+	 * 检查当前用户是否为租户管理员
+	 * @param roleToCheck 可选，要检查的租户管理员角色标识，不传则使用默认值
+	 * @returns 是否为租户管理员
+	 */
+	const isTenantAdmin = (roleToCheck ?: string) : boolean => {
+		const targetRole = roleToCheck != null ? roleToCheck! : TENANT_ADMIN
+		const userRoles = userStore.roles.value
+		for (let i = 0; i < userRoles.length; i++) {
+			if (userRoles[i] == targetRole) {
+				return true
+			}
+		}
+		return false
+	}
+
+	/**
+	 * 检查当前用户是否为任意级别的管理员
+	 * @param superAdminRole 可选，超级管理员角色标识
+	 * @param tenantAdminRole 可选，租户管理员角色标识
+	 * @returns 是否为任意级别的管理员
+	 */
+	const isAnyAdmin = (superAdminRole ?: string, tenantAdminRole ?: string) : boolean => {
+		return isSuperAdmin(superAdminRole) || isTenantAdmin(tenantAdminRole)
+	}
+
+	/**
+	 * 检查是否拥有指定权限（单个权限）
+	 * @param permission 权限标识
+	 * @param superAdminRole 可选，超级管理员角色标识
+	 * @returns 是否拥有权限
+	 */
+	const hasPermission = (permission : string, superAdminRole ?: string) : boolean => {
+		if (permission.length == 0) {
+			console.warn('权限参数不能为空')
+			return false
+		}
+
+		/* 超级管理员拥有所有权限 */
+		if (isSuperAdmin(superAdminRole)) {
+			return true
+		}
+
+		/* 获取当前用户权限列表 */
+		const userPermissions = userStore.permissions.value
+
+		/* 当前用户拥有所有权限标识 */
+		for (let i = 0; i < userPermissions.length; i++) {
+			if (userPermissions[i] == ALL_PERMISSION) {
+				return true
+			}
+		}
+
+		/* 单个权限检查 */
+		for (let i = 0; i < userPermissions.length; i++) {
+			if (userPermissions[i] == permission) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	/**
+	 * 检查是否拥有指定权限列表中的任一权限
+	 * @param permissions 权限标识数组
+	 * @param superAdminRole 可选，超级管理员角色标识
+	 * @returns 是否拥有任一权限
+	 */
+	const hasAnyPermission = (permissions : string[], superAdminRole ?: string) : boolean => {
+		if (permissions.length == 0) {
+			console.warn('权限参数不能为空')
+			return false
+		}
+
+		/* 超级管理员拥有所有权限 */
+		if (isSuperAdmin(superAdminRole)) {
+			return true
+		}
+
+		/* 获取当前用户权限列表 */
+		const userPermissions = userStore.permissions.value
+
+		/* 当前用户拥有所有权限标识 */
+		for (let i = 0; i < userPermissions.length; i++) {
+			if (userPermissions[i] == ALL_PERMISSION) {
+				return true
+			}
+		}
+
+		/* 检查数组中的任一权限 */
+		for (let j = 0; j < permissions.length; j++) {
+			for (let i = 0; i < userPermissions.length; i++) {
+				if (userPermissions[i] == permissions[j]) {
+					return true
+				}
+			}
+		}
+
+		return false
+	}
+
+	/**
+	 * 检查是否拥有指定权限（租户范围内）
+	 * @param permission 权限标识
+	 * @param tenantId 租户ID，不提供则使用当前用户的租户ID
+	 * @param superAdminRole 可选，超级管理员角色标识
+	 * @param tenantAdminRole 可选，租户管理员角色标识
+	 * @returns 是否在指定租户内拥有权限
+	 */
+	const hasTenantPermission = (
+		permission : string,
+		tenantId ?: string,
+		superAdminRole ?: string,
+		tenantAdminRole ?: string,
+	) : boolean => {
+		/* 获取要检查的租户ID */
+		let targetTenantId = ''
+		if (tenantId != null) {
+			targetTenantId = tenantId!
+		} else {
+			const info = userStore.userInfo.value
+			if (info != null) {
+				/* TODO: 确认 SysUserVo 中是否有 tenantId 字段，当前 user.uts 中未定义 */
+				targetTenantId = ''
+			}
+		}
+
+		/* 超级管理员拥有所有租户的所有权限 */
+		if (isSuperAdmin(superAdminRole)) {
+			return true
+		}
+
+		/* 检查是否为当前用户所属租户 */
+		let currentTenantId = ''
+		const info = userStore.userInfo.value
+		if (info != null) {
+			/* TODO: 确认 SysUserVo 中是否有 tenantId 字段 */
+			currentTenantId = ''
+		}
+
+		if (targetTenantId != currentTenantId) {
+			return false
+		}
+
+		/* 如果是租户管理员，在自己的租户内拥有所有权限 */
+		if (isTenantAdmin(tenantAdminRole)) {
+			return true
+		}
+
+		/* 普通用户在自己的租户内，按正常权限检查 */
+		return hasPermission(permission, superAdminRole)
+	}
+
+	/**
+	 * 检查是否拥有指定角色（单个角色）
+	 * @param role 角色标识
+	 * @param superAdminRole 可选，超级管理员角色标识
+	 * @returns 是否拥有角色
+	 */
+	const hasRole = (role : string, superAdminRole ?: string) : boolean => {
+		if (role.length == 0) {
+			console.warn('角色参数不能为空')
+			return false
+		}
+
+		/* 超级管理员默认拥有所有角色 */
+		if (isSuperAdmin(superAdminRole)) {
+			return true
+		}
+
+		/* 获取当前用户角色列表 */
+		const userRoles = userStore.roles.value
+
+		/* 单个角色检查 */
+		for (let i = 0; i < userRoles.length; i++) {
+			if (userRoles[i] == role) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	/**
+	 * 检查是否拥有指定角色列表中的任一角色
+	 * @param roles 角色标识数组
+	 * @param superAdminRole 可选，超级管理员角色标识
+	 * @returns 是否拥有任一角色
+	 */
+	const hasAnyRole = (roles : string[], superAdminRole ?: string) : boolean => {
+		if (roles.length == 0) {
+			console.warn('角色参数不能为空')
+			return false
+		}
+
+		/* 超级管理员默认拥有所有角色 */
+		if (isSuperAdmin(superAdminRole)) {
+			return true
+		}
+
+		/* 获取当前用户角色列表 */
+		const userRoles = userStore.roles.value
+
+		/* 检查数组中的任一角色 */
+		for (let j = 0; j < roles.length; j++) {
+			for (let i = 0; i < userRoles.length; i++) {
+				if (userRoles[i] == roles[j]) {
+					return true
+				}
+			}
+		}
+
+		return false
+	}
+
+	/**
+	 * 检查是否拥有指定权限（满足全部）
+	 * @param permissions 权限标识数组
+	 * @param superAdminRole 可选，超级管理员角色标识
+	 * @returns 是否拥有所有指定权限
+	 */
+	const hasAllPermissions = (permissions : string[], superAdminRole ?: string) : boolean => {
+		/* 超级管理员拥有所有权限 */
+		if (isSuperAdmin(superAdminRole)) {
+			return true
+		}
+
+		/* 获取当前用户权限列表 */
+		const userPermissions = userStore.permissions.value
+
+		/* 当前用户拥有所有权限标识 */
+		for (let i = 0; i < userPermissions.length; i++) {
+			if (userPermissions[i] == ALL_PERMISSION) {
+				return true
+			}
+		}
+
+		/* 检查是否拥有数组中的所有权限 */
+		for (let j = 0; j < permissions.length; j++) {
+			let found = false
+			for (let i = 0; i < userPermissions.length; i++) {
+				if (userPermissions[i] == permissions[j]) {
+					found = true
+					break
+				}
+			}
+			if (!found) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	/**
+	 * 检查是否拥有指定角色（满足全部）
+	 * @param roles 角色标识数组
+	 * @param superAdminRole 可选，超级管理员角色标识
+	 * @returns 是否拥有所有指定角色
+	 */
+	const hasAllRoles = (roles : string[], superAdminRole ?: string) : boolean => {
+		/* 超级管理员拥有所有角色 */
+		if (isSuperAdmin(superAdminRole)) {
+			return true
+		}
+
+		/* 获取当前用户角色列表 */
+		const userRoles = userStore.roles.value
+
+		/* 检查是否拥有数组中的所有角色 */
+		for (let j = 0; j < roles.length; j++) {
+			let found = false
+			for (let i = 0; i < userRoles.length; i++) {
+				if (userRoles[i] == roles[j]) {
+					found = true
+					break
+				}
+			}
+			if (!found) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	/**
+	 * 检查是否有权限访问某个路由
+	 * @param route 路由对象（UTSJSONObject，包含 meta.roles / meta.permissions）
+	 * @param superAdminRole 可选，超级管理员角色标识
+	 * @returns 是否有权限访问
+	 */
+	const canAccessRoute = (route : UTSJSONObject | null, superAdminRole ?: string) : boolean => {
+		if (route == null) {
+			return false
+		}
+
+		/* 如果路由没有 meta 或者没有权限要求，则允许访问 */
+		const meta = route!['meta'] as UTSJSONObject | null
+		if (meta == null) {
+			return true
+		}
+
+		const metaRoles = meta!['roles'] as string[] | null
+		const metaPermissions = meta!['permissions'] as string[] | null
+
+		if (metaRoles == null && metaPermissions == null) {
+			return true
+		}
+
+		/* 超级管理员可以访问任何路由 */
+		if (isSuperAdmin(superAdminRole)) {
+			return true
+		}
+
+		/* 检查角色权限 */
+		if (metaRoles != null && metaRoles!.length > 0) {
+			if (!hasAnyRole(metaRoles!, superAdminRole)) {
+				return false
+			}
+		}
+
+		/* 检查操作权限 */
+		if (metaPermissions != null && metaPermissions!.length > 0) {
+			if (!hasAnyPermission(metaPermissions!, superAdminRole)) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	/**
+	 * 过滤有权限访问的路由
+	 * @param routes 路由数组
+	 * @param superAdminRole 可选，超级管理员角色标识
+	 * @returns 过滤后的路由数组
+	 */
+	const filterAuthorizedRoutes = (routes : UTSJSONObject[], superAdminRole ?: string) : UTSJSONObject[] => {
+		if (routes.length == 0) {
+			return [] as UTSJSONObject[]
+		}
+
+		const result : UTSJSONObject[] = []
+
+		for (let i = 0; i < routes.length; i++) {
+			const route = routes[i]
+			/* 检查当前路由是否可访问 */
+			const hasAccess = canAccessRoute(route, superAdminRole)
+
+			if (hasAccess) {
+				/* 如果有子路由，递归处理 */
+				const children = route['children'] as UTSJSONObject[] | null
+				if (children != null && children!.length > 0) {
+					route['children'] = filterAuthorizedRoutes(children!, superAdminRole)
+				}
+				result.push(route)
+			}
+		}
+
+		return result
+	}
+
+	return {
+		/* 状态 */
+		isLoggedIn,
+		isSuperAdmin,
+		isTenantAdmin,
+		isAnyAdmin,
+
+		/* 权限检查方法 */
+		hasPermission,
+		hasAnyPermission,
+		hasTenantPermission,
+		hasRole,
+		hasAnyRole,
+		hasAllPermissions,
+		hasAllRoles,
+
+		/* 路由访问控制 */
+		canAccessRoute,
+		filterAuthorizedRoutes,
+	}
+}

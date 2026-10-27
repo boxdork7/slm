@@ -1,0 +1,50 @@
+/**
+ * WD UI Composables 入口
+ *
+ * 统一导出组件库内部使用的组合式函数
+ */
+
+/* 父子组件通信 */
+export { genChildUid, createChildManager } from './useChildren'
+export type { ChildManager } from './useChildren'
+export type { ChildSetupResult } from './useParent'
+
+/* 触摸手势 */
+export { useTouch } from './useTouch'
+export type { UseTouchReturn } from './useTouch'
+
+/* 动画帧管理 */
+export { useRaf } from './useRaf'
+export type { RafCallback, UseRafReturn } from './useRaf'
+
+/* 倒计时 */
+export { useCountDown } from './useCountDown'
+export type { CurrentTime, UseCountDownOptions, UseCountDownReturn } from './useCountDown'
+
+/* 队列管理 */
+export { useQueue, QUEUE_KEY } from './useQueue'
+export type { QueueItem, QueueProvide, UseQueueReturn } from './useQueue'
+
+/* 国际化翻译 */
+export { useTranslate } from './useTranslate'
+export type { UseTranslateReturn } from './useTranslate'
+
+/* Cell 组件 */
+export { useCell, CELL_GROUP_KEY } from './useCell'
+export type { CellGroupProvide, UseCellReturn } from './useCell'
+
+/* 页面滚动锁定 */
+export { useLockScroll, isScrollLocked } from './useLockScroll'
+export type { UseLockScrollReturn } from './useLockScroll'
+
+/* 弹出层定位 */
+export { usePopover } from './usePopover'
+export type { UsePopoverReturn } from './usePopover'
+
+/* 文件上传 */
+export { useUpload, UPLOAD_STATUS_PENDING, UPLOAD_STATUS_LOADING, UPLOAD_STATUS_SUCCESS, UPLOAD_STATUS_FAIL } from './useUpload'
+export type {
+  UploadFileItem, ChooseFile, ChooseFileOption,
+  UploadResult, FastUploadOptions, UseUploadOptions, UseUploadReturn,
+  PresignedUrlBo, PresignedUrlVo, ConfirmDirectUploadBo,
+} from './useUpload'

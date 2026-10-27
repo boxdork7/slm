@@ -1,0 +1,782 @@
+/**
+ * 通用工具函数库 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除所有泛型函数（UTS 函数泛型受限）
+ * - 移除所有 type predicates（value is X），改为返回 boolean
+ * - 移除 NotUndefined<T> 工具类型和 RectResultType<T> 条件类型
+ * - deepClone 简化为 JSON 序列化实现（不支持 Date/RegExp/Error 特殊处理）
+ * - Record<string, any> 替换为 UTSJSONObject
+ * - Function 类型替换为具体函数签名
+ * - isH5 固定为 false（UniApp X 不运行 H5）
+ * - getRect 适配 UniApp X 的 SelectorQuery API
+ */
+
+import { AbortablePromise } from './AbortablePromise'
+
+/** 防抖函数配置选项 */
+export type DebounceOptions = {
+  /** 是否在延迟时间开始时调用函数 */
+  leading ?: boolean
+  /** 是否在延迟时间结束时调用函数 */
+  trailing ?: boolean
+}
+
+// ============================================================================
+// 核心类型检查 (基础工具，使用频率最高)
+// ============================================================================
+
+/**
+ * 检查值是否不为空（不为null或undefined）
+ */
+export const isDef = (value : any | null) : boolean => {
+  return value !== undefined && value !== null
+}
+
+/**
+ * 判断target是否为对象
+ */
+export const isObj = (value : any | null) : boolean => {
+  if (value == null) return false
+  return Object.prototype.toString.call(value) === '[object Object]' || typeof value === 'object'
+}
+
+/**
+ * 检查给定值是否为数组
+ */
+export const isArray = (value : any | null) : boolean => {
+  return Array.isArray(value)
+}
+
+/**
+ * 获取目标原始类型
+ * @returns 类型字符串（小写），如 'array', 'object', 'string', 'null'
+ */
+export const getType = (target : any | null) : string => {
+  const typeStr = Object.prototype.toString.call(target)
+  const match = typeStr.match(/\[object (\w+)\]/)
+  if (match != null && match.length > 1) {
+    return match[1].toLowerCase()
+  }
+  return ''
+}
+
+/**
+ * 检查给定值是否为字符串
+ */
+export const isString = (value : any | null) : boolean => {
+  return getType(value) === 'string'
+}
+
+/**
+ * 检查给定值是否为数值
+ */
+export const isNumber = (value : any | null) : boolean => {
+  return getType(value) === 'number'
+}
+
+/**
+ * 检查给定值是否为函数
+ */
+export const isFunction = (value : any | null) : boolean => {
+  const t = getType(value)
+  return t === 'function' || t === 'asyncfunction'
+}
+
+/**
+ * 检查给定值是否为布尔类型
+ */
+export const isBoolean = (value : any | null) : boolean => {
+  return typeof value === 'boolean'
+}
+
+/**
+ * 检查给定值是否为Promise对象
+ */
+export const isPromise = (value : any | null) : boolean => {
+  if (value == null) return false
+  if (!isObj(value)) return false
+  // 检查是否有 then 和 catch 方法
+  const obj = value as UTSJSONObject
+  return isFunction(obj['then']) && isFunction(obj['catch'])
+}
+
+// ============================================================================
+// 扩展类型检查 (特定场景使用)
+// ============================================================================
+
+/**
+ * 检查给定值是否为undefined
+ */
+export const isUndefined = (value : any | null) : boolean => {
+  return typeof value === 'undefined'
+}
+
+/**
+ * 检查给定值是否不为undefined
+ */
+export const isNotUndefined = (value : any | null) : boolean => {
+  return !isUndefined(value)
+}
+
+/**
+ * 检查一个值是否为Date类型
+ */
+export const isDate = (val : any | null) : boolean => {
+  if (val == null) return false
+  if (Object.prototype.toString.call(val) !== '[object Date]') return false
+  return !Number.isNaN((val as Date).getTime())
+}
+
+/**
+ * 检查给定的值是否为奇数
+ */
+export const isOdd = (value : number) : boolean => {
+  return value % 2 === 1
+}
+
+/**
+ * 是否为base64图片
+ */
+export const isBase64Image = (url : string) : boolean => {
+  return /^data:image\/(?:png|jpg|jpeg|gif|bmp);base64,/.test(url)
+}
+
+/**
+ * 检查提供的URL是否为视频链接
+ */
+export const isVideoUrl = (url : string) : boolean => {
+  const videoRegex = /\.(?:mp4|mpg|mpeg|dat|asf|avi|rmvb?|mov|wmv|flv|mkv|video)$/i
+  return videoRegex.test(url)
+}
+
+/**
+ * 检查提供的URL是否为图片URL
+ */
+export const isImageUrl = (url : string) : boolean => {
+  const imageRegex = /\.(?:jpeg|jpg|gif|png|svg|webp|jfif|bmp|dpg|image)/i
+  return imageRegex.test(url)
+}
+
+// ============================================================================
+// 核心对象操作 (数据处理核心)
+// ============================================================================
+
+/**
+ * 深拷贝函数
+ * UniApp X 版本：使用 JSON 序列化实现（不支持 Date/RegExp/Error/循环引用）
+ */
+export const deepClone = (obj : any | null) : any | null => {
+  if (obj == null || typeof obj !== 'object') {
+    return obj
+  }
+  try {
+    return JSON.parse(JSON.stringify(obj))
+  } catch (_e) {
+    return obj
+  }
+}
+
+/**
+ * 比较两个值是否相等（数组浅比较）
+ */
+export const isEqual = (value1 : any | null, value2 : any | null) : boolean => {
+  if (value1 === value2) {
+    return true
+  }
+
+  if (!Array.isArray(value1) || !Array.isArray(value2)) {
+    return false
+  }
+
+  const arr1 = value1 as Array<any>
+  const arr2 = value2 as Array<any>
+
+  if (arr1.length !== arr2.length) {
+    return false
+  }
+
+  for (let i = 0; i < arr1.length; i++) {
+    if (arr1[i] !== arr2[i]) {
+      return false
+    }
+  }
+
+  return true
+}
+
+/**
+ * 深度合并两个对象
+ */
+export const deepMerge = (
+  target : UTSJSONObject,
+  source : UTSJSONObject,
+) : UTSJSONObject => {
+  const result = JSON.parse(JSON.stringify(target)) as UTSJSONObject
+
+  const keys = Object.keys(source)
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]
+    const sourceValue = source[key]
+    const targetValue = result[key]
+
+    if (
+      sourceValue != null &&
+      typeof sourceValue === 'object' &&
+      Object.prototype.toString.call(sourceValue) === '[object Object]' &&
+      targetValue != null &&
+      typeof targetValue === 'object' &&
+      Object.prototype.toString.call(targetValue) === '[object Object]'
+    ) {
+      result[key] = deepMerge(targetValue as UTSJSONObject, sourceValue as UTSJSONObject)
+    } else {
+      result[key] = sourceValue
+    }
+  }
+
+  return result
+}
+
+/**
+ * 根据属性路径获取对象中的属性值
+ */
+export const getPropByPath = (obj : UTSJSONObject, path : string) : any | null => {
+  const keys = path.split('.')
+  let current : any | null = obj
+
+  for (let i = 0; i < keys.length; i++) {
+    if (current == null) return null
+    if (typeof current !== 'object') return null
+    current = (current as UTSJSONObject)[keys[i]]
+  }
+
+  return current
+}
+
+/**
+ * 判断一个对象是否包含任何字段
+ */
+export const hasFields = (obj : any | null) : boolean => {
+  if (obj == null) return false
+  if (!isObj(obj)) return false
+  return Object.keys(obj).length > 0
+}
+
+/**
+ * 判断一个对象是否为空对象
+ */
+export const isEmptyObj = (obj : any | null) : boolean => {
+  return !hasFields(obj)
+}
+
+/**
+ * 深度合并两个对象（原地修改）
+ */
+export const deepAssign = (
+  target : UTSJSONObject,
+  source : UTSJSONObject,
+) : UTSJSONObject => {
+  const keys = Object.keys(source)
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]
+    const targetValue = target[key]
+    const newObjValue = source[key]
+    if (isObj(targetValue) && isObj(newObjValue)) {
+      deepAssign(targetValue as UTSJSONObject, newObjValue as UTSJSONObject)
+    } else {
+      target[key] = newObjValue
+    }
+  }
+  return target
+}
+
+/**
+ * 剔除对象中的某些属性
+ * @param obj 源对象
+ * @param predicate 判断函数，返回 true 则剔除该属性
+ */
+export const omitBy = (
+  obj : UTSJSONObject,
+  predicate : (value : any | null, key : string) => boolean,
+) : UTSJSONObject => {
+  const newObj = JSON.parse(JSON.stringify(obj)) as UTSJSONObject
+  const keys = Object.keys(newObj)
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]
+    if (predicate(newObj[key], key)) {
+      delete newObj[key]
+    }
+  }
+  return newObj
+}
+
+// ============================================================================
+// 字符串处理 (常用工具)
+// ============================================================================
+
+/**
+ * 生成4位十六进制随机数
+ */
+const s4 = () : string => {
+  return Math.floor((1 + Math.random()) * 0x10000)
+    .toString(16)
+    .substring(1)
+}
+
+/**
+ * 生成UUID字符串
+ * @returns 32位UUID字符串
+ */
+export const uuid = () : string => {
+  return s4() + s4() + s4() + s4() + s4() + s4() + s4() + s4()
+}
+
+/**
+ * 自动为数值添加单位
+ * @param num 数值或字符串
+ * @param unit 单位，默认为 'rpx'
+ */
+export const addUnit = (num : number | string, unit : string = 'rpx') : string => {
+  if (Number.isNaN(Number(num))) {
+    return `${num}`
+  }
+
+  if (Number(num) === 0) {
+    return '0'
+  }
+
+  return `${num}${unit}`
+}
+
+/**
+ * 在数字前补零，使其达到指定长度
+ */
+export const padZero = (number : number | string, length : number = 2) : string => {
+  let numStr = number.toString()
+  while (numStr.length < length) {
+    numStr = `0${numStr}`
+  }
+  return numStr
+}
+
+/**
+ * 将驼峰命名转换为短横线命名
+ */
+export const kebabCase = (word : string) : string => {
+  return word
+    .replace(/[A-Z]/g, (match : string) : string => {
+      return `-${match}`
+    })
+    .toLowerCase()
+}
+
+/**
+ * 将短横线链接转换为驼峰命名
+ */
+export const camelCase = (word : string) : string => {
+  return word.replace(/-(\w)/g, (_ : string, c : string) : string => c.toUpperCase())
+}
+
+// ============================================================================
+// 单位转换 (rpx/px转换)
+// ============================================================================
+
+/**
+ * 将 rpx 转换为 px
+ */
+export const rpxToPx = (rpx : number) : number => {
+  const systemInfo = uni.getSystemInfoSync()
+  const screenWidth = systemInfo.screenWidth > 0 ? systemInfo.screenWidth : 375
+  return (rpx / 750) * screenWidth
+}
+
+/**
+ * 将 px 转换为 rpx
+ */
+export const pxToRpx = (px : number) : number => {
+  const systemInfo = uni.getSystemInfoSync()
+  const screenWidth = systemInfo.screenWidth > 0 ? systemInfo.screenWidth : 375
+  return (px / screenWidth) * 750
+}
+
+// ============================================================================
+// 数值处理 (数学计算)
+// ============================================================================
+
+/**
+ * 确保数值不超出指定范围
+ */
+export const range = (num : number, min : number, max : number) : number => {
+  return Math.min(Math.max(num, min), max)
+}
+
+/**
+ * 从数组中寻找最接近目标值的元素
+ */
+export const closest = (arr : number[], target : number) : number => {
+  return arr.reduce((prev : number, curr : number) : number => {
+    return Math.abs(curr - target) < Math.abs(prev - target) ? curr : prev
+  })
+}
+
+/**
+ * 防止数字小于零
+ */
+export const checkNumRange = (num : number, label : string = 'value') : void => {
+  if (num < 0) {
+    throw new Error(`${label} shouldn't be less than zero`)
+  }
+}
+
+/**
+ * 防止pixel无意义
+ */
+export const checkPixelRange = (num : number, label : string = 'value') : void => {
+  if (num <= 0) {
+    throw new Error(`${label} should be greater than zero`)
+  }
+}
+
+// ============================================================================
+// 异步控制 (性能优化核心)
+// ============================================================================
+
+/**
+ * 通用函数类型（替代 UTS 中不可用的 Function 类型）
+ */
+export type AnyFunction = (...args : any[]) => void
+
+/**
+ * 防抖函数
+ * UniApp X 版本：移除泛型，使用 AnyFunction 类型
+ */
+export const debounce = (
+  func : AnyFunction,
+  wait : number,
+  options : DebounceOptions = {} as DebounceOptions,
+) : AnyFunction => {
+  let timeoutId : number | null = null
+  let lastArgs : any[] | null = null
+  const leading = options.leading == true
+  const trailing = options.trailing != false
+
+  const invokeFunc = () : void => {
+    if (lastArgs != null) {
+      func(...lastArgs!)
+      lastArgs = null
+    }
+  }
+
+  const startTimer = () : void => {
+    timeoutId = setTimeout(() => {
+      timeoutId = null
+      if (trailing) {
+        invokeFunc()
+      }
+    }, wait) as number
+  }
+
+  const cancelTimer = () : void => {
+    if (timeoutId != null) {
+      clearTimeout(timeoutId!)
+      timeoutId = null
+    }
+  }
+
+  const debounced = (...args : any[]) : void => {
+    lastArgs = args
+
+    if (timeoutId == null) {
+      if (leading) {
+        invokeFunc()
+      }
+      startTimer()
+    } else if (trailing) {
+      cancelTimer()
+      startTimer()
+    }
+  }
+
+  return debounced
+}
+
+/**
+ * 节流函数
+ */
+export const throttle = (func : AnyFunction, wait : number) : AnyFunction => {
+  let timeout : number | null = null
+  let previous : number = 0
+
+  const throttled = (...args : any[]) : void => {
+    const now = Date.now()
+    const remaining = wait - (now - previous)
+
+    if (remaining <= 0) {
+      if (timeout != null) {
+        clearTimeout(timeout!)
+        timeout = null
+      }
+      previous = now
+      func(...args)
+    } else if (timeout == null) {
+      timeout = setTimeout(() => {
+        previous = Date.now()
+        timeout = null
+        func(...args)
+      }, remaining) as number
+    }
+  }
+
+  return throttled
+}
+
+/**
+ * 暂停指定时间函数
+ */
+export const pause = (ms : number = 33) : AbortablePromise => {
+  return new AbortablePromise((resolve : (value : boolean) => void, _reject : (reason : Error | null) => void) => {
+    const timer = setTimeout(() => {
+      clearTimeout(timer)
+      resolve(true)
+    }, ms)
+  })
+}
+
+/**
+ * 请求动画帧的AbortablePromise包装
+ */
+export const requestAnimationFrame = (cb : (() => void) | null = null) : AbortablePromise => {
+  return new AbortablePromise((resolve : (value : boolean) => void, _reject : (reason : Error | null) => void) => {
+    const timer = setInterval(() => {
+      clearInterval(timer)
+      resolve(true)
+      if (cb != null) {
+        cb!()
+      }
+    }, 33)
+  })
+}
+
+// ============================================================================
+// 样式处理 (UI相关)
+// ============================================================================
+
+/**
+ * 将外部传入的样式格式化为CSS样式字符串
+ * UniApp X 版本：参数类型简化为 any
+ */
+export const objToStyle = (styles : any | null) : string => {
+  if (styles == null) return ''
+
+  if (Array.isArray(styles)) {
+    const arr = styles as Array<any>
+    const parts : string[] = []
+    for (let i = 0; i < arr.length; i++) {
+      const item = arr[i]
+      if (item != null && item !== '') {
+        parts.push(objToStyle(item))
+      }
+    }
+    const result = parts.join(';')
+    if (result === '') return ''
+    return result.endsWith(';') ? result : `${result};`
+  }
+
+  if (isString(styles)) {
+    const s = styles as string
+    if (s === '') return ''
+    return s.endsWith(';') ? s : `${s};`
+  }
+
+  if (isObj(styles)) {
+    const obj = styles as UTSJSONObject
+    const keys = Object.keys(obj)
+    const parts : string[] = []
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i]
+      const val = obj[key]
+      if (val != null && val !== '') {
+        parts.push(`${kebabCase(key)}:${val}`)
+      }
+    }
+    const result = parts.join(';')
+    if (result === '') return ''
+    return result.endsWith(';') ? result : `${result};`
+  }
+
+  return ''
+}
+
+/**
+ * 将RGB值转换为十六进制颜色代码
+ */
+export const rgbToHex = (r : number, g : number, b : number) : string => {
+  const hex = ((r << 16) | (g << 8) | b).toString(16)
+  return `#${'0'.repeat(Math.max(0, 6 - hex.length))}${hex}`
+}
+
+/**
+ * 将十六进制颜色代码转换为RGB颜色数组
+ */
+export const hexToRgb = (hex : string) : number[] => {
+  const rgb : number[] = []
+  for (let i = 1; i < 7; i += 2) {
+    rgb.push(parseInt(`0x${hex.slice(i, i + 2)}`, 16))
+  }
+  return rgb
+}
+
+/**
+ * 计算渐变色的中间变量数组
+ */
+export const gradient = (startColor : string, endColor : string, step : number = 2) : string[] => {
+  const sColor = hexToRgb(startColor)
+  const eColor = hexToRgb(endColor)
+
+  const rStep = (eColor[0] - sColor[0]) / step
+  const gStep = (eColor[1] - sColor[1]) / step
+  const bStep = (eColor[2] - sColor[2]) / step
+
+  const gradientColorArr : string[] = []
+  for (let i = 0; i < step; i++) {
+    gradientColorArr.push(
+      rgbToHex(
+        parseInt(String(rStep * i + sColor[0])),
+        parseInt(String(gStep * i + sColor[1])),
+        parseInt(String(bStep * i + sColor[2])),
+      ),
+    )
+  }
+  return gradientColorArr
+}
+
+// ============================================================================
+// DOM操作 (框架特定)
+// ============================================================================
+
+/**
+ * 获取节点信息
+ * UniApp X 版本：简化返回类型，移除泛型条件类型
+ *
+ * @param selector 节点选择器 #id,.class
+ * @param all 是否返回所有selector对应的节点
+ * @param scope 作用域组件实例
+ */
+export const getRect = (
+  selector : string,
+  all : boolean,
+  scope : any | null = null,
+) : Promise<any> => {
+  return new Promise<any>((resolve, reject) => {
+    let query = scope != null
+      ? uni.createSelectorQuery().in(scope)
+      : uni.createSelectorQuery()
+
+    if (all) {
+      query.selectAll(selector).boundingClientRect((rect) => {
+        if (Array.isArray(rect) && (rect as Array<any>).length > 0) {
+          resolve(rect)
+        } else {
+          reject(new Error('No nodes found'))
+        }
+      }).exec()
+    } else {
+      query.select(selector).boundingClientRect((rect) => {
+        if (rect != null) {
+          resolve(rect)
+        } else {
+          reject(new Error('No nodes found'))
+        }
+      }).exec()
+    }
+  })
+}
+
+// ============================================================================
+// 网络工具 (API相关)
+// ============================================================================
+
+/**
+ * 构建带参数的URL
+ */
+export const buildUrlWithParams = (baseUrl : string, params : UTSJSONObject) : string => {
+  const keys = Object.keys(params)
+  const parts : string[] = []
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]
+    const value = params[key]
+    if (value != null) {
+      parts.push(`${key}=${encodeURIComponent(String(value))}`)
+    }
+  }
+  const queryString = parts.join('&')
+  const separator = baseUrl.includes('?') ? '&' : '?'
+  return `${baseUrl}${separator}${queryString}`
+}
+
+// ============================================================================
+// 动画工具 (动效相关)
+// ============================================================================
+
+/**
+ * 缓动函数
+ */
+export const easingFn = (t : number = 0, b : number = 0, c : number = 0, d : number = 0) : number => {
+  if (d === 0) return b
+  return (c * (-(Math.pow(2, (-10 * t) / d)) + 1) * 1024) / 1023 + b
+}
+
+// ============================================================================
+// 组件工具 (框架特定)
+// ============================================================================
+
+/**
+ * 默认的外部格式化函数 - picker 组件
+ */
+export const defaultDisplayFormat = (
+  items : any,
+  kv : UTSJSONObject | null = null,
+) : string => {
+  const labelKey = kv != null ? (kv!['labelKey'] as string ?? 'value') : 'value'
+
+  if (Array.isArray(items)) {
+    const arr = items as Array<UTSJSONObject>
+    const labels : string[] = []
+    for (let i = 0; i < arr.length; i++) {
+      labels.push(String(arr[i][labelKey] ?? ''))
+    }
+    return labels.join(', ')
+  } else {
+    const obj = items as UTSJSONObject
+    return String(obj[labelKey] ?? '')
+  }
+}
+
+/**
+ * 默认函数占位符 - pickerView组件
+ */
+export const defaultFunction = (value : any) : any => value
+
+// ============================================================================
+// 环境检测 (配置相关)
+// ============================================================================
+
+/**
+ * 判断环境是否是H5
+ * UniApp X 版本：固定为 false（UniApp X 不运行 H5）
+ */
+export const isH5 = false
+
+/**
+ * 全局上下文类型
+ */
+export type GlobalContext = {
+  id : number
+}
+
+/**
+ * 全局变量id
+ */
+export const context : GlobalContext = {
+  id: 1000,
+}

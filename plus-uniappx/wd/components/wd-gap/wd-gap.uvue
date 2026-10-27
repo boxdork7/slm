@@ -1,0 +1,49 @@
+<!--
+Gap 间隔槽 一般用于页面布局时代替margin或者padding;或者充当（底部）占位元素。
+
+UniApp X 版本
+-->
+<template>
+  <view
+    :class="`wd-gap ${safeAreaBottom ? 'wd-gap--safe' : ''} ${customClass}`"
+    :style="`${isDef(bgColor) ? `background: ${bgColor};` : ''}${isDef(height) ? `height: ${addUnit(height)};` : ''}${customStyle}`"
+  />
+</template>
+
+<script lang="uts" setup>
+import { addUnit, isDef } from '../common/util'
+
+/**
+ * 间距组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 背景颜色 */
+  bgColor ?: string
+  /** 是否开启底部安全区 */
+  safeAreaBottom ?: boolean
+  /** 高度 */
+  height ?: number
+}>(), {
+  customStyle: '',
+  customClass: '',
+  bgColor: 'transparent',
+  safeAreaBottom: false,
+  height: 15,
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+@include b(gap) {
+  @include m(safe) {
+    padding-bottom: constant(safe-area-inset-bottom);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+</style>

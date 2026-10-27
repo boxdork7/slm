@@ -1,0 +1,510 @@
+<!--
+ActionSheet 动作面板 从底部弹出的动作菜单面板。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- interface Action/Panel/SelectEventData 在 <script> 内定义（UTS 不支持 export interface from setup）
+- 'action' | 'panels' 联合类型 → string
+- ClosePosition → string
+- (col as any).iconUrl → 显式类型访问
+- edeep → e（UniApp X mixin）
+- :deep() → 直接类选择器
+-->
+<template>
+  <view>
+    <wd-popup
+      v-model="showPopup"
+      custom-class="wd-action-sheet__popup"
+      :custom-style="popupCustomStyle"
+      :duration="duration"
+      position="bottom"
+      :close-on-click-modal="closeOnClickModal"
+      :safe-area-inset-bottom="safeAreaInsetBottom"
+      :lazy-render="lazyRender"
+      :z-index="zIndex"
+      @enter="handleOpen"
+      @close="close"
+      @after-enter="handleOpened"
+      @after-leave="handleClosed"
+      @click-modal="handleClickModal"
+    >
+      <view
+        :class="`wd-action-sheet ${customClass}`"
+        :style="sheetStyle"
+      >
+        <!-- 标题区域 -->
+        <view v-if="title != ''" :class="`wd-action-sheet__header ${customHeaderClass}`">
+          <text>{{ title }}</text>
+          <wd-icon custom-class="wd-action-sheet__close" name="close" @click="close" />
+        </view>
+
+        <!-- 菜单选项区域 -->
+        <view v-if="actions.length > 0" class="wd-action-sheet__actions">
+          <view
+            v-for="(action, rowIndex) in actions"
+            :key="rowIndex"
+            :class="`wd-action-sheet__action ${action.disabled == true ? 'wd-action-sheet__action--disabled' : ''} ${action.loading == true ? 'wd-action-sheet__action--loading' : ''}`"
+            :style="`color: ${action.color ?? ''}`"
+            @click="selectAction(rowIndex)"
+          >
+            <wd-loading v-if="action.loading == true" custom-class="wd-action-sheet__action-loading" />
+            <view v-else class="wd-action-sheet__name">
+              <text>{{ getActionLabel(action) }}</text>
+            </view>
+            <view v-if="action.loading != true && (action.subname ?? '') != ''" class="wd-action-sheet__subname">
+              <text>{{ action.subname ?? '' }}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 面板区域 -->
+        <view v-if="computedPanels.length > 0">
+          <view
+            v-for="(panel, rowIndex) in computedPanels"
+            :key="rowIndex"
+            class="wd-action-sheet__panels"
+          >
+            <view class="wd-action-sheet__panels-content">
+              <view
+                v-for="(col, colIndex) in panel"
+                :key="colIndex"
+                class="wd-action-sheet__panel"
+                @click="selectPanel(rowIndex, colIndex)"
+              >
+                <image class="wd-action-sheet__panel-img" :src="col.iconUrl" />
+                <view class="wd-action-sheet__panel-title">
+                  <text>{{ col.title }}</text>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <!-- 默认插槽 -->
+        <slot />
+
+        <!-- 取消按钮 -->
+        <view v-if="cancelText != ''" class="wd-action-sheet__cancel" @click="handleCancel">
+          <text>{{ cancelText }}</text>
+        </view>
+      </view>
+    </wd-popup>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { ref, watch, computed } from 'vue'
+import { isArray } from '../common/util'
+
+/**
+ * 菜单选项类型
+ */
+type ActionItem = {
+  /** 选项名称 */
+  name ?: string
+  /** 选项标签（兼容 DictItem 格式） */
+  label ?: string
+  /** 选项值 */
+  value ?: string
+  /** 描述信息 */
+  subname ?: string
+  /** 颜色 */
+  color ?: string
+  /** 禁用 */
+  disabled ?: boolean
+  /** 加载中状态 */
+  loading ?: boolean
+}
+
+/**
+ * 面板项类型
+ */
+type PanelItem = {
+  /** 图片地址 */
+  iconUrl : string
+  /** 标题内容 */
+  title : string
+}
+
+/**
+ * ActionSheet 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** header 头部样式 */
+  customHeaderClass ?: string
+  /** 设置菜单显示隐藏 */
+  modelValue ?: boolean
+  /** 菜单选项 */
+  actions ?: ActionItem[]
+  /** 自定义面板项（二维数组格式） */
+  panels ?: PanelItem[][]
+  /** 标题 */
+  title ?: string
+  /** 取消按钮文案 */
+  cancelText ?: string
+  /** 点击选项后是否关闭菜单 */
+  closeOnClickAction ?: boolean
+  /** 点击遮罩是否关闭 */
+  closeOnClickModal ?: boolean
+  /** 弹框动画持续时间 */
+  duration ?: number
+  /** 菜单层级 */
+  zIndex ?: number
+  /** 弹层内容懒渲染 */
+  lazyRender ?: boolean
+  /** 弹出面板是否设置底部安全距离 */
+  safeAreaInsetBottom ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  customHeaderClass: '',
+  modelValue: false,
+  actions: () : ActionItem[] => [] as ActionItem[],
+  panels: () : PanelItem[][] => [] as PanelItem[][],
+  title: '',
+  cancelText: '',
+  closeOnClickAction: true,
+  closeOnClickModal: true,
+  duration: 200,
+  zIndex: 100,
+  lazyRender: true,
+  safeAreaInsetBottom: true,
+})
+
+const emit = defineEmits<{
+  (e : 'update:modelValue', value : boolean) : void
+  (e : 'select', data : UTSJSONObject) : void
+  (e : 'click-modal') : void
+  (e : 'cancel') : void
+  (e : 'close') : void
+  (e : 'closed') : void
+  (e : 'open') : void
+  (e : 'opened') : void
+}>()
+
+/* 本地状态 */
+const showPopup = ref(false)
+
+/**
+ * 获取 action 的显示标签
+ */
+const getActionLabel = (action : ActionItem) : string => {
+  if ((action.label ?? '') != '') return action.label!
+  if ((action.name ?? '') != '') return action.name!
+  return ''
+}
+
+/**
+ * 计算后的面板数据（始终为二维数组）
+ */
+const computedPanels = computed(() : PanelItem[][] => {
+  if (props.panels.length == 0) return [] as PanelItem[][]
+  return props.panels
+})
+
+/**
+ * 弹窗自定义样式
+ */
+const popupCustomStyle = computed(() : string => {
+  if (props.actions.length > 0 || props.panels.length > 0) {
+    return 'background: transparent;'
+  }
+  return ''
+})
+
+/**
+ * 面板整体样式
+ */
+const sheetStyle = computed(() : string => {
+  let style = ''
+  if (props.actions.length > 0 || props.panels.length > 0) {
+    style += 'margin: 0 20rpx 20rpx 20rpx; border-radius: 32rpx;'
+  }
+  if (props.customStyle != '') {
+    style += ' ' + props.customStyle
+  }
+  return style
+})
+
+/**
+ * 关闭面板
+ */
+const close = () => {
+  emit('update:modelValue', false)
+  emit('close')
+}
+
+/**
+ * 选择菜单选项
+ */
+const selectAction = (rowIndex : number) => {
+  const action = props.actions[rowIndex]
+  if (action.disabled == true || action.loading == true) return
+
+  const eventData : UTSJSONObject = {
+    'index': rowIndex,
+    'value': action.value ?? action.name ?? '',
+    'label': action.label ?? action.name ?? '',
+  }
+
+  emit('select', eventData)
+
+  if (props.closeOnClickAction) {
+    close()
+  }
+}
+
+/**
+ * 选择面板项
+ */
+const selectPanel = (rowIndex : number, colIndex : number) => {
+  if (rowIndex >= props.panels.length) return
+  const row = props.panels[rowIndex]
+  if (colIndex >= row.length) return
+  const panel = row[colIndex]
+
+  const eventData : UTSJSONObject = {
+    'index': colIndex,
+    'rowIndex': rowIndex,
+    'colIndex': colIndex,
+    'value': panel.title,
+    'label': panel.title,
+  }
+
+  emit('select', eventData)
+
+  if (props.closeOnClickAction) {
+    close()
+  }
+}
+
+/**
+ * 处理点击遮罩事件
+ */
+const handleClickModal = () => {
+  emit('click-modal')
+}
+
+/**
+ * 处理取消按钮点击事件
+ */
+const handleCancel = () => {
+  emit('cancel')
+  close()
+}
+
+/**
+ * 处理打开事件
+ */
+const handleOpen = () => {
+  emit('open')
+}
+
+/**
+ * 处理打开完成事件
+ */
+const handleOpened = () => {
+  emit('opened')
+}
+
+/**
+ * 处理关闭完成事件
+ */
+const handleClosed = () => {
+  emit('closed')
+}
+
+/* 监听 modelValue 变化 */
+watch(() => props.modelValue, (newValue : boolean) => {
+  showPopup.value = newValue
+}, { immediate: true })
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  .wd-action-sheet {
+    background-color: $-dark-background2;
+    color: $-dark-color;
+  }
+
+  .wd-action-sheet__action {
+    color: $-dark-color;
+    background: $-dark-background2;
+  }
+
+  .wd-action-sheet__action--disabled {
+    color: $-dark-color-gray;
+  }
+
+  .wd-action-sheet__subname {
+    color: $-dark-color3;
+  }
+
+  .wd-action-sheet__cancel {
+    color: $-dark-color;
+    background: $-dark-background4;
+  }
+
+  .wd-action-sheet__close {
+    color: $-dark-color3;
+  }
+
+  .wd-action-sheet__panel-title {
+    color: $-dark-color;
+  }
+
+  .wd-action-sheet__header {
+    color: $-dark-color;
+  }
+}
+
+/* 弹窗样式 */
+.wd-action-sheet__popup {
+  border-radius: $-action-sheet-radius $-action-sheet-radius 0 0;
+}
+
+@include b(action-sheet) {
+  background-color: $-color-white;
+  padding-bottom: 2rpx;
+
+  /* 菜单选项容器 */
+  @include e(actions) {
+    padding: 16rpx 0;
+    max-height: 50vh;
+    overflow-y: auto;
+  }
+
+  /* 菜单选项样式 */
+  @include e(action) {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: $-action-sheet-action-height;
+    color: $-action-sheet-color;
+    font-size: $-action-sheet-fs;
+    text-align: center;
+    background: $-action-sheet-bg;
+  }
+
+  .wd-action-sheet__action--disabled {
+    color: $-action-sheet-disabled-color;
+  }
+
+  .wd-action-sheet__action--loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 选项名称 */
+  @include e(name) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 选项描述 */
+  @include e(subname) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 8rpx;
+    font-size: $-action-sheet-subname-fs;
+    color: $-action-sheet-subname-color;
+  }
+
+  /* 取消按钮样式 */
+  @include e(cancel) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: calc(100% - 96rpx);
+    line-height: $-action-sheet-cancel-height;
+    padding: 0;
+    color: $-action-sheet-cancel-color;
+    font-size: $-action-sheet-fs;
+    text-align: center;
+    border-radius: $-action-sheet-cancel-radius;
+    background: $-action-sheet-cancel-bg;
+    margin: 0 auto 48rpx;
+    font-weight: $-action-sheet-weight;
+  }
+
+  /* 头部标题样式 */
+  @include e(header) {
+    color: $-action-sheet-color;
+    position: relative;
+    height: $-action-sheet-title-height;
+    line-height: $-action-sheet-title-height;
+    text-align: center;
+    font-size: $-action-sheet-title-fs;
+    font-weight: $-action-sheet-weight;
+  }
+
+  /* 关闭按钮样式 */
+  .wd-action-sheet__close {
+    position: absolute;
+    top: $-action-sheet-close-top;
+    right: $-action-sheet-close-right;
+    color: $-action-sheet-close-color;
+    font-size: $-action-sheet-close-fs;
+    line-height: 1.1;
+  }
+
+  /* 面板容器样式 */
+  @include e(panels) {
+    height: 168rpx;
+    overflow-y: hidden;
+  }
+
+  /* 面板内容容器 */
+  @include e(panels-content) {
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  /* 单个面板项样式 */
+  @include e(panel) {
+    width: 176rpx;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: $-action-sheet-panel-padding;
+  }
+
+  /* 面板图片样式 */
+  @include e(panel-img) {
+    display: block;
+    width: $-action-sheet-panel-img-fs;
+    height: $-action-sheet-panel-img-fs;
+    margin: 0 auto;
+    margin-bottom: 28rpx;
+    border-radius: $-action-sheet-panel-img-radius;
+  }
+
+  /* 面板标题样式 */
+  @include e(panel-title) {
+    font-size: $-action-sheet-subname-fs;
+    line-height: 1.2;
+    text-align: center;
+    color: $-action-sheet-color;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    lines: 1;
+  }
+}
+</style>

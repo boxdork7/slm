@@ -1,0 +1,178 @@
+/**
+ * 字典数据管理 (useDictStore) - UniApp X 版本
+ *
+ * 保持与 plus-app/stores/modules/dict.ts 相同的导出接口
+ *
+ * 包含以下功能：
+ * - 字典存储: 集中管理应用中的所有字典数据 (dict)
+ * - 字典访问: 快速获取指定类型的字典数据 (getDict)
+ * - 字典设置: 动态添加或更新字典项 (setDict)
+ * - 标签转换: 根据字典值获取对应的显示标签 (getDictLabel, getDictLabels)
+ * - 值转换: 根据显示标签获取对应的字典值 (getDictValue)
+ * - 对象获取: 获取字典项的完整对象数据 (getDictItem)
+ * - 数据清理: 支持删除单个或所有字典数据 (removeDict, cleanDict)
+ *
+ * UTS 适配说明：
+ * - 不使用 Pinia（UTS 不支持），采用模块级 ref + 导出函数模式
+ * - 移除 isRef() / Ref<> 类型参数，统一使用 string key 或 DictItem[] 数组
+ * - Map<string, DictItem[]> 保留（UTS 支持 Map）
+ * - DictItem 类型来自全局类型定义
+ */
+import { ref } from 'vue'
+
+/* ==================== 模块级状态（单例） ==================== */
+
+/**
+ * 字典数据集合
+ */
+const dict = ref<Map<string, DictItem[]>>(new Map())
+
+/* ==================== 方法 ==================== */
+
+/**
+ * 获取字典
+ */
+const getDict = (key : string) : DictItem[] | null => {
+	if (key.length == 0) {
+		return null
+	}
+	return dict.value.get(key) ?? null
+}
+
+/**
+ * 设置字典
+ */
+const setDict = (key : string, value : DictItem[]) : boolean => {
+	if (key.length == 0) {
+		return false
+	}
+	try {
+		dict.value.set(key, value)
+		return true
+	} catch (e) {
+		console.error('设置字典时发生错误:', e)
+		return false
+	}
+}
+
+/**
+ * 根据字典类型和值获取标签
+ */
+const getDictLabel = (key : string, value : string) : string => {
+	const dictData = getDict(key)
+	if (dictData == null) return ''
+	for (let i = 0; i < dictData!.length; i++) {
+		if (dictData![i].value == value) {
+			return dictData![i].label
+		}
+	}
+	return ''
+}
+
+/**
+ * 根据字典数据数组和值获取标签
+ */
+const getDictLabelFromData = (dictData : DictItem[], value : string) : string => {
+	for (let i = 0; i < dictData.length; i++) {
+		if (dictData[i].value == value) {
+			return dictData[i].label
+		}
+	}
+	return ''
+}
+
+/**
+ * 批量获取字典标签
+ */
+const getDictLabels = (key : string, values : string[]) : string[] => {
+	if (values.length == 0) return [] as string[]
+
+	const dictData = getDict(key)
+	if (dictData == null) {
+		const emptyLabels : string[] = []
+		for (let i = 0; i < values.length; i++) {
+			emptyLabels.push('')
+		}
+		return emptyLabels
+	}
+
+	const labels : string[] = []
+	for (let i = 0; i < values.length; i++) {
+		labels.push(getDictLabelFromData(dictData!, values[i]))
+	}
+	return labels
+}
+
+/**
+ * 获取字典项的完整对象
+ */
+const getDictItem = (key : string, value : string) : DictItem | null => {
+	const dictData = getDict(key)
+	if (dictData == null) return null
+
+	for (let i = 0; i < dictData!.length; i++) {
+		if (dictData![i].value == value) {
+			return dictData![i]
+		}
+	}
+	return null
+}
+
+/**
+ * 根据标签获取字典值
+ */
+const getDictValue = (key : string, label : string) : string | null => {
+	const dictData = getDict(key)
+	if (dictData == null) return null
+
+	for (let i = 0; i < dictData!.length; i++) {
+		if (dictData![i].label == label) {
+			return dictData![i].value
+		}
+	}
+	return null
+}
+
+/**
+ * 删除字典
+ */
+const removeDict = (key : string) : boolean => {
+	if (key.length == 0) {
+		return false
+	}
+	try {
+		return dict.value.delete(key)
+	} catch (e) {
+		console.error('删除字典时发生错误:', e)
+		return false
+	}
+}
+
+/**
+ * 清空字典
+ */
+const cleanDict = () : void => {
+	dict.value.clear()
+}
+
+/* ==================== Store 导出 ==================== */
+
+/**
+ * 获取字典 Store 实例
+ *
+ * 返回模块级单例状态和方法，保持与 Pinia useXxxStore() 相同的调用方式
+ */
+export function useDictStore() {
+	return {
+		dict,
+		getDict,
+		setDict,
+		getDictLabel,
+		getDictLabelFromData,
+		getDictLabels,
+		getDictItem,
+		getDictValue,
+		removeDict,
+		cleanDict,
+	}
+}

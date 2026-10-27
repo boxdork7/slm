@@ -1,0 +1,302 @@
+<!--
+CheckboxGroup 复选框组 用于在一组备选项中进行多选。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- useChildren → createChildManager + provide
+- useParent(FORM_KEY) → inject(FORM_KEY)
+- useSlots → prop-based 条件渲染
+- linkChildren → provide 扁平化
+- export type → 移到 wd-checkbox-group-key.uts
+- CheckboxGroupModelValue (Array | string) → string[]（标准化为数组）
+- string | number | boolean → string
+- FormItemRule → 从 wd-form-key.uts 导入
+-->
+<template>
+  <view v-if="cell" :class="`wd-checkbox-group ${customClass}`" :style="customStyle">
+    <wd-cell
+      :title="label"
+      :required="required"
+      :center="center"
+      :border="border"
+      :title-width="labelWidth"
+      :size="size"
+      :is-link="isLink"
+      :clickable="clickable"
+    >
+      <view class="wd-checkbox-group__cell-body">
+        <!-- options 模式 -->
+        <template v-if="options.length > 0">
+          <wd-checkbox
+            v-for="(item, index) in options"
+            :key="index"
+            :value="item.value"
+            :disabled="item.disabled == true"
+          >
+            {{ item.label }}
+          </wd-checkbox>
+        </template>
+        <!-- slot 模式 -->
+        <slot v-else />
+      </view>
+    </wd-cell>
+    <!-- 错误提示 -->
+    <view v-if="errorMessage != ''" class="wd-checkbox-group__error">
+      <text class="wd-checkbox-group__error-text">{{ errorMessage }}</text>
+    </view>
+  </view>
+  <view v-else :class="`wd-checkbox-group ${inline ? 'is-inline' : ''} ${customClass}`" :style="customStyle">
+    <!-- options 模式 -->
+    <template v-if="options.length > 0">
+      <wd-checkbox
+        v-for="(item, index) in options"
+        :key="index"
+        :value="item.value"
+        :disabled="item.disabled == true"
+      >
+        {{ item.label }}
+      </wd-checkbox>
+    </template>
+    <!-- slot 模式 -->
+    <slot v-else />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, inject, provide, reactive, watch } from 'vue'
+import { createChildManager } from '../../composables/useChildren'
+import { FORM_KEY, type FormProvide } from '../wd-form/wd-form-key'
+import { CHECKBOX_GROUP_KEY, type CheckboxGroupProvide, type CheckboxOption } from './wd-checkbox-group-key'
+
+/**
+ * CheckboxGroup 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 当前选中的值数组 */
+  modelValue ?: string[]
+  /** 表单模式（使用 cell 包裹） */
+  cell ?: boolean
+  /** 复选框形状：circle / square / button */
+  shape ?: string
+  /** 选中的颜色 */
+  checkedColor ?: string
+  /** 是否禁用 */
+  disabled ?: boolean
+  /** 最小选中数量 */
+  min ?: number
+  /** 最大选中数量，0 为无限 */
+  max ?: number
+  /** 同行展示 */
+  inline ?: boolean
+  /** 设置大小：large / 空字符串 */
+  size ?: string
+  /** 选项数组（options 模式） */
+  options ?: CheckboxOption[]
+  /** 表单字段名 */
+  prop ?: string
+  /** 标签文本（cell 模式） */
+  label ?: string
+  /** 是否必填（cell 模式） */
+  required ?: boolean
+  /** 是否居中（cell 模式） */
+  center ?: boolean
+  /** 是否显示边框（cell 模式） */
+  border ?: boolean
+  /** 标签宽度（cell 模式） */
+  labelWidth ?: string
+  /** 是否显示右侧箭头（cell 模式） */
+  isLink ?: boolean
+  /** 开启点击反馈（cell 模式） */
+  clickable ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  modelValue: () : string[] => ([] as string[]),
+  cell: false,
+  shape: 'circle',
+  checkedColor: '',
+  disabled: false,
+  min: 0,
+  max: 0,
+  inline: false,
+  size: '',
+  options: () : CheckboxOption[] => ([] as CheckboxOption[]),
+  prop: '',
+  label: '',
+  required: false,
+  center: false,
+  border: true,
+  labelWidth: '70',
+  isLink: false,
+  clickable: false,
+})
+
+const emit = defineEmits(['update:modelValue', 'change'])
+
+/* 获取父组件 Form 的 provide 数据 */
+const form = inject<FormProvide | null>(FORM_KEY, null)
+
+/* 子组件管理器 */
+const manager = createChildManager()
+
+/**
+ * 计算错误信息
+ */
+const errorMessage = computed(() : string => {
+  if (form != null && props.prop != '' && form!.errorMessages.has(props.prop)) {
+    return form!.errorMessages.get(props.prop)!
+  }
+  return ''
+})
+
+/**
+ * 获取当前值数组
+ */
+const getArrayValue = () : string[] => {
+  return props.modelValue
+}
+
+/**
+ * 改变选中状态
+ */
+const changeSelectState = (value : string) => {
+  const currentValue = props.modelValue.slice()
+  const index = currentValue.indexOf(value)
+
+  if (index > -1) {
+    /* 取消选中 - 检查最小数量 */
+    if (props.min > 0 && currentValue.length <= props.min) {
+      return
+    }
+    currentValue.splice(index, 1)
+  } else {
+    /* 选中 - 检查最大数量 */
+    if (props.max > 0 && currentValue.length >= props.max) {
+      return
+    }
+    currentValue.push(value)
+  }
+
+  emit('update:modelValue', currentValue)
+  emit('change', { value: currentValue })
+
+  /* 清除表单错误信息 */
+  if (form != null && form!.resetOnChange && props.prop != '') {
+    form!.clearFieldMessage(props.prop)
+  }
+}
+
+/**
+ * 监听 modelValue 变化同步清除表单错误
+ */
+watch(
+  () : string[] => props.modelValue,
+  () => {
+    if (form != null && form!.resetOnChange && props.prop != '') {
+      form!.clearFieldMessage(props.prop)
+    }
+  },
+)
+
+/**
+ * Provide 数据给子组件
+ */
+const checkboxGroupProvide = reactive<CheckboxGroupProvide>({
+  modelValue: props.modelValue,
+  cell: props.cell,
+  shape: props.shape,
+  checkedColor: props.checkedColor,
+  disabled: props.disabled,
+  min: props.min,
+  max: props.max,
+  inline: props.inline,
+  size: props.size,
+  childUids: manager.childUids,
+  addChild: manager.addChild,
+  removeChild: manager.removeChild,
+  changeSelectState: changeSelectState,
+  getArrayValue: getArrayValue,
+} as CheckboxGroupProvide)
+
+/* 监听 props 变化，同步更新 provide */
+watch(
+  () : string[] => props.modelValue,
+  (val : string[]) => { checkboxGroupProvide.modelValue = val },
+)
+watch(
+  () : boolean => props.cell,
+  (val : boolean) => { checkboxGroupProvide.cell = val },
+)
+watch(
+  () : string => props.shape,
+  (val : string) => { checkboxGroupProvide.shape = val },
+)
+watch(
+  () : string => props.checkedColor,
+  (val : string) => { checkboxGroupProvide.checkedColor = val },
+)
+watch(
+  () : boolean => props.disabled,
+  (val : boolean) => { checkboxGroupProvide.disabled = val },
+)
+watch(
+  () : number => props.min,
+  (val : number) => { checkboxGroupProvide.min = val },
+)
+watch(
+  () : number => props.max,
+  (val : number) => { checkboxGroupProvide.max = val },
+)
+watch(
+  () : boolean => props.inline,
+  (val : boolean) => { checkboxGroupProvide.inline = val },
+)
+watch(
+  () : string => props.size,
+  (val : string) => { checkboxGroupProvide.size = val },
+)
+
+provide(CHECKBOX_GROUP_KEY, checkboxGroupProvide)
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(checkbox-group) {
+  }
+}
+
+/* 复选框组样式 */
+@include b(checkbox-group) {
+  /* cell 模式内容区域 */
+  @include e(cell-body) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* 错误提示 */
+  @include e(error) {
+    padding: 0 32rpx;
+  }
+
+  @include e(error-text) {
+    color: $-form-item-error-message-color;
+    font-size: $-form-item-error-message-font-size;
+  }
+
+  /* 同行展示 */
+  @include when(inline) {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+</style>

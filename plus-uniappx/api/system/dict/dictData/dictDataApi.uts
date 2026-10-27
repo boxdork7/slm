@@ -1,0 +1,69 @@
+/**
+ * 字典数据 API - UniApp X 版本
+ *
+ * 从 plus-app/api/system/dict/dictData/dictDataApi.ts 迁移
+ *
+ * UTS 适配说明：
+ * - 移除泛型 http.get<T>() → http.get()
+ * - Result<T> → Promise<AsyncResult>
+ * - import type → import
+ */
+
+import { http } from '@/composables/useHttp'
+import { AsyncResult } from '@/utils/to'
+import { SysDictDataVo } from './dictDataTypes'
+
+/**
+ * 根据字典类型查询字典数据信息
+ * @param dictType 字典类型
+ * @returns 字典数据列表
+ */
+export const listDictDatasByDictType = (dictType : string) : Promise<AsyncResult> => {
+	return http.get(`/system/dictData/listDictDatasByDictType/${dictType}`)
+}
+
+/**
+ * 查询字典数据列表（分页）
+ * @param query 查询参数
+ * @returns 分页结果
+ */
+export const pageDictDatas = (query? : UTSJSONObject) : Promise<AsyncResult> => {
+	return http.get('/system/dictData/pageDictDatas', query)
+}
+
+/**
+ * 查询字典数据详细
+ * @param dictDataId 字典编码
+ * @returns 字典数据详情
+ */
+export const getDictData = (dictDataId : string | number) : Promise<AsyncResult> => {
+	return http.get(`/system/dictData/getDictData/${dictDataId}`)
+}
+
+/**
+ * 新增字典数据
+ * @param data 字典数据
+ * @returns 新增结果
+ */
+export const addDictData = (data : UTSJSONObject) : Promise<AsyncResult> => {
+	return http.post('/system/dictData/addDictData', data)
+}
+
+/**
+ * 修改字典数据
+ * @param data 字典数据
+ * @returns 修改结果
+ */
+export const updateDictData = (data : UTSJSONObject) : Promise<AsyncResult> => {
+	return http.put('/system/dictData/updateDictData', data)
+}
+
+/**
+ * 删除字典数据
+ * @param dictDataId 字典编码
+ * @returns 删除结果
+ */
+export const deleteDictDatas = (dictDataId : string | number | (string | number)[]) : Promise<AsyncResult> => {
+	const ids = Array.isArray(dictDataId) ? dictDataId.join(',') : '' + dictDataId
+	return http.del(`/system/dictData/deleteDictDatas/${ids}`)
+}

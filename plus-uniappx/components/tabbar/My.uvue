@@ -1,0 +1,376 @@
+<template>
+	<view class="my-container">
+		<wd-navbar :bg-color="`rgba(255,252,245,${navbarOpacity})`" :title="t('app.my.title')" />
+
+		<view class="decor-wrapper">
+			<view class="decor-circle decor-circle-left" />
+			<view class="decor-circle decor-circle-right" />
+		</view>
+
+		<!-- 用户信息头部 -->
+		<view class="user-header">
+			<view class="user-info-center">
+				<wd-icon
+					v-if="!hasAvatar"
+					custom-class="avatar-placeholder"
+					name="user"
+					size="80"
+					color="#666666"
+					@click="handleUserInfo"
+				/>
+				<wd-img
+					v-else
+					:src="avatarUrl"
+					width="128"
+					height="128"
+					round
+					@click="handleUserInfo"
+				/>
+				<view class="nickname-wrapper">
+					<wd-text
+						size="36"
+						:text="nickName"
+						@click="handleUserInfo"
+					/>
+				</view>
+			</view>
+
+			<!-- 统计数据 -->
+			<wd-row custom-class="stats-row" :gutter="12">
+				<wd-col v-for="(stat, index) in statsData" :key="index" :span="8">
+					<view class="stat-item" @click="handleStatClick(stat as UTSJSONObject)">
+						<wd-text bold block size="34" :text="`${(stat as UTSJSONObject)['value'] ?? ''}`" />
+						<wd-text block :text="`${(stat as UTSJSONObject)['label'] ?? ''}`" size="24" />
+					</view>
+				</wd-col>
+			</wd-row>
+		</view>
+
+		<!-- 我的订单 -->
+		<wd-cell-group custom-class="section-group" title="我的订单">
+			<wd-grid :items="orderTypes" clickable @item-click="handleOrderClick" />
+		</wd-cell-group>
+
+		<!-- 快捷功能 -->
+		<wd-cell-group custom-class="section-group" title="快捷功能">
+			<wd-grid :items="quickActions" clickable />
+		</wd-cell-group>
+
+		<!-- 常用服务 -->
+		<wd-cell-group custom-class="section-group" title="常用服务">
+			<wd-cell
+				v-for="(service, index) in services"
+				:key="index"
+				:title="`${(service as UTSJSONObject)['title'] ?? ''}`"
+				:icon="`${(service as UTSJSONObject)['icon'] ?? ''}`"
+				is-link
+				@click="handleServiceClick(service as UTSJSONObject)"
+			/>
+		</wd-cell-group>
+
+		<!-- 后台服务 -->
+		<wd-cell-group custom-class="section-group" :title="t('app.my.adminServices')">
+			<wd-cell
+				v-for="(menu, index) in adminMenus"
+				:key="index"
+				:title="`${(menu as UTSJSONObject)['title'] ?? ''}`"
+				:icon="`${(menu as UTSJSONObject)['icon'] ?? ''}`"
+				:to="`${(menu as UTSJSONObject)['to'] ?? ''}`"
+				is-link
+			/>
+		</wd-cell-group>
+
+		<!-- 设置 -->
+		<wd-cell-group custom-class="section-group" :title="t('app.settings.title')">
+			<wd-cell
+				:title="t('app.settings.title')"
+				icon="setting"
+				is-link
+				@click="navigateToSettings"
+			/>
+		</wd-cell-group>
+
+		<wd-button
+			v-if="isUserLoggedIn"
+			block
+			custom-class="logout-btn"
+			custom-style="background: linear-gradient(to right, #4F86FD, #5D6EFF);"
+			@click="handleLogout"
+		>
+			{{ t('app.my.logout') }}
+		</wd-button>
+	</view>
+</template>
+
+<script setup lang="uts">
+import { ref, computed, onMounted } from 'vue'
+import { useMessage, useToast } from '@/wd'
+import { useI18n } from '@/composables/useI18n'
+import { useUserStore } from '@/stores/modules/user'
+import { useAuth } from '@/composables/useAuth'
+import { useScroll } from '@/composables/useScroll'
+
+const message = useMessage()
+const toast = useToast()
+const i18nResult = useI18n()
+
+/**
+ * 翻译函数包装
+ * useI18n() 返回 UTSJSONObject，需要提取 t 函数
+ */
+const tFn = i18nResult['t'] as (key : string, fieldInfoOrValue : any | null) => string
+const t = (key : string, value : any | null = null) : string => {
+	return tFn(key, value)
+}
+
+const userStore = useUserStore()
+const auth = useAuth()
+
+/* 使用 useScroll 获取全局滚动状态 */
+const scrollResult = useScroll()
+const scrollTop = scrollResult.scrollTop
+
+/* 导航栏透明度（基于滚动位置） */
+const navbarOpacity = computed(() : number => {
+	return scrollTop.value / 60
+})
+
+/* 是否有头像（显式 null 检查） */
+const hasAvatar = computed(() : boolean => {
+	const info = userStore.userInfo.value
+	if (info == null) return false
+	return info!.avatar.length > 0
+})
+
+/* 头像 URL */
+const avatarUrl = computed(() : string => {
+	const info = userStore.userInfo.value
+	if (info == null) return ''
+	return info!.avatar
+})
+
+/* 昵称 */
+const nickName = computed(() : string => {
+	const info = userStore.userInfo.value
+	if (info == null) return '昵称'
+	const name = info!.nickName
+	return name.length > 0 ? name : '昵称'
+})
+
+/* 用户登录状态 */
+const isUserLoggedIn = computed(() : boolean => {
+	return auth.isLoggedIn.value
+})
+
+/* 统计数据 */
+const statsData = ref<UTSJSONObject[]>([
+	{ label: '优惠券', value: '3', type: 'coupon' } as UTSJSONObject,
+	{ label: '积分', value: '1285', type: 'points' } as UTSJSONObject,
+	{ label: '余额', value: '268', type: 'balance' } as UTSJSONObject,
+])
+
+/* 订单类型 */
+const orderTypes = ref<UTSJSONObject[]>([
+	{ text: '待付款', icon: 'wallet', iconColor: '#666666' } as UTSJSONObject,
+	{ text: '待收货', icon: 'calendar', iconColor: '#666666' } as UTSJSONObject,
+	{ text: '待评价', icon: 'star', iconColor: '#666666' } as UTSJSONObject,
+	{ text: '退款/售后', icon: 'service', iconColor: '#666666' } as UTSJSONObject,
+])
+
+/* 快捷功能 */
+const quickActions = ref<UTSJSONObject[]>([
+	{ text: '收货地址', icon: 'location', iconColor: '#666666' } as UTSJSONObject,
+	{ text: '优惠券', icon: 'discount', iconColor: '#666666' } as UTSJSONObject,
+	{ text: '积分商城', icon: 'star', iconColor: '#666666' } as UTSJSONObject,
+	{ text: '客服', icon: 'service', iconColor: '#666666' } as UTSJSONObject,
+	{ text: '收藏夹', icon: 'heart', iconColor: '#666666' } as UTSJSONObject,
+	{ text: '浏览记录', icon: 'history', iconColor: '#666666' } as UTSJSONObject,
+	{ text: '帮助中心', icon: 'help', iconColor: '#666666' } as UTSJSONObject,
+	{ text: '意见反馈', icon: 'edit', iconColor: '#666666' } as UTSJSONObject,
+])
+
+/* 常用服务 */
+const services = ref<UTSJSONObject[]>([
+	{ title: '会员中心', icon: 'vip-fill' } as UTSJSONObject,
+])
+
+/* 后台管理 */
+const adminMenus = ref<UTSJSONObject[]>([
+	{ title: '用户中心', icon: 'user', to: '/pages-sub/admin/user/user' } as UTSJSONObject,
+])
+
+/* 统计数据点击 */
+const handleStatClick = (stat : UTSJSONObject) => {
+	const label = `${stat['label'] ?? ''}`
+	toast.info(`查看${label}详情`)
+}
+
+/* 订单点击 */
+const handleOrderClick = (item : any, index : number) => {
+	const itemObj = item as UTSJSONObject
+	console.log(`点击了订单类型: ${itemObj['text'] ?? ''} (${index})`)
+}
+
+/* 服务点击 */
+const handleServiceClick = (service : UTSJSONObject) => {
+	userStore.navigateWithUserCheck('/pages-sub/admin/user/user', 'page')
+}
+
+/* 跳转到设置页面 */
+const navigateToSettings = () => {
+	uni.navigateTo({
+		url: '/pages/my/settings',
+	})
+}
+
+/* 用户信息点击 */
+const handleUserInfo = () => {
+	if (auth.isLoggedIn.value) {
+		userStore.authModalVisible.value = true
+	} else {
+		uni.navigateTo({
+			url: '/pages/auth/login',
+		})
+	}
+}
+
+/* 退出登录处理 */
+const handleLogout = () => {
+	message.confirm({
+		title: '确认退出',
+		msg: '您确定要退出登录吗？',
+		confirmButtonText: '确定退出',
+		cancelButtonText: '取消',
+	} as UTSJSONObject).then((result : any) => {
+		const resultObj = result as UTSJSONObject
+		const action = `${resultObj['action'] ?? ''}`
+
+		if (action == 'confirm') {
+			/* 显示加载提示 */
+			toast.loading('退出中...')
+
+			/* 调用用户登出方法 */
+			userStore.logoutUser().then((logoutResult : UTSJSONObject) => {
+				const err = logoutResult['err']
+				if (err == null) {
+					toast.close()
+					toast.success('退出成功')
+				}
+			})
+		}
+	})
+}
+
+onMounted(() => {
+	/* 拉取用户信息 */
+	userStore.fetchUserInfo().then((result : UTSJSONObject) => {
+		console.log('userInfo', userStore.userInfo.value)
+	})
+})
+</script>
+
+<style lang="scss" scoped>
+.my-container {
+	min-height: 100vh;
+	background-color: #FFFCF5;
+	padding-bottom: 200rpx;
+	overflow: visible;
+}
+
+.decor-wrapper {
+	position: relative;
+}
+
+.decor-circle {
+	position: absolute;
+	border-radius: 9999rpx;
+	filter: blur(20px);
+}
+
+.decor-circle-left {
+	top: 0;
+	left: -80rpx;
+	height: 280rpx;
+	width: 280rpx;
+	background: linear-gradient(120deg, rgba(243, 244, 246, 0) 0%, #ffedda 100%);
+}
+
+.decor-circle-right {
+	top: -120rpx;
+	left: 480rpx;
+	height: 320rpx;
+	width: 320rpx;
+	background: linear-gradient(45deg, #ffedda 0%, #f3f4f6 100%);
+}
+
+.user-header {
+	position: relative;
+	padding-top: 80rpx;
+}
+
+.user-info-center {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+
+	/* UniApp X: 覆盖 wd-icon/wd-img 的 align-self: flex-start，确保居中 */
+	.wd-icon {
+		align-self: center;
+	}
+	.wd-img {
+		align-self: center;
+	}
+}
+
+.avatar-placeholder {
+	background-color: #f8f6f8;
+	border-radius: 9999rpx;
+	padding: 48rpx;
+}
+
+.nickname-wrapper {
+	margin-top: 16rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+
+	/* UniApp X: 覆盖 wd-text 的 align-self: flex-start */
+	.wd-text {
+		align-self: center;
+	}
+}
+
+.stats-row {
+	margin-top: 48rpx;
+	background-color: rgba(255, 255, 255, 0.8);
+	margin-left: 40rpx;
+	margin-right: 40rpx;
+	border-radius: 16rpx;
+	padding-top: 16rpx;
+	padding-bottom: 16rpx;
+}
+
+.stat-item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+
+	/* UniApp X: 覆盖 wd-text 的 align-self: flex-start，确保居中 */
+	.wd-text {
+		align-self: center;
+	}
+}
+
+.section-group {
+	margin-top: 16rpx;
+	margin-left: 24rpx;
+	margin-right: 24rpx;
+}
+
+.logout-btn {
+	margin-left: 80rpx;
+	margin-right: 80rpx;
+	margin-top: 32rpx;
+}
+</style>

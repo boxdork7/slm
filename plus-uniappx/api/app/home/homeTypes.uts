@@ -1,0 +1,98 @@
+/**
+ * home api types
+ */
+
+export type AdQuery = {
+  pageNum?: number
+  pageSize?: number
+  orderByColumn?: string
+  isAsc?: string
+  adName?: string
+  adType?: string
+  status?: string
+  position?: string
+  startTime?: string
+  endTime?: string
+}
+
+export type AdBo = {
+  adId?: string | number
+  adName?: string
+  adType?: string
+  position?: string
+  imageUrl?: string
+  linkUrl?: string
+  linkType?: string
+  sort?: number
+  status?: string
+  startTime?: string
+  endTime?: string
+  remark?: string
+}
+
+export type AdVo = {
+  adId: string | number
+  adName: string
+  adType: string
+  position: string
+  imageUrl: string
+  linkUrl: string
+  linkType: string
+  sort: number
+  status: string
+  startTime: string
+  endTime: string
+  createTime: string
+  remark: string
+}
+
+export type GoodsQuery = {
+  pageNum?: number
+  pageSize?: number
+  orderByColumn?: string
+  isAsc?: string
+  goodsName?: string
+  goodsType?: string
+  status?: string
+  minPrice?: number
+  maxPrice?: number
+  categoryId?: string | number
+}
+
+export type GoodsBo = {
+  goodsId?: string | number
+  goodsName?: string
+  goodsType?: string
+  categoryId?: string | number
+  imageUrl?: string
+  imageUrls?: string[]
+  price?: number
+  originalPrice?: number
+  stock?: number
+  sales?: number
+  description?: string
+  content?: string
+  sort?: number
+  status?: string
+  remark?: string
+}
+
+export type GoodsVo = {
+  goodsId: string | number
+  goodsName: string
+  goodsType: string
+  categoryName: string
+  categoryId: string | number
+  imageUrl: string
+  imageUrls: string[]
+  price: number
+  originalPrice: number
+  stock: number
+  sales: number
+  description: string
+  content: string
+  sort: number
+  status: string
+  createTime: string
+  remark: string
+}

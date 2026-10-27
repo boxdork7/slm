@@ -1,0 +1,389 @@
+<!--
+Transition 动画 用于在元素进入或离开时应用过渡效果。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type TransitionName（UTS 不支持 script setup 内 export type）
+- 移除 interface WdTransitionProps / WdTransitionEmits
+- Record<string, number> | number | boolean → number
+- TransitionName | TransitionName[] → string（简化为单名称）
+- as any → 具体类型
+- CSS // 注释 → /* */
+- AbortablePromise 从 .uts 导入
+-->
+<template>
+  <view
+    v-if="!lazyRender || inited"
+    :class="`wd-transition ${customClass} ${classes}`"
+    :style="`-webkit-transition-duration: ${currentDuration}ms; transition-duration: ${currentDuration}ms; ${!display && destroy ? 'display: none;' : ''}${customStyle}`"
+    @transitionend="onTransitionEnd"
+    @click="handleClick"
+  >
+    <slot />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { onBeforeMount, ref, watch } from 'vue'
+import { AbortablePromise } from '../common/AbortablePromise'
+import { isObj, isPromise, pause } from '../common/util'
+
+/**
+ * 过渡组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 是否展示组件 */
+  show ?: boolean
+  /** 动画执行时间，单位毫秒 */
+  duration ?: number
+  /** 弹层内容懒渲染，触发展示时才渲染内容 */
+  lazyRender ?: boolean
+  /** 动画类型 */
+  name ?: string
+  /** 是否在动画结束时销毁子节点（display: none) */
+  destroy ?: boolean
+  /** 进入过渡的开始状态 */
+  enterClass ?: string
+  /** 进入过渡的激活状态 */
+  enterActiveClass ?: string
+  /** 进入过渡的结束状态 */
+  enterToClass ?: string
+  /** 离开过渡的开始状态 */
+  leaveClass ?: string
+  /** 离开过渡的激活状态 */
+  leaveActiveClass ?: string
+  /** 离开过渡的结束状态 */
+  leaveToClass ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  show: false,
+  duration: 300,
+  lazyRender: false,
+  name: '',
+  destroy: true,
+  enterClass: '',
+  enterActiveClass: '',
+  enterToClass: '',
+  leaveClass: '',
+  leaveActiveClass: '',
+  leaveToClass: '',
+})
+
+/** 组件事件 */
+const emit = defineEmits(['click', 'before-enter', 'enter', 'before-leave', 'leave', 'after-leave', 'after-enter'])
+
+/* 响应式数据 */
+const inited = ref(false)
+const display = ref(false)
+const status = ref('')
+const transitionEnded = ref(false)
+const currentDuration = ref(300)
+const classes = ref('')
+
+/* Promise 控制变量 */
+let enterPromise : AbortablePromise | null = null
+let enterLifeCyclePromises : AbortablePromise | null = null
+let leaveLifeCyclePromises : AbortablePromise | null = null
+
+/**
+ * 取消所有的 Promise
+ */
+const handleAbortPromise = () => {
+  if (enterPromise != null) {
+    enterPromise!.abort()
+  }
+  if (enterLifeCyclePromises != null) {
+    enterLifeCyclePromises!.abort()
+  }
+  if (leaveLifeCyclePromises != null) {
+    leaveLifeCyclePromises!.abort()
+  }
+
+  enterPromise = null
+  enterLifeCyclePromises = null
+  leaveLifeCyclePromises = null
+}
+
+/**
+ * 处理过渡结束事件
+ */
+const onTransitionEnd = () => {
+  if (transitionEnded.value) return
+
+  transitionEnded.value = true
+
+  if (status.value == 'leave') {
+    emit('after-leave')
+  } else if (status.value == 'enter') {
+    emit('after-enter')
+  }
+
+  if (!props.show && display.value) {
+    display.value = false
+  }
+}
+
+/**
+ * 获取过渡动画类名
+ */
+const getClassNames = (name : string) : Map<string, string> => {
+  let enterCls = `${props.enterClass} ${props.enterActiveClass}`
+  let enterToCls = `${props.enterToClass} ${props.enterActiveClass}`
+  let leaveCls = `${props.leaveClass} ${props.leaveActiveClass}`
+  let leaveToCls = `${props.leaveToClass} ${props.leaveActiveClass}`
+
+  if (name != '') {
+    /* 支持多个动画名称（逗号分隔） */
+    const names = name.split(',')
+    for (let i = 0; i < names.length; i++) {
+      const n = names[i].trim()
+      if (n != '') {
+        enterCls = `wd-${n}-enter wd-${n}-enter-active ${enterCls}`
+        enterToCls = `wd-${n}-enter-to wd-${n}-enter-active ${enterToCls}`
+        leaveCls = `wd-${n}-leave wd-${n}-leave-active ${leaveCls}`
+        leaveToCls = `wd-${n}-leave-to wd-${n}-leave-active ${leaveToCls}`
+      }
+    }
+  }
+
+  const result = new Map<string, string>()
+  result.set('enter', enterCls)
+  result.set('enter-to', enterToCls)
+  result.set('leave', leaveCls)
+  result.set('leave-to', leaveToCls)
+  return result
+}
+
+/**
+ * 执行进入动画
+ */
+const doEnter = () => {
+  enterPromise = new AbortablePromise((resolve : (value : boolean) => void) => {
+    const classNames = getClassNames(props.name)
+    const dur = props.duration
+
+    status.value = 'enter'
+    emit('before-enter')
+
+    enterLifeCyclePromises = pause()
+    enterLifeCyclePromises!.then(() => {
+      emit('enter')
+      classes.value = classNames.get('enter') ?? ''
+      currentDuration.value = dur
+
+      enterLifeCyclePromises = pause()
+      enterLifeCyclePromises!.then(() => {
+        inited.value = true
+        display.value = true
+
+        enterLifeCyclePromises = pause()
+        enterLifeCyclePromises!.then(() => {
+          enterLifeCyclePromises = null
+          transitionEnded.value = false
+          classes.value = classNames.get('enter-to') ?? ''
+          resolve(true)
+        })
+      })
+    })
+  })
+}
+
+/**
+ * 创建定时器 Promise
+ */
+const setTimerPromise = (dur : number) : AbortablePromise => {
+  return new AbortablePromise((resolve : (value : boolean) => void) => {
+    setTimeout(() => {
+      resolve(true)
+    }, dur)
+  })
+}
+
+/**
+ * 执行离开动画
+ */
+const doLeave = () => {
+  if (enterPromise == null) {
+    transitionEnded.value = false
+    onTransitionEnd()
+    return
+  }
+
+  enterPromise!.then(() => {
+    if (!display.value) return
+
+    const classNames = getClassNames(props.name)
+    const dur = props.duration
+
+    status.value = 'leave'
+    emit('before-leave')
+
+    currentDuration.value = dur
+
+    leaveLifeCyclePromises = pause()
+    leaveLifeCyclePromises!.then(() => {
+      emit('leave')
+      classes.value = classNames.get('leave') ?? ''
+
+      leaveLifeCyclePromises = pause()
+      leaveLifeCyclePromises!.then(() => {
+        transitionEnded.value = false
+        classes.value = classNames.get('leave-to') ?? ''
+
+        leaveLifeCyclePromises = setTimerPromise(currentDuration.value)
+        leaveLifeCyclePromises!.then(() => {
+          leaveLifeCyclePromises = null
+          onTransitionEnd()
+          enterPromise = null
+        })
+      })
+    })
+  })
+}
+
+/**
+ * 处理显示状态变化
+ */
+const handleShow = (value : boolean) => {
+  if (value) {
+    handleAbortPromise()
+    doEnter()
+  } else {
+    doLeave()
+  }
+}
+
+/** 监听 show 属性变化 */
+watch(() => props.show, (newVal : boolean) => {
+  handleShow(newVal)
+})
+
+/** 组件挂载前处理 */
+onBeforeMount(() => {
+  if (props.show) {
+    doEnter()
+  }
+})
+
+/** 处理点击事件 */
+const handleClick = () => {
+  emit('click')
+}
+</script>
+
+<style lang="scss">
+/* 过渡组件基础样式 */
+.wd-transition {
+  transition-timing-function: ease;
+}
+
+/* 淡入淡出动画 */
+.wd-fade-enter,
+.wd-fade-leave-to {
+  opacity: 0;
+}
+
+.wd-fade-enter-active,
+.wd-fade-leave-active {
+  transition-property: opacity;
+}
+
+/* 向上淡入淡出动画 */
+.wd-fade-up-enter,
+.wd-fade-up-leave-to {
+  transform: translate3d(0, 100%, 0);
+  opacity: 0;
+}
+
+/* 向下淡入淡出动画 */
+.wd-fade-down-enter,
+.wd-fade-down-leave-to {
+  transform: translate3d(0, -100%, 0);
+  opacity: 0;
+}
+
+/* 向左淡入淡出动画 */
+.wd-fade-left-enter,
+.wd-fade-left-leave-to {
+  transform: translate3d(-100%, 0, 0);
+  opacity: 0;
+}
+
+/* 向右淡入淡出动画 */
+.wd-fade-right-enter,
+.wd-fade-right-leave-to {
+  transform: translate3d(100%, 0, 0);
+  opacity: 0;
+}
+
+/* 向上滑动动画 */
+.wd-slide-up-enter,
+.wd-slide-up-leave-to {
+  transform: translate3d(0, 100%, 0);
+}
+
+/* 向下滑动动画 */
+.wd-slide-down-enter,
+.wd-slide-down-leave-to {
+  transform: translate3d(0, -100%, 0);
+}
+
+/* 向左滑动动画 */
+.wd-slide-left-enter,
+.wd-slide-left-leave-to {
+  transform: translate3d(-100%, 0, 0);
+}
+
+/* 向右滑动动画 */
+.wd-slide-right-enter,
+.wd-slide-right-leave-to {
+  transform: translate3d(100%, 0, 0);
+}
+
+/* 缩放进入动画 */
+.wd-zoom-in-enter,
+.wd-zoom-in-leave-to {
+  opacity: 0;
+  transform: scale(0.8);
+}
+
+/* 缩放退出动画 */
+.wd-zoom-out-enter,
+.wd-zoom-out-leave-to {
+  transform: scale(1.2);
+  opacity: 0;
+}
+
+/* 缩放动画激活状态 */
+.wd-zoom-in-enter-active,
+.wd-zoom-in-leave-active,
+.wd-zoom-out-enter-active,
+.wd-zoom-out-leave-active,
+.wd-fade-up-enter-active,
+.wd-fade-up-leave-active,
+.wd-fade-down-enter-active,
+.wd-fade-down-leave-active,
+.wd-fade-left-enter-active,
+.wd-fade-left-leave-active,
+.wd-fade-right-enter-active,
+.wd-fade-right-leave-active {
+  transition-property: opacity, transform;
+}
+
+/* 滑动动画激活状态 */
+.wd-slide-up-enter-active,
+.wd-slide-up-leave-active,
+.wd-slide-down-enter-active,
+.wd-slide-down-leave-active,
+.wd-slide-left-enter-active,
+.wd-slide-left-leave-active,
+.wd-slide-right-enter-active,
+.wd-slide-right-leave-active {
+  transition-property: transform;
+}
+</style>

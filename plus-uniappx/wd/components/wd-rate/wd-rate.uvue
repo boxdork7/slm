@@ -1,0 +1,233 @@
+<!--
+Rate 评分 用于快速评分操作。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- getCurrentInstance() + getRect → uni.createSelectorQuery
+- IconName → string
+- activeColor: string | Array<string> → activeColor: string（简化）
+- TouchEvent → any
+- CSSProperties → string 拼接
+- transition → 移除
+-->
+<template>
+  <view
+    :class="`wd-rate ${disabled ? 'is-disabled' : ''} ${readonly ? 'is-readonly' : ''} ${customClass}`"
+    :style="customStyle"
+    @touchmove.stop.prevent="onTouchMove"
+    @touchend="onTouchEnd"
+    @touchcancel="onTouchEnd"
+  >
+    <view
+      v-for="(item, index) in rateList"
+      :key="index"
+      class="wd-rate__item"
+      :style="`${space > 0 && index > 0 ? 'margin-left:' + space + 'rpx;' : ''}`"
+      @click="handleClick(index)"
+    >
+      <!-- 未选中图标 -->
+      <wd-icon
+        :name="icon"
+        :size="size + 'rpx'"
+        :color="disabledColor"
+        custom-class="wd-rate__icon"
+      />
+      <!-- 选中图标（通过 width 裁剪显示百分比） -->
+      <view class="wd-rate__active" :style="`width: ${item};`">
+        <wd-icon
+          :name="activeIcon"
+          :size="size + 'rpx'"
+          :color="computedActiveColor(index)"
+          custom-class="wd-rate__icon"
+        />
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, ref, watch } from 'vue'
+
+/**
+ * Rate 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 当前评分 */
+  modelValue ?: number
+  /** 评分数量 */
+  num ?: number
+  /** 是否只读 */
+  readonly ?: boolean
+  /** 是否禁用 */
+  disabled ?: boolean
+  /** 选中的图标大小（rpx） */
+  size ?: number
+  /** 评分间距（rpx） */
+  space ?: number
+  /** 未选中图标名称 */
+  icon ?: string
+  /** 选中图标名称 */
+  activeIcon ?: string
+  /** 选中颜色 */
+  activeColor ?: string
+  /** 未选中颜色 */
+  disabledColor ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  modelValue: 0,
+  num: 5,
+  readonly: false,
+  disabled: false,
+  size: 42,
+  space: 8,
+  icon: 'star-on',
+  activeIcon: 'star-on',
+  activeColor: 'linear-gradient(180deg, rgba(255,238,0,1) 0%,rgba(250,176,21,1) 100%)',
+  disabledColor: '#E8E8E8',
+})
+
+const emit = defineEmits(['update:modelValue', 'change'])
+
+/* 当前评分值 */
+const currentValue = ref<number>(props.modelValue)
+
+/**
+ * 监听 modelValue 变化
+ */
+watch(
+  () : number => props.modelValue,
+  (newValue : number) => {
+    currentValue.value = newValue
+  },
+)
+
+/**
+ * 计算评分列表显示状态
+ * 返回每个星星的显示百分比
+ */
+const rateList = computed(() : string[] => {
+  const result : string[] = []
+  const value = currentValue.value
+
+  for (let i = 0; i < props.num; i++) {
+    if (value >= i + 1) {
+      result.push('100%')
+    } else if (value > i && value < i + 1) {
+      /* 半星：按比例计算百分比 */
+      const percent = Math.round((value - i) * 100)
+      result.push(`${percent}%`)
+    } else {
+      result.push('0%')
+    }
+  }
+
+  return result
+})
+
+/**
+ * 计算选中颜色
+ */
+const computedActiveColor = (_index : number) : string => {
+  return props.activeColor
+}
+
+/**
+ * 点击评分
+ */
+const handleClick = (index : number) => {
+  if (props.disabled || props.readonly) return
+
+  const newValue = index + 1
+  currentValue.value = newValue
+  emit('update:modelValue', newValue)
+  emit('change', { value: newValue })
+}
+
+/**
+ * 触摸滑动评分
+ */
+const onTouchMove = (event : any) => {
+  if (props.disabled || props.readonly) return
+
+  /* 获取触摸点位置 */
+  const touches = (event as UTSJSONObject)['touches'] as Array<UTSJSONObject>
+  if (touches.length == 0) return
+  const touch = touches[0]
+  const clientX = (touch['clientX'] as number) ?? 0
+
+  /* 通过 SelectorQuery 获取组件位置 */
+  uni.createSelectorQuery().in(this).select('.wd-rate').boundingClientRect((rect) => {
+    if (rect == null) return
+    const rectObj = rect as UTSJSONObject
+    const left = (rectObj['left'] as number) ?? 0
+    const width = (rectObj['width'] as number) ?? 0
+
+    if (width == 0) return
+
+    /* 计算触摸位置对应的评分 */
+    const relativeX = clientX - left
+    let newValue = Math.ceil((relativeX / width) * props.num)
+    newValue = Math.max(0, Math.min(newValue, props.num))
+
+    if (newValue != currentValue.value) {
+      currentValue.value = newValue
+      emit('update:modelValue', newValue)
+      emit('change', { value: newValue })
+    }
+  }).exec()
+}
+
+/**
+ * 触摸结束
+ */
+const onTouchEnd = (_event : any) => {
+  /* 触摸结束不做额外处理 */
+}
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(rate) {
+  }
+}
+
+/* 评分组件样式 */
+@include b(rate) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+
+  /* 评分项样式 */
+  @include e(item) {
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* 选中状态覆盖层 */
+  @include e(active) {
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: hidden;
+  }
+
+  .wd-rate__icon {
+    display: flex;
+  }
+
+  /* 禁用状态 */
+  @include when(disabled) {
+    opacity: 0.5;
+  }
+}
+</style>

@@ -1,0 +1,440 @@
+<template>
+	<view class="login-page">
+		<wd-navbar title="登录" show-back />
+
+		<!-- 顶部占位 -->
+		<view class="top-spacer" />
+
+		<!-- 登录表单 -->
+		<view class="form-container">
+			<!-- Logo -->
+			<wd-img width="150" height="150" src="/static/logo.png" />
+			<!-- 租户所在公司标题 -->
+			<wd-text :text="captcha.tenantTitle != '' ? captcha.tenantTitle : '若依工作室'" size="45" bold />
+
+			<!-- 密码登录表单区域 -->
+			<wd-form
+				ref="loginFormRef"
+				custom-class="form-area"
+				:model="loginForm"
+				:rules="formRules"
+			>
+				<!-- 用户名 -->
+				<wd-input
+					v-model="loginForm.userName"
+					no-border
+					custom-input-class="input-field"
+					error-message-offset="38"
+					prop="userName"
+					placeholder="请输入用户名"
+					clearable
+				/>
+				<!-- 密码 -->
+				<wd-input
+					v-model="loginForm.password"
+					no-border
+					custom-input-class="input-field input-field-mt"
+					error-message-offset="38"
+					prop="password"
+					show-password
+					placeholder="请输入密码"
+					clearable
+				/>
+				<!-- 验证码 -->
+				<view v-if="captcha.captchaEnabled" class="captcha-row">
+					<wd-img
+						width="240"
+						height="80"
+						custom-class="captcha-img"
+						:src="captcha.img"
+						@click="refreshCaptcha"
+					/>
+					<wd-input
+						v-model="loginForm.code"
+						no-border
+						:reserve-error-space="false"
+						custom-input-class="input-field captcha-input"
+						error-message-offset="64"
+						prop="code"
+						clearable
+						placeholder="请输入验证码"
+					/>
+				</view>
+				<!-- 记住我与注册 -->
+				<view class="remember-row">
+					<wd-checkbox v-model="loginForm.rememberMe">记住我</wd-checkbox>
+					<wd-button
+						v-if="captcha.registerEnabled"
+						type="default"
+						custom-class="register-btn"
+						@click="handleRegister"
+					>
+						立即注册
+					</wd-button>
+				</view>
+				<!-- 登录 -->
+				<view>
+					<wd-button custom-class="login-btn" type="primary" @click="handlePasswordLogin">
+						登录
+					</wd-button>
+				</view>
+			</wd-form>
+
+			<!-- 其他登录 -->
+			<view v-if="showOtherLogin" class="other-login">
+				<wd-divider custom-class="divider-text">其他登录</wd-divider>
+				<view class="other-login-icons">
+					<!-- 手机号登录 -->
+					<wd-button
+						custom-class="phone-login-btn"
+						icon="i-ic-round-phone-android"
+						type="icon"
+						icon-color="gray"
+						icon-size="64"
+						@click="handlePhoneLogin"
+					/>
+				</view>
+			</view>
+		</view>
+
+		<!-- 底部占位 -->
+		<view class="bottom-spacer" />
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { ref, computed, onMounted } from 'vue'
+	import { imgCode } from '@/api/system/auth/authApi'
+	import { CaptchaVo, PasswordLoginBody } from '@/api/system/auth/authTypes'
+	import { useUserStore } from '@/stores/modules/user'
+	import { SystemConfig } from '@/systemConfig'
+	import { cache } from '@/utils/cache'
+	import { DEFAULT_TENANT_ID, getTenantId } from '@/utils/tenant'
+	import { useToast } from '@/wd'
+	import { useAuth } from '@/composables/useAuth'
+	import { AsyncResult } from '@/utils/to'
+
+	/**
+	 * 组件属性定义
+	 */
+	const props = defineProps({
+		redirect: {
+			type: String,
+			default: ''
+		}
+	})
+
+	const userStore = useUserStore()
+	const toast = useToast()
+	const auth = useAuth()
+
+	/* 表单引用 */
+	const loginFormRef = ref<any>(null)
+
+	/* 表单数据 */
+	const loginForm = ref({
+		authType: 'password',
+		userName: '',
+		password: '',
+		code: '',
+		uuid: '',
+		rememberMe: false,
+	})
+
+	/* 验证码信息 */
+	const captcha = ref({
+		tenantEnabled: false,
+		tenantTitle: '',
+		registerEnabled: false,
+		captchaEnabled: false,
+		uuid: '',
+		img: '',
+	})
+
+	/* 表单校验规则 */
+	const formRules = {
+		userName: [
+			{ required: true, message: '请输入用户名' },
+			{ min: 3, max: 20, message: '用户名不能少于3个字符' },
+		] as UTSJSONObject[],
+		password: [
+			{ required: true, message: '请输入密码' },
+		] as UTSJSONObject[],
+		code: [
+			{ required: true, message: '请输入验证码' },
+		] as UTSJSONObject[],
+	}
+
+	/* 计算属性 */
+	const showOtherLogin = computed(() : boolean => {
+		const methods = userStore.getSupportedLoginMethods()
+		for (let i = 0; i < methods.length; i++) {
+			if (methods[i] == 'sms') {
+				return true
+			}
+		}
+		return false
+	})
+
+	/* ==================== 缓存管理方法 ==================== */
+
+	/** 保存登录数据到本地缓存 */
+	const saveLoginDataToCache = () => {
+		if (loginForm.value.rememberMe) {
+			const loginDataToCache = {} as UTSJSONObject
+			loginDataToCache['authType'] = 'password'
+			loginDataToCache['userName'] = loginForm.value.userName
+			loginDataToCache['password'] = loginForm.value.password
+			loginDataToCache['rememberMe'] = true
+			cache.set('loginData', loginDataToCache, 0)
+		} else {
+			cache.remove('loginData')
+		}
+	}
+
+	/** 从本地缓存恢复登录数据 */
+	const restoreLoginDataFromCache = () => {
+		const cachedLoginData = cache.get('loginData') as UTSJSONObject | null
+
+		if (cachedLoginData != null) {
+			const rememberMe = cachedLoginData!.getBoolean('rememberMe')
+			if (rememberMe != null && rememberMe == true) {
+				const userName = cachedLoginData!.getString('userName')
+				const password = cachedLoginData!.getString('password')
+				if (userName != null) {
+					loginForm.value.userName = userName!
+				}
+				if (password != null) {
+					loginForm.value.password = password!
+				}
+				loginForm.value.rememberMe = true
+			}
+		}
+	}
+
+	/* ==================== 数据初始化方法 ==================== */
+
+	/** 获取并刷新验证码图片 */
+	const refreshCaptchaImage = () => {
+		imgCode().then((result : AsyncResult) => {
+			if (result.err == null && result.data != null) {
+				const data = result.data as UTSJSONObject
+				captcha.value = {
+					tenantEnabled: data.getBoolean('tenantEnabled') ?? false,
+					tenantTitle: data.getString('tenantTitle') ?? '',
+					registerEnabled: data.getBoolean('registerEnabled') ?? false,
+					captchaEnabled: data.getBoolean('captchaEnabled') ?? false,
+					uuid: data.getString('uuid') ?? '',
+					img: data.getString('img') ?? '',
+				}
+
+				if (captcha.value.captchaEnabled) {
+					loginForm.value.uuid = captcha.value.uuid
+				}
+			}
+		})
+	}
+
+	/** 初始化表单默认值的方法 */
+	const initializeFormData = () => {
+		setTimeout(() => {
+			const tenantId = getTenantId()
+			const isDev = SystemConfig.app.env == 'development'
+			const isDefaultTenant = tenantId == DEFAULT_TENANT_ID || tenantId.length == 0
+			if (isDev && isDefaultTenant) {
+				loginForm.value.userName = 'superadmin'
+				loginForm.value.password = 'admin123'
+			}
+		}, 1000)
+	}
+
+	/* ==================== 业务处理方法 ==================== */
+
+	/** 登录成功处理 */
+	const handleLoginSuccess = () => {
+		toast.loading('登录成功，正在跳转...')
+
+		const redirectUrl = props.redirect.length > 0 ? props.redirect : '/pages/index/index'
+		setTimeout(() => {
+			toast.close()
+			uni.redirectTo({ url: redirectUrl })
+		}, 500)
+	}
+
+	/** 初始化登录页面 */
+	const initLoginPage = () => {
+		/* 如果用户已经登录，直接跳转 */
+		if (auth.isLoggedIn.value) {
+			toast.loading('正在跳转...')
+			const redirectUrl = props.redirect.length > 0 ? props.redirect : '/pages/index/index'
+			setTimeout(() => {
+				toast.close()
+				uni.redirectTo({ url: redirectUrl })
+			}, 500)
+			return
+		}
+
+		/* 加载验证码配置 */
+		refreshCaptchaImage()
+
+		/* 初始化表单数据 */
+		initializeFormData()
+		/* 加载记住的登录信息 */
+		restoreLoginDataFromCache()
+	}
+
+	/** 刷新验证码 */
+	const refreshCaptcha = () => {
+		refreshCaptchaImage()
+		loginForm.value.code = ''
+	}
+
+	/** 处理密码登录 */
+	const handlePasswordLogin = () => {
+		/* 表单校验 - 通过 wd-form ref validate */
+		const formRefVal = loginFormRef.value
+		if (formRefVal == null) {
+			toast.error('表单引用不存在')
+			return
+		}
+
+		/* 处理记住密码功能 */
+		saveLoginDataToCache()
+
+		/* 准备提交的登录数据 */
+		const submitData = {} as UTSJSONObject
+		submitData['authType'] = loginForm.value.authType
+		submitData['userName'] = loginForm.value.userName.trim()
+		submitData['password'] = loginForm.value.password
+		submitData['code'] = loginForm.value.code.trim()
+		submitData['uuid'] = captcha.value.uuid
+
+		userStore.loginWithPassword(submitData).then((result : UTSJSONObject) => {
+			const err = result['err'] as Error | null
+			if (err == null) {
+				handleLoginSuccess()
+			} else {
+				toast.error(err!.message.length > 0 ? err!.message : '登录失败')
+				/* 刷新验证码 */
+				if (captcha.value.captchaEnabled) {
+					refreshCaptcha()
+					loginForm.value.code = ''
+				}
+			}
+		})
+	}
+
+	/** 处理注册 */
+	const handleRegister = () => {
+		uni.navigateTo({ url: '/pages/auth/register' })
+	}
+
+	/** 处理手机号登录 */
+	const handlePhoneLogin = () => {
+		let redirectUrl = '/pages/auth/phoneLogin'
+		if (props.redirect.length > 0) {
+			redirectUrl = `/pages/auth/phoneLogin?redirect=${props.redirect}`
+		}
+		uni.navigateTo({ url: redirectUrl })
+	}
+
+	/** 组件挂载后的初始化处理 */
+	onMounted(() => {
+		initLoginPage()
+	})
+</script>
+
+<style lang="scss" scoped>
+	.login-page {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		height: 100vh;
+	}
+
+	.top-spacer {
+		min-height: 80rpx;
+		width: 100vw;
+		flex: 1;
+	}
+
+	.form-container {
+		display: flex;
+		flex-shrink: 0;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.form-area {
+		padding: 40rpx;
+	}
+
+	.input-field {
+		border: 1px solid #f3f4f6;
+		border-radius: 24rpx;
+		padding: 6rpx 16rpx;
+	}
+
+	.input-field-mt {
+		margin-top: 32rpx;
+	}
+
+	.captcha-row {
+		margin-top: 32rpx;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.captcha-img {
+		background-color: #f3f4f6;
+	}
+
+	.captcha-input {
+		margin-left: 16rpx;
+	}
+
+	.remember-row {
+		margin-top: 32rpx;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.register-btn {
+		color: #4D80F0 !important;
+	}
+
+	.login-btn {
+		margin-top: 16rpx;
+		width: 100%;
+	}
+
+	.other-login {
+		margin-top: 16rpx;
+	}
+
+	.divider-text {
+		margin-top: 16rpx !important;
+		width: 50%;
+	}
+
+	.other-login-icons {
+		margin-top: 16rpx;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.phone-login-btn {
+		margin: 0 16rpx !important;
+	}
+
+	.bottom-spacer {
+		min-height: 80rpx;
+		width: 100vw;
+		flex: 2;
+	}
+</style>

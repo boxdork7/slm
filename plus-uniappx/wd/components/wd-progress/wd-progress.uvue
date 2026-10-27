@@ -1,0 +1,170 @@
+<!--
+Progress 进度条 展示操作的当前进度。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type/interface
+- Record<ProgressStatus, string> → if/else 链
+- string | string[] | ProgressColor[] → string（简化颜色为单色）
+- ReturnType<typeof setTimeout> → number
+- CSSProperties → 手动拼接 style 字符串
+- edeep → e
+-->
+<template>
+  <view :class="`wd-progress ${customClass}`" :style="customStyle">
+    <!-- 进度条外层 -->
+    <view class="wd-progress__outer" :style="`height: ${addUnit(strokeWidth)};`">
+      <!-- 进度条内层 -->
+      <view
+        class="wd-progress__inner"
+        :style="innerStyle"
+      />
+    </view>
+
+    <!-- 进度文字/图标 -->
+    <view v-if="!hideText" class="wd-progress__label">
+      <template v-if="status != ''">
+        <wd-icon
+          :name="statusIcon"
+          :color="statusColor"
+          :size="statusIconSize"
+        />
+      </template>
+      <template v-else>
+        <text class="wd-progress__label-text">{{ `${percentage}%` }}</text>
+      </template>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed } from 'vue'
+import { addUnit, isDef } from '../common/util'
+
+/**
+ * 进度条组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 进度百分比 */
+  percentage ?: number
+  /** 是否隐藏文字 */
+  hideText ?: boolean
+  /** 进度条颜色 */
+  color ?: string
+  /** 进度条宽度 */
+  strokeWidth ?: string | number
+  /** 进度条状态，可选值：success / error / warning */
+  status ?: string
+  /** 进度条动画持续时间（ms） */
+  duration ?: number
+}>(), {
+  customStyle: '',
+  customClass: '',
+  percentage: 0,
+  hideText: false,
+  color: '',
+  strokeWidth: '8',
+  status: '',
+  duration: 300,
+})
+
+/**
+ * 获取状态图标
+ */
+const statusIcon = computed(() : string => {
+  if (props.status == 'success') return 'check-circle-filled'
+  if (props.status == 'error') return 'close-circle-filled'
+  if (props.status == 'warning') return 'warning-filled'
+  return ''
+})
+
+/**
+ * 获取状态颜色
+ */
+const statusColor = computed(() : string => {
+  if (props.status == 'success') return '#34d19d'
+  if (props.status == 'error') return '#fa4350'
+  if (props.status == 'warning') return '#f0883a'
+  return ''
+})
+
+/** 状态图标大小 */
+const statusIconSize = '32rpx'
+
+/**
+ * 进度条内层样式
+ */
+const innerStyle = computed(() : string => {
+  const pct = Math.min(Math.max(props.percentage, 0), 100)
+  let bgColor = props.color
+
+  if (bgColor == '') {
+    if (props.status == 'success') {
+      bgColor = '#34d19d'
+    } else if (props.status == 'error') {
+      bgColor = '#fa4350'
+    } else if (props.status == 'warning') {
+      bgColor = '#f0883a'
+    } else {
+      bgColor = '#4D80F0'
+    }
+  }
+
+  return `width: ${pct}%; background-color: ${bgColor}; transition-duration: ${props.duration}ms;`
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+.wot-theme-dark {
+  @include b(progress) {
+    @include e(outer) {
+      background-color: $-dark-background4;
+    }
+
+    @include e(label-text) {
+      color: $-dark-color3;
+    }
+  }
+}
+
+@include b(progress) {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  line-height: 1;
+
+  @include e(outer) {
+    flex: 1;
+    background-color: $-progress-bg;
+    border-radius: 100rpx;
+    overflow: hidden;
+  }
+
+  @include e(inner) {
+    height: 100%;
+    border-radius: 100rpx;
+    transition-property: width;
+    transition-timing-function: ease;
+  }
+
+  @include e(label) {
+    flex-shrink: 0;
+    margin-left: 16rpx;
+    display: flex;
+    align-items: center;
+  }
+
+  @include e(label-text) {
+    font-size: $-progress-label-fs;
+    color: $-progress-label-color;
+    white-space: nowrap;
+  }
+}
+</style>

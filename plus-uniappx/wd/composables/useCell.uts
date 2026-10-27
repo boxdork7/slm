@@ -1,0 +1,67 @@
+/**
+ * Cell 组件的组合式函数 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - useParent<CellGroupProvide>(CELL_GROUP_KEY) 替换为 inject + genChildUid 模式
+ * - 使用 CellGroupProvide 接口获取父组件数据
+ * - 手动注册/注销子组件
+ *
+ * 使用模式：
+ * 在 wd-cell 组件的 setup 中调用 useCell()
+ */
+import { computed, inject, onMounted, onUnmounted, type Ref } from 'vue'
+import { genChildUid } from './useChildren'
+
+/** CellGroup 的 provide key */
+export const CELL_GROUP_KEY = 'wd-cell-group'
+
+/** CellGroup 的 Provide 接口 */
+export type CellGroupProvide = {
+  /** ChildManager 字段 */
+  childUids : number[]
+  addChild : (uid : number) => void
+  removeChild : (uid : number) => void
+  /** 业务字段 */
+  border : boolean
+}
+
+/** useCell 返回值类型 */
+export type UseCellReturn = {
+  border : Ref<boolean>
+}
+
+/**
+ * Cell 组件的组合式函数
+ * 处理 Cell 组件与 Cell Group 父组件之间的关联逻辑
+ */
+export const useCell = () : UseCellReturn => {
+  /** 获取父组件 Cell Group 的 provide 数据 */
+  const cellGroup = inject<CellGroupProvide | null>(CELL_GROUP_KEY, null)
+
+  /** 生成唯一 ID 并注册到父组件 */
+  const uid = genChildUid()
+  onMounted(() => {
+    if (cellGroup != null) cellGroup!.addChild(uid)
+  })
+  onUnmounted(() => {
+    if (cellGroup != null) cellGroup!.removeChild(uid)
+  })
+
+  /** 计算在兄弟组件中的索引 */
+  const index = computed<number>(() : number => {
+    if (cellGroup != null) return cellGroup!.childUids.indexOf(uid)
+    return -1
+  })
+
+  /**
+   * 计算是否显示边框
+   * 条件：存在父组件 + 父组件启用 border + 不是第一个子组件
+   */
+  const border = computed<boolean>(() : boolean => {
+    return cellGroup != null && cellGroup!.border && index.value > 0
+  })
+
+  return {
+    border,
+  }
+}

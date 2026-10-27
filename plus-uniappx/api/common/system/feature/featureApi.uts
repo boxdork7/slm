@@ -1,0 +1,40 @@
+/**
+ * 系统功能配置 API - UniApp X 版本
+ *
+ * 从 plus-app/api/common/system/feature/featureApi.ts 迁移
+ */
+
+import { http } from '@/composables/useHttp'
+import { withHeaders } from '@/utils/function'
+import type { AsyncResult } from '@/utils/to'
+
+/**
+ * 系统功能配置
+ */
+export type SystemFeature = {
+	/** langchain4j 是否启用 */
+	langchain4jEnabled: boolean
+	/** WebSocket 是否启用 */
+	websocketEnabled: boolean
+	/** SSE (Server-Sent Events) 是否启用 */
+	sseEnabled: boolean
+}
+
+/**
+ * 获取系统功能配置
+ * @returns 系统功能配置结果
+ */
+export const getSystemFeatures = (): Promise<AsyncResult> => {
+	return http.noAuth().skipWait().get(
+		'/common/system/features',
+		{},
+		withHeaders(
+			{
+				auth: false,
+			},
+			{
+				skipWait: true, // 跳过等待租户初始化，因为此接口在初始化之前调用
+			},
+		),
+	)
+}

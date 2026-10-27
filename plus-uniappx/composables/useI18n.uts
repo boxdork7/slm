@@ -1,0 +1,293 @@
+/**
+ * 增强的国际化钩子 (useI18n) - UniApp X 版本
+ *
+ * 从 plus-app/composables/useI18n.ts 迁移
+ *
+ * UTS 适配说明：
+ * - 移除 ObjKeysToUnion 递归泛型类型（UTS 不支持复杂泛型递归）
+ * - t() 函数参数类型简化：key 为 string，fieldInfoOrValue 为 string | UTSJSONObject
+ *   由于 UTS 不支持联合类型参数，使用 any | null 并在内部判断类型
+ * - ComputedRef<T> 替换为具体类型（UTS computed 返回值直接使用）
+ * - Partial<Record<LanguageCode, string>> → UTSJSONObject
+ * - Record<string, any> → UTSJSONObject
+ * - Object.entries() → Object.keys() + 手动访问
+ * - 'key' in obj → obj['key'] != null
+ * - LanguageCode 从 systemConfig.uts 导入
+ * - languageState / getLanguage / setLanguage / getCurrentMessages 从 locales/i18n.uts 导入
+ * - getPropByPath / isDef / isFunction 从 wd/components/common/util.uts 导入
+ *
+ * 包含以下功能：
+ * - 翻译功能:
+ *   - t: 增强的翻译函数，支持多语言字段国际化
+ *   - translate: WD UI 兼容的翻译方法
+ *   - translateRouteTitle: 翻译路由标题的便捷方法
+ * - 语言管理:
+ *   - currentLanguage: 当前语言（响应式）
+ *   - currentLanguageName: 当前语言的显示名称
+ *   - isChinese: 检查当前是否为中文环境
+ *   - isEnglish: 检查当前是否为英文环境
+ *   - setLanguage: 设置应用语言
+ */
+import { computed } from 'vue'
+import { getPropByPath, isDef, isFunction } from '../wd/components/common/util'
+import { getCurrentMessages, getLanguage, setLanguage, languageState, getLanguageOptions } from '../locales/i18n'
+import type { LanguageOption } from '../locales/i18n'
+import { LanguageCode } from '../systemConfig'
+
+/**
+ * 翻译路由标题的便捷方法
+ * @example translateRouteTitle('dashboard')
+ */
+export const translateRouteTitle = (title : string) : string => {
+	if (title.length == 0) return ''
+
+	const routeKey = `route.${title}`
+	const currentMessages = getCurrentMessages()
+	const message = getPropByPath(currentMessages, routeKey)
+
+	if (isDef(message)) {
+		if (isFunction(message)) {
+			/* UTS 中函数类型处理：尝试调用 */
+			try {
+				const fn = message as () => string
+				return fn()
+			} catch (_e) {
+				return String(message)
+			}
+		}
+		return String(message)
+	}
+
+	return title
+}
+
+/**
+ * 增强的国际化钩子 (useI18n) - 移动端版本
+ *
+ * 基于 WD UI 的翻译系统，扩展了 Vue I18n 的功能特性，
+ * 并与缓存系统集成。适配移动端使用场景。
+ *
+ * @example
+ * const { t, currentLanguage, isChinese } = useI18n()
+ *
+ * // 简单用法
+ * t('userName', '用户名')
+ * // 英文环境: "userName", 中文环境: "用户名"
+ *
+ * // 使用 i18n 键
+ * t('user.userName')
+ * // 根据 i18n 配置翻译
+ */
+export const useI18n = () : UTSJSONObject => {
+	/**
+	 * 增强的翻译函数，支持多语言字段国际化
+	 * @param key 翻译键名
+	 * @param fieldInfoOrValue 字段信息对象或中文翻译值（string 或 UTSJSONObject）
+	 * @returns 翻译后的文本
+	 *
+	 * 用法说明：
+	 * 1. 简单用法: t('userName', '用户名')
+	 *    - 英文环境返回 key（'userName'），中文环境返回第二个参数（'用户名'）
+	 * 2. 使用字段信息: t('', { field: 'UserName', comment: '用户名' })
+	 * 3. 使用语言特定翻译: t('', { 'zh-CN': '用户名', 'en-US': 'UserName' })
+	 * 4. 传统 i18n 键: t('user.userName')
+	 */
+	const t = (key : string, fieldInfoOrValue : any | null = null) : string => {
+		const currentLang = getLanguage()
+		const currentMessages = getCurrentMessages()
+
+		/* 处理简单用法：t('userId', '用户名') */
+		if (typeof fieldInfoOrValue == 'string') {
+			const strValue = fieldInfoOrValue as string
+
+			/* 先检查键是否存在于语言文件中 */
+			const message = getPropByPath(currentMessages, key)
+			if (isDef(message)) {
+				if (isFunction(message)) {
+					try {
+						const fn = message as () => string
+						return fn()
+					} catch (_e) {
+						return String(message)
+					}
+				}
+				return String(message)
+			}
+
+			/* 如果是中文环境，直接返回第二个参数（中文翻译） */
+			if (currentLang == LanguageCode.zh_CN) {
+				return strValue
+			}
+			/* 如果是英文或其他环境，返回第一个参数（英文） */
+			return key
+		}
+
+		/* 优先使用常规国际化处理（如果 key 存在于语言文件中） */
+		const message = getPropByPath(currentMessages, key)
+		if (isDef(message)) {
+			if (isFunction(message)) {
+				/* 如果是函数，尝试调用 */
+				try {
+					if (fieldInfoOrValue != null) {
+						const fn = message as (info : any) => string
+						return fn(fieldInfoOrValue!)
+					}
+					const fn = message as () => string
+					return fn()
+				} catch (_e) {
+					return String(message)
+				}
+			}
+			/* 处理字符串模板中的 {name} 占位符替换 */
+			if (typeof message == 'string' && fieldInfoOrValue != null && typeof fieldInfoOrValue == 'object') {
+				const msgStr = message as string
+				const infoObj = fieldInfoOrValue as UTSJSONObject
+				const infoKeys = Object.keys(infoObj)
+				var result = msgStr
+				for (let i = 0; i < infoKeys.length; i++) {
+					const paramKey = infoKeys[i]
+					const paramValue = infoObj[paramKey]
+					if (paramValue != null) {
+						result = result.replace(`{${paramKey}}`, String(paramValue))
+					}
+				}
+				return result
+			}
+			return String(message)
+		}
+
+		/* 只有 key 不存在时，才处理字段信息（用于动态字段翻译） */
+		if (fieldInfoOrValue != null && typeof fieldInfoOrValue == 'object') {
+			const fieldInfo = fieldInfoOrValue as UTSJSONObject
+
+			/* 优先级1: 使用当前语言的映射 */
+			const langValue = fieldInfo[currentLang]
+			if (langValue != null && typeof langValue == 'string') {
+				return langValue as string
+			}
+
+			/* 优先级2: 根据当前语言使用 field 或 comment */
+			if (currentLang == LanguageCode.zh_CN) {
+				/* 中文环境优先使用 comment */
+				const commentVal = fieldInfo['comment']
+				if (commentVal != null && typeof commentVal == 'string' && (commentVal as string).length > 0) {
+					return commentVal as string
+				}
+			} else {
+				/* 非中文环境优先使用 field */
+				const fieldVal = fieldInfo['field']
+				if (fieldVal != null && typeof fieldVal == 'string' && (fieldVal as string).length > 0) {
+					return fieldVal as string
+				}
+			}
+
+			/* 优先级3: 降级策略 */
+			if (currentLang == LanguageCode.zh_CN) {
+				/* 中文环境降级到 field */
+				const fieldFallback = fieldInfo['field']
+				if (fieldFallback != null && typeof fieldFallback == 'string' && (fieldFallback as string).length > 0) {
+					return fieldFallback as string
+				}
+				/* 然后尝试英文 */
+				const enValue = fieldInfo[LanguageCode.en_US]
+				if (enValue != null && typeof enValue == 'string') {
+					return enValue as string
+				}
+			} else {
+				/* 非中文环境降级到 comment */
+				const commentFallback = fieldInfo['comment']
+				if (commentFallback != null && typeof commentFallback == 'string' && (commentFallback as string).length > 0) {
+					return commentFallback as string
+				}
+				/* 然后尝试中文 */
+				const zhValue = fieldInfo[LanguageCode.zh_CN]
+				if (zhValue != null && typeof zhValue == 'string') {
+					return zhValue as string
+				}
+			}
+
+			/* 优先级4: 使用任何可用的翻译 */
+			const allKeys = Object.keys(fieldInfo)
+			for (let i = 0; i < allKeys.length; i++) {
+				const k = allKeys[i]
+				if (k != 'field' && k != 'comment') {
+					const v = fieldInfo[k]
+					if (v != null && typeof v == 'string' && (v as string).length > 0) {
+						return v as string
+					}
+				}
+			}
+		}
+
+		/* 按钮键降级处理 */
+		if (key.startsWith('button.') && key.split('.').length > 2) {
+			/* 提取操作类型（最后一部分） */
+			const parts = key.split('.')
+			const action = parts[parts.length - 1]
+			const genericButtonKey = `button.${action}`
+
+			/* 尝试使用通用按钮键 */
+			const genericMessage = getPropByPath(currentMessages, genericButtonKey)
+			if (isDef(genericMessage)) {
+				if (isFunction(genericMessage)) {
+					try {
+						const fn = genericMessage as () => string
+						return fn()
+					} catch (_e) {
+						return String(genericMessage)
+					}
+				}
+				return String(genericMessage)
+			}
+		}
+
+		/* 无翻译，返回键名本身 */
+		return key
+	}
+
+	/**
+	 * WD UI 兼容的翻译方法
+	 * 直接使用业务语言包进行翻译，与 WD UI 的 useTranslate 保持兼容
+	 */
+	const translate = (translateKey : string) : string => {
+		const msgs = getCurrentMessages()
+		const msg = getPropByPath(msgs, translateKey)
+
+		if (isFunction(msg)) {
+			try {
+				const fn = msg as () => string
+				return fn()
+			} catch (_e) {
+				return translateKey
+			}
+		}
+		if (isDef(msg)) {
+			return String(msg)
+		}
+		return translateKey
+	}
+
+	/* 语言选项（响应式计算属性） */
+	const languageOptions = computed(() : LanguageOption[] => {
+		return getLanguageOptions()
+	})
+
+	return {
+		/* 翻译函数 */
+		t: t,
+
+		/* 扩展状态（从 languageState 获取响应式数据） */
+		currentLanguage: languageState.current,
+		currentLanguageName: languageState.currentName,
+		languageOptions: languageOptions,
+		isChinese: languageState.isChinese,
+		isEnglish: languageState.isEnglish,
+
+		/* 扩展方法 */
+		setLanguage: setLanguage,
+		translateRouteTitle: translateRouteTitle,
+
+		/* WD UI 兼容方法 */
+		translate: translate,
+	} as UTSJSONObject
+}

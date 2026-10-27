@@ -1,0 +1,241 @@
+<!--
+Sticky ճ�Բ��� ճ�Բ������,������ҳ�����ʱ��Ԫ�ع̶���ָ��λ��
+
+UniApp X �汾
+- �Ƴ� defineOptions
+- �Ƴ� export interface/type
+- any ��Ϊ�������ͻ� UTSJSONObject
+- CSSProperties ��Ϊ UTSJSONObject
+- Record<string, any> ��Ϊ UTSJSONObject
+- ComponentPublicInstance ��Ϊ any
+- display: inline-block ��Ϊ display: flex
+- IntersectionObserver ʹ�� UniApp X API
+-->
+<template>
+  <view :style="`${rootStyle};display: inline-block;`">
+    <view :id="styckyId" :class="`wd-sticky ${customClass}`" :style="stickyStyle">
+      <view class="wd-sticky__container" :style="containerStyle">
+        <slot />
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, getCurrentInstance, reactive, ref, onMounted } from 'vue'
+import { addUnit, getRect, objToStyle, pause, uuid } from '../common/util'
+
+/**
+ * ճ�Բ����������
+ */
+const props = withDefaults(defineProps<{
+  /** �Զ�����ڵ���ʽ */
+  customStyle ?: string
+  /** �Զ�����ڵ���ʽ�� */
+  customClass ?: string
+  /** �㼶 */
+  zIndex ?: number
+  /** �������� */
+  offsetTop ?: number
+}>(), {
+  customStyle: '',
+  customClass: '',
+  zIndex: 1,
+  offsetTop: 0,
+})
+
+/** ��Ӧʽ���� */
+const styckyId = ref<string>(`wd-sticky${uuid()}`)
+const observerList = ref<Array<any>>([])
+
+const stickyState = reactive({
+  position: 'absolute',
+  boxLeaved: false,
+  top: 0,
+  height: 0,
+  width: 0,
+  state: '',
+})
+
+const { proxy } = getCurrentInstance()!
+
+/**
+ * ����Ե�ǰ����ļ���
+ */
+const clearObserver = () => {
+  while (observerList.value.length !== 0) {
+    const observer = observerList.value.pop()
+    if (observer != null) {
+      observer!.disconnect()
+    }
+  }
+}
+
+/**
+ * ���ӶԵ�ǰ����ļ���
+ */
+const createObserver = () : any => {
+  const observer = uni.createIntersectionObserver(proxy, { thresholds: [0, 0.5] })
+  observerList.value.push(observer)
+  return observer
+}
+
+/**
+ * ����λ��
+ */
+const setPosition = (boxLeaved : boolean, position : string, top : number) => {
+  stickyState.boxLeaved = boxLeaved
+  stickyState.position = position
+  stickyState.top = top
+}
+
+/**
+ * �����ڲ�ƫ�ƶ�������
+ */
+const innerOffsetTop = computed(() : number => {
+  let top = 0
+  // #ifdef H5
+  top = 44
+  // #endif
+  return top + props.offsetTop
+})
+
+/**
+ * ����λ�ý�������
+ */
+const handleRelativeTo = (result : any) => {
+  const boundingClientRect = result.boundingClientRect
+  let isStycky = boundingClientRect.top <= innerOffsetTop.value
+
+  // #ifdef H5 || APP-PLUS
+  isStycky = boundingClientRect.top < innerOffsetTop.value
+  // #endif
+
+  if (isStycky) {
+    stickyState.state = 'sticky'
+    stickyState.boxLeaved = false
+    stickyState.position = 'fixed'
+    stickyState.top = innerOffsetTop.value
+  } else {
+    stickyState.state = 'normal'
+    stickyState.boxLeaved = false
+    stickyState.position = 'absolute'
+    stickyState.top = 0
+  }
+}
+
+/**
+ * ��������Ԫ�ع����¼�
+ */
+const observerContentScroll = () => {
+  if (stickyState.height === 0 && stickyState.width === 0) return
+  const offset = innerOffsetTop.value + stickyState.height
+  clearObserver()
+  createObserver()
+    .relativeToViewport({
+      top: -offset,
+    })
+    .observe(`#${styckyId.value}`, (result : any) => {
+      handleRelativeTo(result)
+    })
+
+  getRect(`#${styckyId.value}`, false, proxy).then((res) => {
+    const rect = res as any
+    let bottom = Number(rect.bottom)
+    // #ifdef H5
+    bottom = bottom + 44
+    // #endif
+    if (bottom <= offset) {
+      handleRelativeTo({ boundingClientRect: rect })
+    }
+  }).catch(() => {
+    // ���Դ���
+  })
+}
+
+/**
+ * ��ǰ���ݸ߶ȷ����仯ʱ���ü���
+ */
+const handleResize = (width : number, height : number) => {
+  stickyState.width = width
+  stickyState.height = height
+  setTimeout(() => {
+    observerContentScroll()
+  }, 33)
+}
+
+/**
+ * �����Ԫ����ʽ
+ */
+const rootStyle = computed(() : string => {
+  const style : UTSJSONObject = {
+    zIndex: props.zIndex,
+    height: addUnit(stickyState.height),
+    width: addUnit(stickyState.width),
+  }
+  if (!stickyState.boxLeaved) {
+    style['position'] = 'relative'
+  }
+  return `${objToStyle(style)}${props.customStyle}`
+})
+
+/**
+ * ����ճ��Ԫ����ʽ
+ */
+const stickyStyle = computed(() : string => {
+  const style : UTSJSONObject = {
+    zIndex: props.zIndex,
+    height: addUnit(stickyState.height),
+    width: addUnit(stickyState.width),
+  }
+  if (!stickyState.boxLeaved) {
+    style['position'] = 'relative'
+  }
+  return objToStyle(style)
+})
+
+/**
+ * ����������ʽ
+ */
+const containerStyle = computed(() : string => {
+  const style : UTSJSONObject = {
+    position: stickyState.position,
+    top: addUnit(stickyState.top),
+  }
+  return objToStyle(style)
+})
+
+/**
+ * ������غ��ʼ���ߴ����
+ */
+onMounted(() => {
+  setTimeout(() => {
+    getRect(`#${styckyId.value}`, false, proxy).then((res) => {
+      const rect = res as any
+      handleResize(rect.width as number, rect.height as number)
+    }).catch(() => {
+      // ���Դ���
+    })
+  }, 100)
+})
+
+/** ��¶��������ķ��������� */
+defineExpose({
+  setPosition,
+  stickyState,
+  offsetTop: props.offsetTop,
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+@include b(sticky) {
+  display: flex;
+
+  @include e(container) {
+    display: flex;
+  }
+}
+</style>

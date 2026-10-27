@@ -1,0 +1,193 @@
+/**
+ * 弹出层定位组合式函数 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 getCurrentInstance()（UniApp X 不支持）
+ * - getRect 改为接收 ComponentPublicInstance 参数
+ * - offset 参数简化为 number 类型（移除 Record/Array 联合类型）
+ * - placement 参数改为 string 类型（UTS 不支持字符串字面量联合类型）
+ * - Map 的值类型改为 string[]
+ *
+ * 使用模式：
+ * ```
+ * const { popStyle, arrowStyle, arrowClass, init, control } = usePopover(true)
+ * init('top', true, 'tooltip', instance)
+ * control('top', 10)
+ * ```
+ */
+import { ref } from 'vue'
+import { getRect, isObj } from '../components/common/util'
+
+/** usePopover 返回值类型 */
+export type UsePopoverReturn = {
+  popStyle : Ref<string>
+  arrowStyle : Ref<string>
+  showStyle : Ref<string>
+  arrowClass : Ref<string>
+  init : (placement : string, visibleArrow : boolean, selector : string, instance : ComponentPublicInstance) => void
+  control : (placement : string, offset : number) => void
+  noop : () => void
+}
+
+/**
+ * 弹出层定位
+ * @param visibleArrow - 是否显示箭头
+ */
+export const usePopover = (visibleArrow : boolean = true) : UsePopoverReturn => {
+  /** 响应式状态 */
+  const popStyle = ref<string>('')
+  const arrowStyle = ref<string>('')
+  const showStyle = ref<string>('')
+  const arrowClass = ref<string>('')
+  const popWidth = ref<number>(0)
+  const popHeight = ref<number>(0)
+  const left = ref<number>(0)
+  const bottom = ref<number>(0)
+  const width = ref<number>(0)
+  const height = ref<number>(0)
+  const top = ref<number>(0)
+
+  /** 空操作函数 */
+  const noop = () : void => {}
+
+  /**
+   * 初始化弹出层
+   * @param placement - 弹出位置
+   * @param showArrow - 是否显示箭头
+   * @param selector - 选择器名称
+   * @param instance - 组件实例（用于 getRect 查询）
+   */
+  const init = (
+    placement : string,
+    showArrow : boolean,
+    selector : string,
+    instance : ComponentPublicInstance,
+  ) : void => {
+    /** 初始化箭头类名 */
+    if (showArrow) {
+      const classes : string[] = []
+      classes.push(`wd-${selector}__arrow`)
+
+      if (placement == 'bottom' || placement == 'bottom-start' || placement == 'bottom-end') {
+        classes.push(`wd-${selector}__arrow-up`)
+      }
+      if (placement == 'left' || placement == 'left-start' || placement == 'left-end') {
+        classes.push(`wd-${selector}__arrow-right`)
+      }
+      if (placement == 'right' || placement == 'right-start' || placement == 'right-end') {
+        classes.push(`wd-${selector}__arrow-left`)
+      }
+      if (placement == 'top' || placement == 'top-start' || placement == 'top-end') {
+        classes.push(`wd-${selector}__arrow-down`)
+      }
+
+      arrowClass.value = classes.join(' ')
+    }
+
+    /** 获取目标元素尺寸信息 */
+    getRect('#target', false, instance).then((rect : UTSJSONObject | null) => {
+      if (rect == null) return
+      left.value = (rect!['left'] as number) ?? 0
+      bottom.value = (rect!['bottom'] as number) ?? 0
+      width.value = (rect!['width'] as number) ?? 0
+      height.value = (rect!['height'] as number) ?? 0
+      top.value = (rect!['top'] as number) ?? 0
+    })
+
+    /** 获取弹出层尺寸信息 */
+    getRect('#pos', false, instance).then((rect : UTSJSONObject | null) => {
+      if (rect == null) return
+      popWidth.value = (rect!['width'] as number) ?? 0
+      popHeight.value = (rect!['height'] as number) ?? 0
+    })
+  }
+
+  /**
+   * 控制弹出层位置
+   * @param placement - 弹出位置
+   * @param offset - 偏移量
+   */
+  const control = (placement : string, offset : number) : void => {
+    /** 箭头尺寸 */
+    const arrowSize = visibleArrow ? 9 : 0
+    /** 上下位对应的距离左边的距离 */
+    const verticalX = width.value / 2
+    /** 上下位对应的距离底部的距离 */
+    const verticalY = arrowSize + height.value + 5
+    /** 左右位对应的距离左边的距离 */
+    const horizontalX = width.value + arrowSize + 5
+    /** 左右位对应的距离底部的距离 */
+    const horizontalY = height.value / 2
+
+    const offsetX = (verticalX - 17 > 0 ? 0 : verticalX - 25) + offset
+    const offsetY = (horizontalY - 17 > 0 ? 0 : horizontalY - 25) + offset
+
+    /** 定义各位置的样式映射 */
+    const placements = new Map<string, string[]>()
+    placements.set('top', [
+      `left: ${verticalX}px; bottom: ${verticalY}px; transform: translateX(-50%);`,
+      'left: 50%;',
+    ])
+    placements.set('top-start', [
+      `left: ${offsetX}px; bottom: ${verticalY}px;`,
+      `left: ${(popWidth.value >= width.value ? width.value / 2 : popWidth.value - 25) - offsetX}px;`,
+    ])
+    placements.set('top-end', [
+      `right: ${offsetX}px; bottom: ${verticalY}px;`,
+      `right: ${(popWidth.value >= width.value ? width.value / 2 : popWidth.value - 25) - offsetX}px; transform: translateX(50%);`,
+    ])
+    placements.set('bottom', [
+      `left: ${verticalX}px; top: ${verticalY}px; transform: translateX(-50%);`,
+      'left: 50%;',
+    ])
+    placements.set('bottom-start', [
+      `left: ${offsetX}px; top: ${verticalY}px;`,
+      `left: ${(popWidth.value >= width.value ? width.value / 2 : popWidth.value - 25) - offsetX}px;`,
+    ])
+    placements.set('bottom-end', [
+      `right: ${offsetX}px; top: ${verticalY}px;`,
+      `right: ${(popWidth.value >= width.value ? width.value / 2 : popWidth.value - 25) - offsetX}px; transform: translateX(50%);`,
+    ])
+    placements.set('left', [
+      `right: ${horizontalX}px; top: ${horizontalY}px; transform: translateY(-50%);`,
+      'top: 50%',
+    ])
+    placements.set('left-start', [
+      `right: ${horizontalX}px; top: ${offsetY}px;`,
+      `top: ${(popHeight.value >= height.value ? height.value / 2 : popHeight.value - 20) - offsetY}px;`,
+    ])
+    placements.set('left-end', [
+      `right: ${horizontalX}px; bottom: ${offsetY}px;`,
+      `bottom: ${(popHeight.value >= height.value ? height.value / 2 : popHeight.value - 20) - offsetY}px; transform: translateY(50%);`,
+    ])
+    placements.set('right', [
+      `left: ${horizontalX}px; top: ${horizontalY}px; transform: translateY(-50%);`,
+      'top: 50%',
+    ])
+    placements.set('right-start', [
+      `left: ${horizontalX}px; top: ${offsetY}px;`,
+      `top: ${(popHeight.value >= height.value ? height.value / 2 : popHeight.value - 20) - offsetY}px;`,
+    ])
+    placements.set('right-end', [
+      `left: ${horizontalX}px; bottom: ${offsetY}px;`,
+      `bottom: ${(popHeight.value >= height.value ? height.value / 2 : popHeight.value - 20) - offsetY}px; transform: translateY(50%);`,
+    ])
+
+    /** 设置弹出层和箭头样式 */
+    const styles = placements.get(placement)
+    if (styles != null) {
+      popStyle.value = styles![0]
+      arrowStyle.value = styles![1]
+    }
+  }
+
+  return {
+    popStyle,
+    arrowStyle,
+    showStyle,
+    arrowClass,
+    init,
+    control,
+    noop,
+  }
+}

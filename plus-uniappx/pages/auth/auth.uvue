@@ -1,0 +1,293 @@
+<template>
+	<view class="auth-page">
+		<wd-navbar title="授权" show-back />
+
+		<!-- 顶部占位 -->
+		<view class="top-spacer" />
+
+		<!-- Logo -->
+		<wd-img custom-class="logo" width="150" height="150" src="/static/logo.png" radius="24" />
+
+		<wd-card title="请设置头像和昵称" custom-class="auth-card">
+			<!-- 表单区域 -->
+			<wd-form ref="formRef" :model="form">
+				<!-- 头像选择 -->
+				<view class="avatar-section">
+					<wd-cell title="头像" custom-title-class="cell-title" center :right-flex="3">
+						<view class="avatar-wrapper" @click="handleChooseAvatar">
+							<wd-img
+								v-if="form.avatar.length > 0"
+								:src="form.avatar"
+								width="120"
+								height="120"
+								round
+							/>
+							<view v-else class="avatar-placeholder">
+								<wd-icon name="camera" size="40" color="#cccccc" />
+							</view>
+						</view>
+					</wd-cell>
+					<!-- 昵称输入 -->
+					<wd-input
+						v-model="form.nickName"
+						label="昵称"
+						custom-label-class="cell-title"
+						input-align="right"
+						align-right
+					/>
+				</view>
+			</wd-form>
+		</wd-card>
+
+		<!-- 填充空间 -->
+		<view class="middle-spacer" />
+
+		<!-- 底部按钮区域 -->
+		<view class="bottom-area">
+			<view class="button-row">
+				<wd-button
+					custom-class="reject-btn"
+					plain
+					round
+					@click="reject"
+				>
+					残忍拒绝
+				</wd-button>
+				<wd-button type="success" round @click="agree">立即授权</wd-button>
+			</view>
+
+			<!-- 温馨提示 -->
+			<wd-text custom-class="tip-text" size="22" color="#999999" text="完成授权后，您将获得更好的个性化体验" />
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { ref, onMounted } from 'vue'
+	import { updateUserProfile } from '@/api/system/auth/authApi'
+	import { useUserStore } from '@/stores/modules/user'
+	import { useToast } from '@/wd'
+	import { AsyncResult } from '@/utils/to'
+
+	/**
+	 * 组件属性定义
+	 */
+	const props = defineProps({
+		redirect: {
+			type: String,
+			default: ''
+		}
+	})
+
+	const toast = useToast()
+	const userStore = useUserStore()
+
+	/* 表单引用 */
+	const formRef = ref<any>(null)
+
+	/* 响应式数据 */
+	const form = ref({
+		avatar: '',
+		nickName: '',
+	})
+
+	/** 选择头像 - 使用 uni.chooseImage */
+	const handleChooseAvatar = () => {
+		uni.chooseImage({
+			count: 1,
+			sizeType: ['compressed'] as string[],
+			sourceType: ['album', 'camera'] as string[],
+			success: (res) => {
+				const tempFilePaths = res.tempFilePaths
+				if (tempFilePaths.length > 0) {
+					const tempPath = tempFilePaths[0]
+					toast.loading('正在上传头像...')
+
+					/* TODO: 替换为实际的上传接口地址 */
+					uni.uploadFile({
+						url: '/common/upload',
+						filePath: tempPath,
+						name: 'file',
+						success: (uploadRes) => {
+							toast.close()
+							try {
+								const responseData = JSON.parse(uploadRes.data) as UTSJSONObject
+								const dataObj = responseData['data'] as UTSJSONObject | null
+								if (dataObj != null) {
+									const url = dataObj!.getString('url')
+									if (url != null && url!.length > 0) {
+										form.value.avatar = url!
+									} else {
+										toast.error('头像上传失败，请重试')
+									}
+								} else {
+									/* 尝试直接从根级获取 url */
+									const directUrl = responseData.getString('url')
+									if (directUrl != null && directUrl!.length > 0) {
+										form.value.avatar = directUrl!
+									} else {
+										toast.error('头像上传失败，请重试')
+									}
+								}
+							} catch (e) {
+								toast.close()
+								toast.error('头像上传失败，请重试')
+							}
+						},
+						fail: () => {
+							toast.close()
+							toast.error('头像上传失败，请重试')
+						},
+					})
+				}
+			},
+			fail: () => {
+				/* 用户取消选择，不做处理 */
+			},
+		})
+	}
+
+	/** 拒绝授权 */
+	const reject = () => {
+		toast.warning('你拒绝了授权(>_<)')
+		uni.navigateBack()
+	}
+
+	/** 同意授权 */
+	const agree = () => {
+		if (form.value.avatar.length == 0) {
+			toast.warning('请选择头像')
+			return
+		}
+		if (form.value.nickName.length == 0) {
+			toast.warning('请设置昵称')
+			return
+		}
+
+		const profileData = {
+			avatar: form.value.avatar,
+			nickName: form.value.nickName,
+		}
+
+		updateUserProfile(profileData).then((result : AsyncResult) => {
+			if (result.err == null) {
+				userStore.updateNickName(form.value.nickName)
+				userStore.updateAvatar(form.value.avatar)
+				toast.success('授权成功！')
+
+				/* 授权成功后跳转到指定页面 */
+				if (props.redirect.length > 0) {
+					uni.navigateTo({
+						url: props.redirect,
+					})
+				} else {
+					uni.navigateBack()
+				}
+			} else {
+				const err = result.err as Error
+				toast.error(err.message.length > 0 ? err.message : '授权失败，请重试')
+			}
+		})
+	}
+
+	/** 组件挂载后的初始化处理 */
+	onMounted(() => {
+		/* 初始化表单数据 */
+		const info = userStore.userInfo.value
+		if (info != null) {
+			form.value.nickName = info!.nickName
+			form.value.avatar = info!.avatar
+		}
+	})
+</script>
+
+<style lang="scss" scoped>
+	.auth-page {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		height: 100vh;
+		background: linear-gradient(to bottom, #f9f9f9, #ffffff);
+	}
+
+	.top-spacer {
+		min-height: 80rpx;
+		width: 100vw;
+		flex: 1;
+	}
+
+	.logo {
+		margin-bottom: 48rpx;
+		/* UniApp X: 覆盖 wd-img 的 align-self: flex-start，确保 Logo 居中 */
+		align-self: center;
+	}
+
+	.auth-card {
+		width: 90%;
+		padding-bottom: 16rpx !important;
+	}
+
+	.avatar-section {
+		margin-top: 16rpx;
+	}
+
+	.cell-title {
+		color: #333333;
+		font-size: 28rpx;
+	}
+
+	.avatar-wrapper {
+		display: flex;
+		/* UniApp X: view 默认 flex-direction: column，必须显式设为 row 才能水平靠右 */
+		flex-direction: row;
+		align-items: center;
+		justify-content: flex-end;
+	}
+
+	.avatar-placeholder {
+		width: 120rpx;
+		height: 120rpx;
+		border-radius: 50%;
+		background-color: #f5f5f5;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 2rpx dashed #dddddd;
+	}
+
+	/* UniApp X: 覆盖 wd-icon 的 align-self */
+	.avatar-placeholder .wd-icon {
+		align-self: center;
+	}
+
+	.middle-spacer {
+		flex: 2;
+	}
+
+	.bottom-area {
+		width: 100%;
+		padding: 0 48rpx;
+		padding-bottom: 60rpx;
+	}
+
+	.button-row {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		gap: 32rpx;
+	}
+
+	.reject-btn {
+		background-color: #f7f7f7 !important;
+		/* UniApp X: border + round + overflow:hidden 组合导致圆角处边框断裂，用 box-shadow 替代 */
+		border: none !important;
+		box-shadow: 0 0 0 1px #eeeeee;
+		color: #888888 !important;
+	}
+
+	.tip-text {
+		margin-top: 24rpx;
+		align-self: center;
+	}
+</style>

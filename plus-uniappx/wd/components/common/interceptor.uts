@@ -1,0 +1,69 @@
+/**
+ * 拦截器工具模块 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - Interceptor 类型中 ...args 使用 any[] 代替泛型
+ * - 返回类型简化
+ */
+
+import { isPromise } from './util'
+
+/** 空操作函数 */
+const noop = () : void => {}
+
+/**
+ * 拦截器类型定义
+ * - 返回true或Promise<true>：继续执行
+ * - 返回false或Promise<false>：取消执行
+ * - 返回undefined/void：继续执行
+ */
+export type Interceptor = (...args : any[]) => any | null
+
+/**
+ * 拦截器调用配置接口
+ */
+export type InterceptorCallConfig = {
+  /** 传递给拦截器的参数数组 */
+  args ?: any[]
+  /** 拦截器通过时的回调函数 */
+  done : () => void
+  /** 拦截器被取消时的回调函数 */
+  canceled ?: (() => void) | null
+  /** 拦截器执行出错时的回调函数 */
+  error ?: (() => void) | null
+}
+
+/**
+ * 调用拦截器并根据结果执行相应的回调
+ */
+export const callInterceptor = (
+  interceptor : Interceptor | null,
+  config : InterceptorCallConfig,
+) : void => {
+  const args = config.args != null ? config.args! : ([] as any[])
+  const done = config.done
+  const canceled = config.canceled
+  const errorHandler = config.error
+
+  if (interceptor != null) {
+    const returnVal = interceptor!(...args)
+
+    if (isPromise(returnVal)) {
+      (returnVal as Promise<boolean>)
+        .then((value : boolean) => {
+          if (value) {
+            done()
+          } else if (canceled != null) {
+            canceled!()
+          }
+        })
+        .catch(errorHandler != null ? errorHandler! : noop)
+    } else if (returnVal == true) {
+      done()
+    } else if (canceled != null) {
+      canceled!()
+    }
+  } else {
+    done()
+  }
+}

@@ -1,0 +1,296 @@
+<!--
+Watermark 水印 在页面或组件上添加指定的图片或文字,可用于版权保护、品牌宣传等场景
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export interface/type
+- any 改为具体类型
+- Canvas API 适配 UniApp X
+- display: inline-block 改为 display: flex
+- 移除条件编译相关代码(UniApp X 统一 API)
+-->
+<template>
+  <view
+    :class="`wd-watermark ${fullScreen ? 'is-fullscreen' : ''} ${customClass}`"
+    :style="`z-index: ${zIndex}; opacity: ${opacity}; background-size: ${addUnit(width + gutterX)}; ${waterMarkUrl != '' ? `background-image: url('${waterMarkUrl}');` : ''}${customStyle}`"
+  >
+    <canvas
+      v-if="showCanvas"
+      :id="canvasId"
+      type="2d"
+      :style="{ height: `${canvasHeight}px`, width: `${canvasWidth}px`, visibility: 'hidden' }"
+      :canvas-id="canvasId"
+    />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { nextTick, onMounted, ref, watch } from 'vue'
+import { addUnit, buildUrlWithParams, isBase64Image, rpxToPx, uuid } from '../common/util'
+
+/**
+ * 水印组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 显示内容 */
+  content ?: string
+  /** 显示图片的地址,支持网络图片和base64 */
+  image ?: string
+  /** 图片高度,单位rpx */
+  imageHeight ?: number
+  /** 图片宽度,单位rpx */
+  imageWidth ?: number
+  /** X轴间距,单位rpx */
+  gutterX ?: number
+  /** Y轴间距,单位rpx */
+  gutterY ?: number
+  /** canvas画布宽度,单位rpx */
+  width ?: number
+  /** canvas画布高度,单位rpx */
+  height ?: number
+  /** 是否为全屏水印 */
+  fullScreen ?: boolean
+  /** 水印字体颜色 */
+  color ?: string
+  /** 水印字体大小,单位rpx */
+  size ?: number
+  /** 水印字体样式 */
+  fontStyle ?: string
+  /** 水印字体的粗细 */
+  fontWeight ?: number | string
+  /** 水印字体系列 */
+  fontFamily ?: string
+  /** 水印旋转角度 */
+  rotate ?: number
+  /** 自定义层级 */
+  zIndex ?: number
+  /** 自定义透明度,取值 0~1 */
+  opacity ?: number
+}>(), {
+  customStyle: '',
+  customClass: '',
+  content: '',
+  image: '',
+  imageHeight: 200,
+  imageWidth: 200,
+  gutterX: 0,
+  gutterY: 0,
+  width: 200,
+  height: 200,
+  fullScreen: true,
+  color: '#8c8c8c',
+  size: 28,
+  fontStyle: 'normal',
+  fontWeight: 'normal',
+  fontFamily: 'PingFang SC',
+  rotate: -25,
+  zIndex: 1100,
+  opacity: 0.5,
+})
+
+/** 响应式数据 */
+const canvasId = ref<string>(`water${uuid()}`)
+const waterMarkUrl = ref<string>('')
+const pixelRatio = ref<number>(uni.getSystemInfoSync().pixelRatio)
+const canvasHeight = ref<number>(rpxToPx(props.height + props.gutterY) * pixelRatio.value)
+const canvasWidth = ref<number>(rpxToPx(props.width + props.gutterX) * pixelRatio.value)
+const showCanvas = ref<boolean>(true)
+
+/**
+ * 绘制文字水印
+ */
+const drawTextWatermark = (
+  ctx : any,
+  content : string,
+  contentWidth : number,
+  rotate : number,
+  fontSize : number,
+  color : string,
+) => {
+  ctx.setTextBaseline('middle')
+  ctx.setTextAlign('center')
+  ctx.translate(contentWidth / 2, contentWidth / 2)
+  ctx.rotate((Math.PI / 180) * rotate)
+  ctx.setFillStyle(color)
+  ctx.setFontSize(fontSize)
+  ctx.fillText(content, 0, 0)
+  ctx.restore()
+  ctx.draw()
+
+  setTimeout(() => {
+    uni.canvasToTempFilePath({
+      canvasId: canvasId.value,
+      success: (res) => {
+        showCanvas.value = false
+        waterMarkUrl.value = res.tempFilePath
+      },
+    })
+  }, 100)
+}
+
+/**
+ * 绘制图片水印
+ */
+const drawImageWatermark = (
+  ctx : any,
+  image : string,
+  imageHeight : number,
+  imageWidth : number,
+  rotate : number,
+  contentWidth : number,
+  contentHeight : number,
+) => {
+  ctx.translate(contentWidth / 2, contentHeight / 2)
+  ctx.rotate((Math.PI / 180) * Number(rotate))
+
+  const imgWidthPx = rpxToPx(imageWidth) * pixelRatio.value
+  const imgHeightPx = rpxToPx(imageHeight) * pixelRatio.value
+
+  ctx.drawImage(image, -imgWidthPx / 2, -imgHeightPx / 2, imgWidthPx, imgHeightPx)
+  ctx.restore()
+  ctx.draw(false, () => {
+    setTimeout(() => {
+      uni.canvasToTempFilePath({
+        canvasId: canvasId.value,
+        success: (res) => {
+          showCanvas.value = false
+          waterMarkUrl.value = res.tempFilePath
+        },
+      })
+    }, 100)
+  })
+}
+
+/**
+ * 创建水印
+ */
+const createWaterMark = (
+  width : number,
+  height : number,
+  color : string,
+  size : number,
+  fontStyle : string,
+  fontWeight : number | string,
+  fontFamily : string,
+  content : string,
+  rotate : number,
+  gutterX : number,
+  gutterY : number,
+  image : string,
+  imageHeight : number,
+  imageWidth : number,
+) => {
+  const canvasHeightPx = rpxToPx(height + gutterY) * pixelRatio.value
+  const canvasWidthPx = rpxToPx(width + gutterX) * pixelRatio.value
+  const contentWidth = rpxToPx(width) * pixelRatio.value
+  const contentHeight = rpxToPx(height) * pixelRatio.value
+  const fontSize = rpxToPx(size) * pixelRatio.value
+
+  const ctx = uni.createCanvasContext(canvasId.value)
+
+  if (ctx != null) {
+    if (image != '') {
+      drawImageWatermark(ctx, image, imageHeight, imageWidth, rotate, contentWidth, contentHeight)
+    } else {
+      drawTextWatermark(ctx, content, contentWidth, rotate, fontSize, color)
+    }
+  }
+}
+
+/**
+ * 初始化水印
+ */
+const doInit = () => {
+  showCanvas.value = true
+
+  const {
+    width,
+    height,
+    color,
+    size,
+    fontStyle,
+    fontWeight,
+    fontFamily,
+    content,
+    rotate,
+    gutterX,
+    gutterY,
+    image,
+    imageHeight,
+    imageWidth,
+  } = props
+
+  createWaterMark(
+    width,
+    height,
+    color,
+    size,
+    fontStyle,
+    fontWeight,
+    fontFamily,
+    content,
+    rotate,
+    gutterX,
+    gutterY,
+    image,
+    imageHeight,
+    imageWidth,
+  )
+}
+
+/**
+ * 重置水印
+ */
+const doReset = () => {
+  showCanvas.value = true
+  canvasHeight.value = rpxToPx(props.height + props.gutterY) * pixelRatio.value
+  canvasWidth.value = rpxToPx(props.width + props.gutterX) * pixelRatio.value
+
+  nextTick(() => {
+    doInit()
+  })
+}
+
+/**
+ * 监听属性变化
+ */
+watch(
+  () => props,
+  () => {
+    doReset()
+  },
+  { deep: true },
+)
+
+/**
+ * 组件挂载后初始化水印
+ */
+onMounted(() => {
+  doInit()
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable.scss';
+@import '../common/abstracts/_mixin.scss';
+
+@include b(watermark) {
+  position: absolute;
+  z-index: 1100;
+  opacity: 0.5;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  background-repeat: repeat;
+
+  @include when(fullscreen) {
+    position: fixed;
+  }
+}
+</style>

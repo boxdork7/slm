@@ -1,0 +1,243 @@
+<template>
+  <wd-popup
+    v-model="showModal"
+    custom-class="auth-modal-popup"
+    position="bottom"
+    closable
+  >
+    <view class="auth-modal-content">
+      <!-- 标题 -->
+      <wd-text text="授权" size="38" color="#751937" />
+
+      <!-- 表单区域 -->
+      <wd-form ref="formRef" :model="form">
+        <!-- 头像选择 -->
+        <view class="auth-modal-avatar-section">
+          <wd-cell title="头像" custom-title-class="auth-modal-cell-title">
+            <wd-button
+              custom-class="auth-modal-avatar-btn"
+              type="icon"
+              :icon="avatarPreviewUrl.length > 0 ? avatarPreviewUrl : 'camera'"
+              :icon-size="avatarPreviewUrl.length > 0 ? 120 : 40"
+              icon-color="#999999"
+              @click="manualChooseAvatar"
+            />
+          </wd-cell>
+          <!-- 昵称输入 -->
+          <wd-input
+            v-model="form.nickName"
+            label="昵称"
+            custom-label-class="auth-modal-input-label"
+            input-align="right"
+            align-right
+          />
+        </view>
+      </wd-form>
+
+      <!-- 操作按钮 -->
+      <view class="auth-modal-actions">
+        <wd-button
+          custom-class="auth-modal-reject-btn"
+          type="info"
+          plain
+          @click="reject"
+        >
+          残忍拒绝
+        </wd-button>
+        <wd-button type="success" @click="agree">立即授权</wd-button>
+      </view>
+    </view>
+  </wd-popup>
+</template>
+
+<script setup lang="uts">
+import { ref, watch } from 'vue'
+import { useUserStore } from '@/stores/modules/user'
+import { UserProfileUpdateBo } from '@/api/system/auth/authTypes'
+import { updateUserProfile } from '@/api/system/auth/authApi'
+import { useUpload, useToast } from '@/wd'
+import { ChooseFileOption, ChooseFile, FastUploadOptions, UploadResult, UploadFileItem } from '@/wd/composables/useUpload'
+import { AsyncResult } from '@/utils/to'
+
+/* 组合式API */
+const toast = useToast()
+const userStore = useUserStore()
+const upload = useUpload()
+
+/* 响应式数据 */
+const formRef = ref<any | null>(null)
+const showModal = ref(false)
+const form = ref({
+  avatar: '',
+  nickName: '',
+})
+/* 预览用的URL（带签名，可直接访问私有桶） */
+const avatarPreviewUrl = ref('')
+
+/** 手动选择头像（APP 平台） */
+const manualChooseAvatar = () => {
+  upload.chooseFile({
+    accept: 'image',
+    maxCount: 1,
+  } as ChooseFileOption).then(
+    (files : ChooseFile[]) => {
+      if (files.length == 0) return
+      const filePath = files[0].path
+      toast.loading('正在上传头像...')
+      upload.fastUpload(filePath, {
+        onSuccess: (uploadRes : UploadResult, _file : UploadFileItem, _formData : UTSJSONObject) : void => {
+          toast.close()
+          /* 预览用带签名的URL */
+          avatarPreviewUrl.value = uploadRes.url
+          /* 存储用干净的URL（useUpload已确保originalUrl有值） */
+          if (uploadRes.originalUrl != null) {
+            form.value.avatar = uploadRes.originalUrl!
+          } else {
+            form.value.avatar = uploadRes.url
+          }
+        },
+        onError: (err : UTSJSONObject, _file : UploadFileItem, _formData : UTSJSONObject) : void => {
+          toast.close()
+          const errMsg = err.getString('errMsg') ?? '未知错误'
+          toast.error(`头像上传失败:${errMsg}，请重试`)
+        },
+      } as FastUploadOptions)
+    },
+    (_err : any) => {
+      /* 用户取消选择，不处理 */
+    },
+  )
+}
+
+/* 监听弹窗显示状态 */
+watch(
+  () : boolean => userStore.authModalVisible.value,
+  (val : boolean) => {
+    showModal.value = val
+    if (val) {
+      /* 初始化表单数据 */
+      const info = userStore.userInfo.value
+      if (info != null) {
+        form.value.nickName = info!.nickName
+        form.value.avatar = info!.avatar
+        /* 初始化预览URL（用户已有头像时，使用存储的URL作为预览） */
+        avatarPreviewUrl.value = info!.avatar
+      } else {
+        form.value.nickName = ''
+        form.value.avatar = ''
+        avatarPreviewUrl.value = ''
+      }
+    }
+  },
+)
+
+/* 同步 showModal 回 userStore（popup 关闭时） */
+watch(
+  () : boolean => showModal.value,
+  (val : boolean) => {
+    if (!val) {
+      userStore.authModalVisible.value = false
+    }
+  },
+)
+
+/* 拒绝授权 */
+const reject = () => {
+  toast.warning('你拒绝了授权(>_<)')
+  showModal.value = false
+  userStore.authModalVisible.value = false
+}
+
+/* 同意授权 */
+const agree = () => {
+  if (form.value.avatar.length == 0) {
+    toast.warning('请选择头像')
+    return
+  }
+  if (form.value.nickName.length == 0) {
+    toast.warning('请设置昵称')
+    return
+  }
+  const profileData : UserProfileUpdateBo = {
+    avatar: form.value.avatar,
+    nickName: form.value.nickName,
+  }
+  updateUserProfile(profileData).then(
+    (result : AsyncResult) => {
+      if (result.err == null) {
+        /* 重新获取用户信息，确保头像URL带有正确的预签名 */
+        userStore.fetchUserInfo().then(
+          (_fetchResult : UTSJSONObject) => {
+            showModal.value = false
+            userStore.authModalVisible.value = false
+            toast.success('授权成功！')
+          },
+          (_fetchErr : any) => {
+            showModal.value = false
+            userStore.authModalVisible.value = false
+            toast.success('授权成功！')
+          },
+        )
+      }
+    },
+    (err : any) => {
+      console.error('更新用户信息失败:', err)
+    },
+  )
+}
+</script>
+
+<style lang="scss" scoped>
+/* 弹窗圆角 */
+.auth-modal-popup {
+  border-radius: 32rpx 32rpx 0 0;
+}
+
+/* 内容区域 */
+.auth-modal-content {
+  padding: 32rpx;
+}
+
+/* 头像区域 */
+.auth-modal-avatar-section {
+  margin-top: 64rpx;
+}
+
+/* Cell 标题样式 */
+.auth-modal-cell-title {
+  color: #751937;
+  font-size: 32rpx;
+}
+
+/* 头像按钮 */
+.auth-modal-avatar-btn {
+  width: 120rpx;
+  height: 120rpx;
+  background-color: #f9f9f9;
+  margin-top: -40rpx;
+}
+
+/* 输入框标签样式 */
+.auth-modal-input-label {
+  color: #751937;
+  font-size: 32rpx;
+}
+
+/* 操作按钮区域 */
+.auth-modal-actions {
+  margin-top: 64rpx;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 64rpx;
+  padding: 0 32rpx 64rpx;
+}
+
+/* 拒绝按钮 */
+.auth-modal-reject-btn {
+  background-color: #f9f9f9;
+  border: 0;
+  color: #888888;
+}
+</style>

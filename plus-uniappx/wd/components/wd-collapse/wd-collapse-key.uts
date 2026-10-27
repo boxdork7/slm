@@ -1,0 +1,66 @@
+/**
+ * 折叠面板 Provide/Inject 键和类型定义 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 InjectionKey 泛型（UTS 不支持 Symbol/InjectionKey）
+ * - 改用字符串 key + type 定义
+ * - CollapseToggleAllOptions 中的联合类型 boolean | object → 独立类型
+ * - CollapseItemBeforeExpand 移除 Promise 支持（UTS 简化异步处理）
+ */
+
+/**
+ * 折叠面板项展开前回调函数
+ * 返回 false 可阻止展开
+ */
+export type CollapseItemBeforeExpand = (name : string) => boolean
+
+/**
+ * 折叠面板切换所有选项类型
+ */
+export type CollapseToggleAllOptions = {
+	/** 是否展开（不传则切换） */
+	expanded ?: boolean | null
+	/** 是否跳过禁用项 */
+	skipDisabled ?: boolean
+}
+
+/**
+ * 折叠面板子组件接口（用于父组件引用）
+ */
+export type CollapseItemRef = {
+	/** 子组件的唯一标识 */
+	uid : number
+	/** 子组件的 name 属性 */
+	name : string
+	/** 子组件是否禁用 */
+	disabled : boolean
+	/** 获取子组件的展开状态 */
+	getExpanded : () => boolean
+	/** 更新子组件展开状态 */
+	updateExpand : () => void
+}
+
+/**
+ * 折叠面板容器 Provide 接口
+ */
+export type CollapseProvide = {
+	/** 已注册子组件的 UID 列表 */
+	childUids : number[]
+	/** 注册子组件 */
+	addChild : (uid : number) => void
+	/** 注销子组件 */
+	removeChild : (uid : number) => void
+	/** 绑定值（当前展开的面板） */
+	modelValue : string | string[] | boolean
+	/** 手风琴模式 */
+	accordion : boolean
+	/** 查看更多模式 */
+	viewmore : boolean
+	/** 切换面板状态（子组件调用） */
+	toggle : (name : string, expanded : boolean) => void
+}
+
+/**
+ * 折叠面板容器注入键（字符串 key）
+ */
+export const COLLAPSE_KEY = 'wd-collapse'

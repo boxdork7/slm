@@ -1,0 +1,61 @@
+package ${packageName}.domain.bo;
+
+import io.github.linpeilie.annotations.AutoMappers;
+import ${packageName}.domain.${ClassName};
+import ${packageName}.domain.vo.${ClassName}Vo;
+import plus.ruoyi.common.mybatis.core.domain.BaseEntity;
+import plus.ruoyi.common.core.validate.AddGroup;
+import plus.ruoyi.common.core.validate.EditGroup;
+import io.github.linpeilie.annotations.AutoMapper;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import jakarta.validation.constraints.*;
+#foreach ($import in $importList)
+import ${import};
+#end
+
+/**
+ * ${functionName}业务对象 ${tableName}
+ *
+ * @author ${author}
+ * @date ${datetime}
+ */
+@Data
+@EqualsAndHashCode(callSuper = true)
+@AutoMappers({
+    @AutoMapper(target = ${ClassName}.class, reverseConvertGenerate = false),
+    @AutoMapper(target = ${ClassName}Vo.class)
+})
+public class ${ClassName}Bo extends BaseEntity {
+
+#foreach ($column in $columns)
+#if(!$table.isSuperColumn($column.javaField) && ($column.query || $column.insert || $column.edit))
+    /**
+     * $column.columnComment
+     */
+#if($column.insert && $column.edit)
+#set($Group="AddGroup.class, EditGroup.class")
+#elseif($column.insert)
+#set($Group="AddGroup.class")
+#elseif($column.edit)
+#set($Group="EditGroup.class")
+#else
+## 字段只勾了"查询"却勾了"必填"时，上面三个分支都不成立。
+## 此处必须兜底赋值：Velocity 对未定义变量会原样输出 $Group 字面量，
+## 生成的 Java 会编译报"找不到符号 变量 $Group"；同时 #set 是全局作用域，
+## 不兜底还会让本轮沿用上一个字段残留的分组值，造成校验分组静默错配。
+#set($Group="AddGroup.class, EditGroup.class")
+#end
+#if($column.required)
+#if($column.javaType == 'String')
+    @NotBlank(message = "$column.columnComment不能为空", groups = { $Group })
+#else
+    @NotNull(message = "$column.columnComment不能为空", groups = { $Group })
+#end
+#end
+    private $column.javaType $column.javaField;
+
+#end
+#end
+
+}

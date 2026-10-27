@@ -1,0 +1,129 @@
+/**
+ * 父子组件通信 - 父组件端 (useChildren) - UniApp X 版本
+ *
+ * 保持与 plus-app/wd/components/composables/useChildren.ts 等效的功能
+ *
+ * UTS 适配说明：
+ * - 原实现依赖 ComponentInternalInstance、VNode、getCurrentInstance()，UniApp X 不支持
+ * - 替代方案：基于 provide + reactive 数组 + 唯一 ID 管理子组件注册
+ * - 不使用泛型函数（UTS 不支持），改为具体类型 + 组合模式
+ * - 不使用 Symbol/InjectionKey，改为字符串 key
+ * - 排序：依赖 onMounted 调用顺序（与模板声明顺序一致）
+ *
+ * 使用模式：
+ * ```
+ * // 父组件 setup 中
+ * import { createChildManager } from '@/wd/composables/useChildren'
+ * import type { ChildManager } from '@/wd/composables/useChildren'
+ *
+ * const manager = createChildManager()
+ *
+ * provide('wd-form', {
+ *     ...manager,           // childUids, addChild, removeChild
+ *     model: props.model,   // 业务数据
+ *     rules: props.rules,
+ * })
+ * ```
+ */
+import { reactive } from 'vue'
+
+/* ==================== 全局唯一 ID 生成器 ==================== */
+
+/**
+ * 子组件 UID 计数器（模块级单例）
+ * 每个子组件实例获取一个唯一数字标识，用于在父组件中跟踪和排序
+ */
+let _nextUid = 0
+
+/**
+ * 生成子组件唯一 ID
+ * 在子组件 setup 中调用，确保每个组件实例有唯一标识
+ */
+export const genChildUid = () : number => {
+	_nextUid++
+	return _nextUid
+}
+
+/* ==================== 子组件管理器 ==================== */
+
+/**
+ * 子组件管理器类型
+ *
+ * 父子组件对的 Provide 接口应包含此类型的全部字段。
+ * 子组件通过 inject 获取后，调用 addChild/removeChild 完成注册/注销。
+ *
+ * 示例 Provide 接口：
+ * ```
+ * export type FormProvide = {
+ *     childUids: number[]
+ *     addChild: (uid: number) => void
+ *     removeChild: (uid: number) => void
+ *     // ...业务字段
+ * }
+ * ```
+ */
+export type ChildManager = {
+	/** 已注册子组件的 UID 列表（reactive，保持注册顺序） */
+	childUids : number[]
+	/** 注册子组件（子组件 onMounted 时调用） */
+	addChild : (uid : number) => void
+	/** 注销子组件（子组件 onUnmounted 时调用） */
+	removeChild : (uid : number) => void
+}
+
+/**
+ * 创建子组件管理器
+ *
+ * 在父组件的 setup 中调用，返回一个包含响应式子组件列表和注册/注销方法的对象。
+ * 将返回的对象展开到 provide 数据中即可。
+ *
+ * @returns ChildManager 对象，包含 childUids（reactive 数组）、addChild、removeChild
+ *
+ * @example
+ * ```uts
+ * // 在父组件 wd-form.uvue 的 setup 中
+ * const manager = createChildManager()
+ *
+ * provide(FORM_KEY, {
+ *     childUids: manager.childUids,
+ *     addChild: manager.addChild,
+ *     removeChild: manager.removeChild,
+ *     // ...其他业务数据
+ * })
+ *
+ * // 获取子组件数量
+ * const childCount = computed((): number => manager.childUids.length)
+ * ```
+ */
+export const createChildManager = () : ChildManager => {
+	/** 响应式的子组件 UID 列表 */
+	const childUids = reactive<number[]>([])
+
+	/**
+	 * 注册子组件
+	 * 子组件 onMounted 时调用此方法将自己的 UID 添加到列表
+	 * 重复注册会被忽略
+	 */
+	const addChild = (uid : number) : void => {
+		if (childUids.indexOf(uid) == -1) {
+			childUids.push(uid)
+		}
+	}
+
+	/**
+	 * 注销子组件
+	 * 子组件 onUnmounted 时调用此方法将自己的 UID 从列表移除
+	 */
+	const removeChild = (uid : number) : void => {
+		const idx = childUids.indexOf(uid)
+		if (idx > -1) {
+			childUids.splice(idx, 1)
+		}
+	}
+
+	return {
+		childUids: childUids,
+		addChild: addChild,
+		removeChild: removeChild,
+	} as ChildManager
+}

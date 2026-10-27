@@ -1,0 +1,205 @@
+/**
+ * 认证接口 API (UniApp X 版本)
+ *
+ * 从 plus-app/api/system/auth/authApi.ts 迁移
+ *
+ * UTS 适配说明：
+ * - 移除所有泛型 <AuthTokenVo> → 直接返回 Promise<AsyncResult>
+ * - object spread 改为直接使用对象（UTS 不支持 ...spread）
+ * - data as any → data as UTSJSONObject
+ * - window.location.host → 在 APP 环境不可用，已改为参数或注释
+ * - 所有函数返回类型为 Promise<AsyncResult>
+ * - 导入类型不加 type 关键字（UTS 不支持）
+ */
+
+import { http } from '@/composables/useHttp'
+import { withHeaders } from '@/utils/function'
+import { to, type AsyncResult } from '@/utils/to'
+import type {
+	AuthTokenVo,
+	CaptchaVo,
+	LoginRequest,
+	RegisterBody,
+	SocialLoginBody,
+	TenantConfigVo,
+	UserProfileUpdateBo,
+} from './authTypes'
+
+// ==================== 基础认证相关接口 ====================
+
+/**
+ * 用户登录接口
+ * @param data 登录数据对象，包含用户名、密码等信息
+ * @returns 返回登录结果，包含token等用户认证信息
+ */
+export const userLogin = (data: LoginRequest): Promise<AsyncResult> => {
+	const params: UTSJSONObject = {
+		userName: data.userName,
+		password: data.password,
+		authType: data.authType || 'password',
+		code: data.code,
+		uuid: data.uuid,
+	} as UTSJSONObject
+
+	return http.noAuth().encrypt().post(
+		'/auth/userLogin',
+		params,
+		withHeaders(
+			{
+				// 不需要token认证
+				auth: false,
+				// 需要加密传输
+				isEncrypt: true,
+				// 防止重复提交
+				repeatSubmit: false,
+			},
+			{
+				skipWait: true, // 跳过等待提示
+			},
+		),
+	)
+}
+
+/**
+ * 用户注销接口
+ * @returns 返回注销结果
+ */
+export const userLogout = (): Promise<AsyncResult> => {
+	return http.post('/auth/userLogout')
+}
+
+/**
+ * 用户注册接口
+ * @param data 注册数据对象，包含用户信息
+ * @returns 返回注册结果
+ */
+export const userRegister = (data: RegisterBody): Promise<AsyncResult> => {
+	const params: UTSJSONObject = {
+		userName: data.userName,
+		password: data.password,
+		authType: 'password',
+		code: data.code,
+		uuid: data.uuid,
+		userType: data.userType,
+	} as UTSJSONObject
+
+	return http.noAuth().encrypt().post(
+		'/auth/userRegister',
+		params,
+		withHeaders({
+			// 不需要token认证
+			auth: false,
+			// 需要加密传输
+			isEncrypt: true,
+			// 防止重复提交
+			repeatSubmit: false,
+		}),
+	)
+}
+
+/**
+ * 更新用户头像和昵称
+ * @param data 用户头像和昵称
+ * @returns 返回更新结果
+ */
+export const updateUserProfile = (data: UserProfileUpdateBo): Promise<AsyncResult> => {
+	return http.post('/auth/updateUserProfile', data)
+}
+
+/**
+ * 获取验证码
+ * 用于登录时的图形验证码获取
+ * @returns 返回验证码图片和校验信息
+ */
+export const imgCode = (): Promise<AsyncResult> => {
+	return http.noAuth().get(
+		'/auth/imgCode',
+		{},
+		withHeaders(
+			{
+				// 不需要token认证
+				auth: false,
+			},
+			{
+				// 等待时间较长，避免超时
+				timeout: 20000,
+			},
+		),
+	)
+}
+
+/**
+ * 获取短信验证码
+ * @param phone 手机号
+ * @returns 返回短信发送结果
+ */
+export const smsCode = (phone: string): Promise<AsyncResult> => {
+	return http.noAuth().get(
+		'/auth/smsCode',
+		{ phone: phone } as UTSJSONObject,
+		withHeaders({
+			// 不需要token认证
+			auth: false,
+		}),
+	)
+}
+
+// ==================== 社交认证相关接口 ====================
+
+/**
+ * 获取社交认证跳转URL
+ * 注意：window.location.host 在原生 APP 环境不可用
+ * APP 端应通过其他方式获取当前域名，或在调用处传入 domain 参数
+ * @param source 第三方平台来源
+ * @param domain 域名（可选，APP 端需手动传入）
+ * @returns 返回授权跳转链接
+ */
+export const socialBindUrl = (source: string, domain?: string): Promise<AsyncResult> => {
+	// TODO: APP 环境需要获取合适的 domain 值
+	const queryDomain = domain || uni.getSystemInfoSync().platform
+
+	return http.noAuth().get(
+		`/auth/socialBindUrl/${source}`,
+		{ domain: queryDomain } as UTSJSONObject,
+		withHeaders({
+			auth: false,
+		}),
+	)
+}
+
+/**
+ * 第三方社交账号登录回调
+ * 处理第三方平台的OAuth登录回调
+ * @param socialLoginBody 社交登录信息
+ * @returns 返回登录结果
+ */
+export const socialBind = (socialLoginBody: SocialLoginBody): Promise<AsyncResult> => {
+	const params: UTSJSONObject = {
+		source: socialLoginBody.source,
+		socialCode: socialLoginBody.socialCode,
+		socialState: socialLoginBody.socialState,
+		authType: 'social',
+		code: socialLoginBody.code,
+		uuid: socialLoginBody.uuid,
+	} as UTSJSONObject
+
+	return http.post('/auth/socialBind', params)
+}
+
+/**
+ * 解绑社交账号授权
+ * @param socialId 社交账号ID
+ * @returns 返回操作结果
+ */
+export const socialUnbind = (socialId: string | number): Promise<AsyncResult> => {
+	return http.del(`/auth/socialUnbind/${socialId}`)
+}
+
+/**
+ * 获取租户开关和租户列表
+ * 用于多租户系统中切换不同租户
+ * @returns 返回租户开关和可用的租户列表
+ */
+export const getTenantConfig = (): Promise<AsyncResult> => {
+	return http.get('/auth/getTenantConfig')
+}

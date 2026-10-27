@@ -1,0 +1,105 @@
+/**
+ * 国际化语言管理模块 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - Message/Messages 类型改为 UTSJSONObject
+ * - 语言包存储使用 Map<string, UTSJSONObject>
+ * - 语言包文件使用 export const 而非 export default
+ * - 函数式翻译值改为 {0},{1} 占位符字符串模板
+ * - deepAssign 参数类型适配 UTSJSONObject
+ *
+ * 使用示例：
+ * ```
+ * import { Locale, useCurrentLang } from '@/wd/locale/index'
+ *
+ * // 切换语言
+ * Locale.use('en-US')
+ *
+ * // 获取当前语言包
+ * const messages = Locale.messages()
+ *
+ * // 监听当前语言变化
+ * const currentLang = useCurrentLang()
+ * ```
+ */
+import { ref } from 'vue'
+import { zhCN } from './lang/zh-CN'
+import { enUS } from './lang/en-US'
+import { arSA } from './lang/ar-SA'
+import { deDE } from './lang/de-DE'
+import { esES } from './lang/es-ES'
+import { frFR } from './lang/fr-FR'
+import { jaJP } from './lang/ja-JP'
+import { koKR } from './lang/ko-KR'
+import { ptPT } from './lang/pt-PT'
+import { ruRU } from './lang/ru-RU'
+import { thTH } from './lang/th-TH'
+import { trTR } from './lang/tr-TR'
+import { viVN } from './lang/vi-VN'
+import { zhHK } from './lang/zh-HK'
+import { zhTW } from './lang/zh-TW'
+
+/** 当前激活的语言代码 */
+const lang = ref<string>('zh-CN')
+
+/** 多语言消息存储 */
+const messagesMap = new Map<string, UTSJSONObject>()
+
+/** 初始化语言包 */
+messagesMap.set('ar-SA', arSA)
+messagesMap.set('de-DE', deDE)
+messagesMap.set('en-US', enUS)
+messagesMap.set('es-ES', esES)
+messagesMap.set('fr-FR', frFR)
+messagesMap.set('ja-JP', jaJP)
+messagesMap.set('ko-KR', koKR)
+messagesMap.set('pt-PT', ptPT)
+messagesMap.set('ru-RU', ruRU)
+messagesMap.set('th-TH', thTH)
+messagesMap.set('tr-TR', trTR)
+messagesMap.set('vi-VN', viVN)
+messagesMap.set('zh-CN', zhCN)
+messagesMap.set('zh-HK', zhHK)
+messagesMap.set('zh-TW', zhTW)
+
+/**
+ * 国际化语言管理器
+ */
+export const Locale = {
+  /**
+   * 获取当前语言的消息对象
+   */
+  messages: () : UTSJSONObject => {
+    const current = messagesMap.get(lang.value)
+    if (current != null) {
+      return current!
+    }
+    return zhCN
+  },
+
+  /**
+   * 切换到指定语言
+   * @param newLang - 目标语言代码 (如: 'en-US', 'ja-JP')
+   * @param newMessage - 可选的新语言包数据
+   */
+  use: (newLang : string, newMessage ?: UTSJSONObject | null) => {
+    lang.value = newLang
+    if (newMessage != null) {
+      messagesMap.set(newLang, newMessage!)
+    }
+  },
+
+  /**
+   * 添加或更新语言包
+   * @param langCode - 语言代码
+   * @param message - 语言包数据
+   */
+  add: (langCode : string, message : UTSJSONObject) => {
+    messagesMap.set(langCode, message)
+  },
+}
+
+/**
+ * 获取当前语言的响应式引用
+ */
+export const useCurrentLang = () : Ref<string> => lang

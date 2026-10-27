@@ -1,0 +1,83 @@
+<!--
+Layout 布局 配合el-col用于快速进行布局
+
+UniApp X 版本迁移说明：
+- script lang="ts" → lang="uts"
+- 移除 defineOptions
+- 移除手动组件 import（easycom 自动注册）
+- ::after 伪元素 → 真实 <view> 元素（清除浮动）
+-->
+<template>
+  <!-- 栅格行容器：用于包裹栅格列组件 -->
+  <view
+    :class="`wd-row ${customClass}`"
+    :style="`${gutter < 0 ? '' : gutter ? `margin-left: ${addUnit(-gutter / 2)}; margin-right: ${addUnit(-gutter / 2)};` : ''}${customStyle}`"
+  >
+    <!-- 栅格列内容插槽 -->
+    <slot />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { provide, reactive, watch } from 'vue'
+import { addUnit } from '../common/util'
+import { createChildManager } from '../../composables/useChildren'
+import { ROW_KEY, type RowProvide } from './wd-row-key'
+
+/**
+ * 栅格行组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 列元素之间的间距（单位为px） */
+  gutter ?: number
+}>(), {
+  customStyle: '',
+  customClass: '',
+  gutter: 0,
+})
+
+/** 创建子组件管理器 */
+const manager = createChildManager()
+
+/** 提供行布局数据给子组件 */
+const rowProvide : RowProvide = reactive({
+  childUids: manager.childUids,
+  addChild: manager.addChild,
+  removeChild: manager.removeChild,
+  props: { gutter: props.gutter },
+} as RowProvide)
+
+provide(ROW_KEY, rowProvide)
+
+/** 监听 gutter 属性变化 */
+watch(
+  () : number => props.gutter,
+  (newGutter : number) => {
+    rowProvide.props.gutter = newGutter
+  },
+)
+
+/** 验证 gutter 值的有效性 */
+if (props.gutter < 0) {
+  console.error('warning(wd-row): attribute gutter must be greater than or equal to 0')
+}
+</script>
+
+<style lang="scss">
+/* 引入外部样式文件 */
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 栅格行样式 */
+@include b(row) {
+  position: relative;
+  /* UniApp X 的 view 默认 flex-direction: column，需显式覆盖为行布局 */
+  flex-direction: row;
+  flex-wrap: wrap;
+
+}
+</style>

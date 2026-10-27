@@ -1,0 +1,286 @@
+<!--
+FloatingPanel 浮动面板 浮动在页面底部的面板,用户可以通过上下拖动面板来浏览内容
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export interface/type
+- CSSProperties 改为 UTSJSONObject
+- TouchEvent 改为 UniTouchEvent
+- any 改为具体类型
+- display: inline-block 改为 display: flex
+-->
+<template>
+  <view
+    :class="`wd-floating-panel ${customClass} ${safeAreaInsetBottom ? 'is-safe' : ''}`"
+    :style="rootStyle"
+    @touchstart.passive="handleTouchStart"
+    @touchmove.passive="handleTouchMove"
+    @touchend="handleTouchEnd"
+    @touchcancel="handleTouchEnd"
+  >
+    <view class="wd-floating-panel__header">
+      <view class="wd-floating-panel__header-bar" />
+    </view>
+
+    <scroll-view
+      class="wd-floating-panel__content"
+      data-id="content"
+      :show-scrollbar="showScrollbar"
+      scroll-y
+      @touchmove.stop.prevent="handleTouchMove"
+    >
+      <slot />
+    </scroll-view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, onBeforeMount, ref, watch } from 'vue'
+import { addUnit, closest, objToStyle } from '../common/util'
+import { useTouch } from '../composables/useTouch'
+
+/**
+ * 浮动面板组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 面板的显示高度 */
+  height ?: number
+  /** 设置自定义锚点,默认值 [100, windowHeight * 0.6] */
+  anchors ?: number[]
+  /** 弹出面板是否设置底部安全距离 */
+  safeAreaInsetBottom ?: boolean
+  /** 是否显示滚动条 */
+  showScrollbar ?: boolean
+  /** 动画时长,单位毫秒 */
+  duration ?: string | number
+  /** 是否允许内容区容器拖拽 */
+  contentDraggable ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  height: 0,
+  anchors: () : number[] => [],
+  safeAreaInsetBottom: false,
+  showScrollbar: true,
+  duration: 300,
+  contentDraggable: true,
+})
+
+/** 组件事件 */
+const emit = defineEmits(['update:height', 'height-change'])
+
+/** 触摸手势处理 */
+const touch = useTouch()
+
+/** 响应式数据 */
+const heightValue = ref<number>(props.height)
+const windowHeight = ref<number>(0)
+const dragging = ref<boolean>(false)
+
+/** 常量定义 */
+const DAMP = 0.2
+let startY : number = 0
+
+/**
+ * 计算边界值
+ */
+const boundary = computed(() : UTSJSONObject => {
+  const min = props.anchors.length > 0 ? props.anchors[0] : 100
+  const max = props.anchors.length > 0 ? props.anchors[props.anchors.length - 1] : Math.round(windowHeight.value * 0.6)
+  return {
+    min: min,
+    max: max,
+  }
+})
+
+/**
+ * 计算锚点数组
+ */
+const anchors = computed(() : number[] => {
+  const b = boundary.value
+  return props.anchors.length >= 2 ? props.anchors : [b['min'] as number, b['max'] as number]
+})
+
+/**
+ * 计算根元素样式
+ */
+const rootStyle = computed(() : string => {
+  const b = boundary.value
+  const style : UTSJSONObject = {
+    height: addUnit(b['max'] as number),
+    transform: `translateY(calc(100% + ${addUnit(-heightValue.value)}))`,
+    transition: !dragging.value
+      ? `transform ${props.duration}ms cubic-bezier(0.18, 0.89, 0.32, 1.28)`
+      : 'none',
+  }
+
+  return `${objToStyle(style)}${props.customStyle}`
+})
+
+/**
+ * 更新面板高度
+ */
+const updateHeight = (value : number) => {
+  heightValue.value = value
+  emit('update:height', value)
+}
+
+/**
+ * 监听 height 属性变化
+ */
+watch(
+  () => props.height,
+  (value) => {
+    heightValue.value = value
+  },
+)
+
+/**
+ * 监听边界值变化
+ */
+watch(
+  boundary,
+  () => {
+    updateHeight(closest(anchors.value, heightValue.value))
+  },
+  { immediate: true },
+)
+
+/**
+ * 组件挂载前的处理
+ */
+onBeforeMount(() => {
+  const sysInfo = uni.getSystemInfoSync()
+  windowHeight.value = sysInfo.windowHeight
+})
+
+/**
+ * 处理触摸开始事件
+ */
+const handleTouchStart = (event : UniTouchEvent) => {
+  touch.touchStart(event)
+  dragging.value = true
+  startY = -heightValue.value
+}
+
+/**
+ * 缓动函数
+ */
+const ease = (y : number) : number => {
+  const absDistance = Math.abs(y)
+  const b = boundary.value
+  const min = b['min'] as number
+  const max = b['max'] as number
+
+  if (absDistance > max) {
+    return -(max + (absDistance - max) * DAMP)
+  }
+
+  if (absDistance < min) {
+    return -(min - (min - absDistance) * DAMP)
+  }
+
+  return y
+}
+
+/**
+ * 处理触摸移动事件
+ */
+const handleTouchMove = (event : UniTouchEvent) => {
+  const target = event.currentTarget as any
+
+  if (target.dataset.id === 'content') {
+    if (!props.contentDraggable) return
+  }
+
+  touch.touchMove(event)
+  const moveY = touch.deltaY.value + startY
+  updateHeight(-ease(moveY))
+}
+
+/**
+ * 处理触摸结束事件
+ */
+const handleTouchEnd = () => {
+  dragging.value = false
+  updateHeight(closest(anchors.value, heightValue.value))
+
+  if (heightValue.value !== -startY) {
+    emit('height-change', { height: heightValue.value })
+  }
+}
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+.wot-theme-dark {
+  @include b(floating-panel) {
+    background: $-dark-background2;
+
+    @include e(content) {
+      background: $-dark-background2;
+    }
+  }
+}
+
+@include b(floating-panel) {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  z-index: $-floating-panel-z-index;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100vw;
+  border-top-left-radius: $-floating-panel-radius;
+  border-top-right-radius: $-floating-panel-radius;
+  background-color: $-floating-panel-bg;
+  touch-action: none;
+  will-change: transform;
+
+  @include when(safe) {
+    padding-bottom: constant(safe-area-inset-bottom);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* UniApp X: ::after 伪元素简化 */
+  &::after {
+    position: absolute;
+    bottom: -100vh;
+    display: flex;
+    width: 100vw;
+    height: 100vh;
+    content: '';
+    background-color: inherit;
+  }
+
+  @include e(header) {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: $-floating-panel-header-height;
+    cursor: grab;
+    user-select: none;
+
+    &-bar {
+      width: $-floating-panel-bar-width;
+      height: $-floating-panel-bar-height;
+      background-color: $-floating-panel-bar-bg;
+      border-radius: $-floating-panel-bar-radius;
+    }
+  }
+
+  @include e(content) {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    background-color: $-floating-panel-content-bg;
+  }
+}
+</style>

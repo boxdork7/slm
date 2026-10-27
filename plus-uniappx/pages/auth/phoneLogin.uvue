@@ -1,0 +1,182 @@
+<template>
+	<view class="phone-login-page">
+		<!-- 导航栏 -->
+		<wd-navbar show-back />
+
+		<!-- 主要内容区域 -->
+		<view class="content-area">
+			<wd-text text="登录发现更多精彩" size="42" block />
+			<wd-text
+				custom-class="subtitle"
+				type="info"
+				text="未注册的手机号验证通过后将自动注册"
+				size="28"
+				block
+			/>
+
+			<wd-input
+				v-model="phoneNumber"
+				placeholder="请输入手机号"
+				no-border
+				custom-class="phone-input"
+			>
+				<template #prefix>
+					<wd-text text="+86" />
+				</template>
+			</wd-input>
+
+			<!-- 密码登录切换 -->
+			<view class="switch-row" @click="handlePasswordLogin">
+				<wd-icon name="swap" size="24" custom-class="switch-icon" />
+				<wd-text text="密码登录" size="24" type="primary" />
+			</view>
+
+			<!-- 验证并登录按钮 -->
+			<wd-button
+				type="error"
+				:disabled="!isPhoneValid"
+				@click="handleSendSms"
+				custom-class="verify-btn"
+			>
+				验证并登录
+			</wd-button>
+
+			<!-- 用户协议 -->
+			<view class="agreement-row">
+				<wd-checkbox v-model="agreedToTerms" custom-class="agreement-checkbox" />
+				<view class="agreement-text">
+					<wd-text text="已阅读并同意" />
+					<wd-text text="用户协议" type="primary" @click="handleShowAgreement('user')" />
+					<wd-text text="，运营商将对你提供的手机号进行验证" />
+				</view>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { ref, computed } from 'vue'
+	import { smsCode } from '@/api/system/auth/authApi'
+	import { useMessage, useToast } from '@/wd'
+	import { AsyncResult } from '@/utils/to'
+	import { MessageResult } from '@/wd/components/wd-message-box/useMessage'
+
+	/* 响应式数据 */
+	const phoneNumber = ref('')
+	const agreedToTerms = ref(false)
+
+	const toast = useToast()
+	const message = useMessage()
+
+	/* 计算属性 - 手机号验证 */
+	const isPhoneValid = computed(() : boolean => {
+		const regex = new RegExp('^1[3-9]\\d{9}$')
+		return regex.test(phoneNumber.value)
+	})
+
+	/** 发送短信验证码 */
+	const handleSendSms = () => {
+		if (!isPhoneValid.value) return
+
+		if (!agreedToTerms.value) {
+			message.confirm({
+				title: '提示',
+				msg: '是否同意用户协议？',
+			}).then((result : MessageResult) => {
+				if (result.action == 'confirm') {
+					agreedToTerms.value = true
+					doSendSms()
+				}
+			})
+			return
+		}
+
+		doSendSms()
+	}
+
+	/** 执行发送短信 */
+	const doSendSms = () => {
+		smsCode(phoneNumber.value).then((result : AsyncResult) => {
+			if (result.err == null) {
+				/* 跳转到验证码页面 */
+				uni.navigateTo({
+					url: `/pages/auth/smsVerify?phone=${phoneNumber.value}&type=login`,
+				})
+			} else {
+				toast.error('发送验证码失败，请稍后再试')
+			}
+		})
+	}
+
+	/** 切换密码登录 */
+	const handlePasswordLogin = () => {
+		uni.navigateBack({
+			fail: () => {
+				uni.redirectTo({
+					url: '/pages/auth/login',
+				})
+			}
+		})
+	}
+
+	/** 显示协议 */
+	const handleShowAgreement = (agreementType : string) => {
+		console.log('待实现协议展示:', agreementType)
+	}
+</script>
+
+<style lang="scss" scoped>
+	.phone-login-page {
+		display: flex;
+		flex-direction: column;
+		height: 100vh;
+	}
+
+	.content-area {
+		padding: 24rpx 24rpx 0;
+		padding-top: 32rpx;
+	}
+
+	.subtitle {
+		margin-top: 4rpx;
+	}
+
+	.phone-input {
+		background-color: #F9F9F9 !important;
+		padding: 12rpx 12rpx;
+		border-radius: 16rpx;
+		margin-top: 24rpx;
+	}
+
+	.switch-row {
+		margin-top: 12rpx;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.switch-icon {
+		margin-right: 8rpx;
+		color: #3b82f6;
+	}
+
+	.verify-btn {
+		width: 100%;
+		margin-top: 20rpx;
+	}
+
+	.agreement-row {
+		margin-top: 12rpx;
+		display: flex;
+		flex-direction: row;
+		align-items: flex-start;
+	}
+
+	.agreement-checkbox {
+		margin-top: 4rpx;
+	}
+
+	.agreement-text {
+		font-size: 24rpx;
+	}
+</style>

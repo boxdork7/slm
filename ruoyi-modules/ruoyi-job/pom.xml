@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <groupId>plus.ruoyi</groupId>
+        <artifactId>ruoyi-modules</artifactId>
+        <version>${revision}</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>ruoyi-job</artifactId>
+
+    <description>
+        轻量分布式定时任务模块 - 内置调度引擎(依赖 MySQL + Redis)，兼容集群，可插拔
+    </description>
+
+    <dependencies>
+        <!-- 核心模块 - 提供 @JobHandler / JobContext / 工具类 -->
+        <dependency>
+            <groupId>plus.ruoyi</groupId>
+            <artifactId>ruoyi-common-core</artifactId>
+        </dependency>
+
+        <!-- Web模块 - 提供 Controller 支持 -->
+        <dependency>
+            <groupId>plus.ruoyi</groupId>
+            <artifactId>ruoyi-common-web</artifactId>
+        </dependency>
+
+        <!-- 缓存模块 - 提供分布式锁(RLock)与发布订阅 -->
+        <dependency>
+            <groupId>plus.ruoyi</groupId>
+            <artifactId>ruoyi-common-redis</artifactId>
+        </dependency>
+
+        <!-- 数据库模块 - 提供四层 DAO / BaseDaoImpl / PlusLambdaQuery -->
+        <dependency>
+            <groupId>plus.ruoyi</groupId>
+            <artifactId>ruoyi-common-mybatis</artifactId>
+        </dependency>
+
+        <!-- JSON模块 - 广播消息序列化 / 参数解析 -->
+        <dependency>
+            <groupId>plus.ruoyi</groupId>
+            <artifactId>ruoyi-common-json</artifactId>
+        </dependency>
+
+        <!-- 安全模块 - 提供权限注解 @SaCheckPermission -->
+        <dependency>
+            <groupId>plus.ruoyi</groupId>
+            <artifactId>ruoyi-common-satoken</artifactId>
+        </dependency>
+
+        <!-- 日志模块 - 提供操作日志 @Log -->
+        <dependency>
+            <groupId>plus.ruoyi</groupId>
+            <artifactId>ruoyi-common-log</artifactId>
+        </dependency>
+
+        <!-- 幂等模块 - 提供 @RepeatSubmit 防重复提交 -->
+        <dependency>
+            <groupId>plus.ruoyi</groupId>
+            <artifactId>ruoyi-common-idempotent</artifactId>
+        </dependency>
+
+        <!-- 接口文档模块 -->
+        <dependency>
+            <groupId>plus.ruoyi</groupId>
+            <artifactId>ruoyi-common-doc</artifactId>
+        </dependency>
+
+        <!-- ================ 测试依赖 ================ -->
+        <!-- 测试基础框架 - 提供单元测试基类与工具 -->
+        <dependency>
+            <groupId>plus.ruoyi</groupId>
+            <artifactId>ruoyi-common-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                      故意让测试 JVM 跑在 UTC 下。
+                      本模块的调度时间必须固定按 Asia/Shanghai 计算、不跟随 JVM 默认时区，
+                      而开发/CI 机器通常恰好就是东八区——用默认时区跑测试，
+                      「误用 systemDefault()」这类缺陷永远复现不出来（等于没测）。
+                      置为 UTC 后，一旦有人把 CronUtils.ZONE 改回 systemDefault()，测试立刻失败。
+                      注意：argLine 会覆盖父 pom 的同名配置，故需带上父 pom 原有的两个参数。
+                    -->
+                    <argLine>-Dfile.encoding=UTF-8 -XX:+EnableDynamicAgentLoading -Duser.timezone=UTC</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

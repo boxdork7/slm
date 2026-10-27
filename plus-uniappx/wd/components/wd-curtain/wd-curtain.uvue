@@ -1,0 +1,318 @@
+<!--
+Curtain 幕帘组件 一般用于公告类的图片弹窗
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- ClosePosition 联合类型 → string
+- import { addUnit } → 从 ../common/util 导入
+- edeep → e（UniApp X mixin）
+- :deep() → 直接类选择器
+- 移除 value 兼容属性（UniApp X 只用 modelValue）
+-->
+<template>
+  <view class="wd-curtain-wrapper">
+    <wd-popup
+      v-model="isShow"
+      :custom-class="`wd-curtain ${customClass}`"
+      :custom-style="customStyle"
+      transition="zoom-in"
+      position="center"
+      :close-on-click-modal="closeOnClickModal"
+      :hide-when-close="hideWhenClose"
+      :z-index="zIndex"
+      @before-enter="handleBeforeEnter"
+      @enter="handleEnter"
+      @after-enter="handleAfterEnter"
+      @before-leave="handleBeforeLeave"
+      @leave="handleLeave"
+      @after-leave="handleAfterLeave"
+      @close="handleClose"
+      @click-modal="handleClickModal"
+    >
+      <view class="wd-curtain__content">
+        <image
+          :src="src"
+          class="wd-curtain__content-img"
+          :style="imgStyle"
+          @click="handleClickImage"
+          @error="handleImgError"
+          @load="handleImgLoad"
+        />
+        <slot name="close">
+          <wd-icon
+            name="close-outline"
+            :custom-class="`wd-curtain__content-close ${closePosition} ${customCloseClass}`"
+            :custom-style="customCloseStyle"
+            @click="handleClose"
+          />
+        </slot>
+      </view>
+    </wd-popup>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { ref, watch, computed } from 'vue'
+import { addUnit } from '../common/util'
+
+/**
+ * Curtain 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 绑定值，展示/关闭幕帘 */
+  modelValue ?: boolean
+  /** 关闭按钮位置 */
+  closePosition ?: string
+  /** 幕帘图片地址 */
+  src ?: string
+  /** 幕帘图片点击链接 */
+  to ?: string
+  /** 幕帘图片宽度 */
+  width ?: number
+  /** 点击遮罩是否关闭 */
+  closeOnClickModal ?: boolean
+  /** 是否当关闭时将弹出层隐藏 */
+  hideWhenClose ?: boolean
+  /** 设置层级 */
+  zIndex ?: number
+  /** 自定义关闭按钮的类名 */
+  customCloseClass ?: string
+  /** 自定义关闭按钮的样式 */
+  customCloseStyle ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  modelValue: false,
+  closePosition: 'inset',
+  src: '',
+  to: '',
+  width: 560,
+  closeOnClickModal: false,
+  hideWhenClose: true,
+  zIndex: 100,
+  customCloseClass: '',
+  customCloseStyle: '',
+})
+
+const emit = defineEmits<{
+  (e : 'beforeenter') : void
+  (e : 'enter') : void
+  (e : 'afterenter') : void
+  (e : 'beforeleave') : void
+  (e : 'leave') : void
+  (e : 'afterleave') : void
+  (e : 'close') : void
+  (e : 'closed') : void
+  (e : 'click-modal') : void
+  (e : 'load') : void
+  (e : 'error') : void
+  (e : 'click') : void
+  (e : 'update:modelValue', value : boolean) : void
+}>()
+
+/* 本地状态 */
+const isShow = ref(false)
+const imgSucc = ref(true)
+const imgScale = ref(1.0)
+
+/**
+ * 图片样式
+ */
+const imgStyle = computed(() : string => {
+  if (props.width > 0) {
+    const h = props.width / imgScale.value
+    return `width: ${addUnit(props.width)}; height: ${addUnit(h)}`
+  }
+  return ''
+})
+
+/**
+ * 监听 modelValue 变化
+ */
+watch(() => props.modelValue, (newVal : boolean) => {
+  isShow.value = newVal
+}, { immediate: true })
+
+/**
+ * 监听内部状态变化
+ */
+watch(isShow, (newVal : boolean) => {
+  emit('update:modelValue', newVal)
+  if (!newVal) {
+    emit('close')
+  }
+})
+
+/* 事件转发 */
+const handleBeforeEnter = () => {
+  emit('beforeenter')
+}
+
+const handleEnter = () => {
+  emit('enter')
+}
+
+const handleAfterEnter = () => {
+  emit('afterenter')
+}
+
+const handleBeforeLeave = () => {
+  emit('beforeleave')
+}
+
+const handleLeave = () => {
+  emit('leave')
+}
+
+const handleAfterLeave = () => {
+  emit('afterleave')
+  emit('closed')
+}
+
+const handleClose = () => {
+  isShow.value = false
+}
+
+const handleClickModal = () => {
+  emit('click-modal')
+}
+
+/**
+ * 处理图片加载完成事件
+ */
+const handleImgLoad = (event : any) => {
+  const detail = event.detail as UTSJSONObject
+  const width = (detail['width'] as number) ?? 1
+  const height = (detail['height'] as number) ?? 1
+  imgScale.value = width.toFloat() / height.toFloat()
+  imgSucc.value = true
+  emit('load')
+}
+
+/**
+ * 处理图片加载错误事件
+ */
+const handleImgError = () => {
+  imgSucc.value = false
+  emit('error')
+}
+
+/**
+ * 处理点击图片事件
+ */
+const handleClickImage = () => {
+  if (props.to != '') {
+    uni.navigateTo({
+      url: props.to,
+    })
+  }
+  emit('click')
+  handleClose()
+}
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/mixin';
+@import '../common/abstracts/variable';
+
+/* 幕帘包装器样式 */
+.wd-curtain-wrapper {
+  .wd-curtain {
+    display: flex;
+    border-radius: $-curtain-content-radius;
+    overflow: visible;
+    background: transparent;
+    font-size: 0;
+  }
+}
+
+@include b(curtain) {
+  /* 内容区域样式 */
+  @include e(content) {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: transparent;
+    border-radius: $-curtain-content-radius;
+  }
+
+  /* 内容图片样式 */
+  @include e(content-img) {
+    display: block;
+    width: auto;
+    height: auto;
+    border-radius: $-curtain-content-radius;
+  }
+
+  /* 关闭按钮样式 */
+  .wd-curtain__content-close {
+    position: absolute;
+    margin: 0;
+    padding: 6px;
+    top: 10px;
+    right: 10px;
+    color: $-curtain-content-close-color;
+    font-size: $-curtain-content-close-fs;
+  }
+
+  /* 顶部居中位置 */
+  .wd-curtain__content-close.top {
+    margin: 0 0 0 -18px;
+    top: -62px;
+    right: auto;
+    left: 50%;
+    bottom: auto;
+  }
+
+  /* 顶部左侧位置 */
+  .wd-curtain__content-close.top-left {
+    margin: 0;
+    top: -62px;
+    right: auto;
+    left: -6px;
+    bottom: auto;
+  }
+
+  /* 顶部右侧位置 */
+  .wd-curtain__content-close.top-right {
+    margin: 0;
+    top: -62px;
+    right: -6px;
+    left: auto;
+    bottom: auto;
+  }
+
+  /* 底部居中位置 */
+  .wd-curtain__content-close.bottom {
+    margin: 0 0 0 -18px;
+    top: auto;
+    right: auto;
+    left: 50%;
+    bottom: -62px;
+  }
+
+  /* 底部左侧位置 */
+  .wd-curtain__content-close.bottom-left {
+    margin: 0;
+    top: auto;
+    right: auto;
+    left: -6px;
+    bottom: -62px;
+  }
+
+  /* 底部右侧位置 */
+  .wd-curtain__content-close.bottom-right {
+    margin: 0;
+    top: auto;
+    right: -6px;
+    left: auto;
+    bottom: -62px;
+  }
+}
+</style>

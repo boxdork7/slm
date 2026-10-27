@@ -1,0 +1,874 @@
+<!--
+Upload 上传 - UniApp X 版本
+
+迁移说明:
+1. 简化版本 - 移除了复杂的表单模式,专注于基础上传功能
+2. 移除 defineOptions
+3. 移除 useTranslate - 直接使用中文文本
+4. 简化类型定义 - Union literal 类型改为 string
+5. Record<string, any> 改为 UTSJSONObject
+6. 移除 ::before/::after 伪元素
+7. 简化了验证逻辑
+8. 保留核心功能: 图片/视频上传、预览、删除、进度显示
+9. 依赖 useUpload.uts composable (已迁移)
+-->
+<template>
+  <view :class="rootClass" :style="customStyle">
+    <!-- 上传内容区域 -->
+    <view class="wd-upload__body">
+      <view :class="`wd-upload__content ${previewSizeClass}`">
+        <!-- 预览列表 -->
+        <view
+          v-for="(file, index) in uploadFiles"
+          :key="index"
+          :class="`wd-upload__preview ${customPreviewClass}`"
+        >
+          <!-- 成功时展示内容 -->
+          <view class="wd-upload__status-content">
+            <!-- 图片预览 -->
+            <image
+              v-if="isImage(file)"
+              :src="file.url"
+              :mode="imageMode"
+              class="wd-upload__picture"
+              @click="onPreviewImage(file)"
+            />
+            <!-- 视频预览 -->
+            <view v-else-if="isVideo(file)" class="wd-upload__video" @click="onPreviewVideo(file)">
+              <image v-if="file.thumb != ''" :src="file.thumb" :mode="imageMode" class="wd-upload__picture" />
+              <video
+                v-else
+                :src="file.url"
+                object-fit="contain"
+                :controls="false"
+                :autoplay="false"
+                class="wd-upload__video"
+              />
+              <wd-icon name="play-fill" custom-class="wd-upload__video-play" size="64" />
+            </view>
+            <!-- 文件预览 -->
+            <view v-else class="wd-upload__file" @click="onPreviewFile(file)">
+              <wd-icon :name="getFileIcon(file)" custom-class="wd-upload__file-icon" size="64" />
+              <view class="wd-upload__file-name">
+                {{ file.name || file.url }}
+              </view>
+            </view>
+          </view>
+
+          <!-- 上传中或失败状态遮罩 -->
+          <view
+            v-if="file[statusKey] !== 'success'"
+            class="wd-upload__status-content wd-upload__mask"
+          >
+            <!-- loading状态 -->
+            <view v-if="file[statusKey] === 'loading'" class="wd-upload__status-content">
+              <wd-loading :type="loadingType" :size="loadingSize" :color="loadingColor" />
+              <text class="wd-upload__progress-txt">{{ file.percent }}%</text>
+            </view>
+            <!-- 失败状态 -->
+            <view v-if="file[statusKey] === 'fail'" class="wd-upload__status-content">
+              <wd-icon name="close-outline" custom-class="wd-upload__icon" size="32" />
+              <text class="wd-upload__progress-txt">
+                {{ file.error || '上传失败' }}
+              </text>
+            </view>
+          </view>
+
+          <!-- 删除按钮 -->
+          <wd-icon
+            v-if="file[statusKey] !== 'loading' && !disabled"
+            name="close-fill"
+            size="32"
+            custom-class="wd-upload__close"
+            @click="removeFile(index)"
+          />
+        </view>
+
+        <!-- 上传按钮 -->
+        <view
+          v-if="showUpload"
+          :class="`wd-upload__evoke ${disabled ? 'is-disabled' : ''} ${customEvokeClass}`"
+          @click="handleChoose"
+        >
+          <wd-icon class="wd-upload__evoke-icon" :name="evokeIconName" size="64" />
+          <view v-if="limit > 0 && showLimitNum" class="wd-upload__evoke-num">
+            （{{ uploadFiles.length }}/{{ limit }}）
+          </view>
+        </view>
+
+        <!-- 清空按钮 -->
+        <view
+          v-if="clearable && uploadFiles.length > 0"
+          class="wd-upload__clear-btn"
+          @click="handleClear"
+        >
+          <wd-icon name="delete" custom-class="wd-upload__clear-icon" size="64" />
+          <text class="wd-upload__clear-text">清空</text>
+        </view>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, ref, watch } from 'vue'
+import { addUnit, isDef, isImageUrl, isVideoUrl } from '../common/util'
+import { useUpload } from '../../composables/useUpload.uts'
+
+// ======================== 类型定义 ========================
+
+/**
+ * 上传文件项
+ */
+type UploadFileItem = {
+  uid : number
+  thumb ?: string
+  name ?: string
+  status ?: string
+  size ?: number
+  url : string
+  originalUrl ?: string
+  percent ?: number
+  response ?: any
+  ossId ?: string | number
+  error ?: string
+  [key : string] : any
+}
+
+/**
+ * 选择文件
+ */
+type ChooseFile = {
+  path : string
+  size ?: number
+  name ?: string
+  type : string
+  duration ?: number
+  thumb ?: string
+}
+
+/**
+ * 上传文件
+ */
+type UploadFile = {
+  url : string
+  uid ?: number
+  thumb ?: string
+  name ?: string
+  status ?: string
+  size ?: number
+  percent ?: number
+  response ?: any
+  [key : string] : any
+}
+
+/**
+ * 上传结果
+ */
+type UploadResult = {
+  fileName : string
+  url : string
+  originalUrl ?: string
+  ossId : string
+  updateTime : string
+}
+
+// ======================== Props ========================
+
+const props = withDefaults(defineProps<{
+  /** v-model 绑定值 */
+  modelValue ?: UploadFile[] | string
+  /** 分隔符 */
+  separator ?: string
+  /** 值键 */
+  valueKey ?: string
+  /** 自定义样式 */
+  customStyle ?: string
+  /** 自定义类名 */
+  customClass ?: string
+  /** 自定义上传按钮类名 */
+  customEvokeClass ?: string
+  /** 自定义预览类名 */
+  customPreviewClass ?: string
+  /** 文件列表 */
+  fileList ?: UploadFile[]
+  /** 上传地址 */
+  action ?: string
+  /** 请求头 */
+  header ?: UTSJSONObject
+  /** 是否禁用 */
+  disabled ?: boolean
+  /** 文件字段名 */
+  name ?: string
+  /** 表单数据 */
+  formData ?: UTSJSONObject
+  /** 是否多选 */
+  multiple ?: boolean
+  /** 最大上传数量 */
+  limit ?: number
+  /** 显示限制数量 */
+  showLimitNum ?: boolean
+  /** 最大文件大小 */
+  maxSize ?: number
+  /** 来源类型 */
+  sourceType ?: string[]
+  /** 尺寸类型 */
+  sizeType ?: string[]
+  /** 接受文件类型 */
+  accept ?: string
+  /** 图片模式 */
+  imageMode ?: string
+  /** 加载类型 */
+  loadingType ?: string
+  /** 加载颜色 */
+  loadingColor ?: string
+  /** 加载大小 */
+  loadingSize ?: string
+  /** 状态键 */
+  statusKey ?: string
+  /** 成功状态码 */
+  successStatus ?: number
+  /** 自动上传 */
+  autoUpload ?: boolean
+  /** 清空按钮 */
+  clearable ?: boolean
+  /** 预览尺寸 */
+  previewSize ?: string
+  /** 启用直传 */
+  enableDirectUpload ?: boolean
+  /** 模块名称 */
+  moduleName ?: string
+  /** 目录ID */
+  directoryId ?: string | number
+  /** 目录路径 */
+  directoryPath ?: string
+}>(), {
+  separator: ',',
+  valueKey: 'url',
+  customStyle: '',
+  customClass: '',
+  customEvokeClass: '',
+  customPreviewClass: '',
+  fileList: () : UploadFile[] => [],
+  action: '',
+  disabled: false,
+  name: 'file',
+  multiple: false,
+  limit: 0,
+  showLimitNum: true,
+  maxSize: Number.MAX_VALUE,
+  sourceType: () : string[] => ['album', 'camera'],
+  sizeType: () : string[] => ['original', 'compressed'],
+  accept: 'image',
+  imageMode: 'aspectFit',
+  loadingType: 'ring',
+  loadingColor: '#ffffff',
+  loadingSize: '48rpx',
+  statusKey: 'status',
+  successStatus: 200,
+  autoUpload: true,
+  clearable: false,
+  previewSize: 'medium',
+  enableDirectUpload: false,
+})
+
+const emit = defineEmits(['fail', 'change', 'success', 'progress', 'oversize', 'chooseerror', 'remove', 'update:fileList', 'update:modelValue', 'clear'])
+
+// ======================== Composables ========================
+
+const { startUpload, abort, chooseFile, UPLOAD_STATUS } = useUpload()
+
+// ======================== 响应式数据 ========================
+
+const uploadFiles = ref<UploadFileItem[]>([])
+let idCounter = 1000
+
+// ======================== 计算属性 ========================
+
+/**
+ * 唤起按钮图标
+ */
+const evokeIconName = computed(() : string => {
+  const acceptType = props.accept
+  if (acceptType == 'image') return 'camera-fill'
+  if (acceptType == 'video') return 'video-fill'
+  if (acceptType == 'audio') return 'audio-fill'
+  if (acceptType == 'file') return 'file-add-fill'
+  if (acceptType == 'media') return 'image-fill'
+  return 'upload-fill'
+})
+
+/**
+ * 预览尺寸类名
+ */
+const previewSizeClass = computed(() : string => {
+  if (props.previewSize != '') {
+    return `is-preview-${props.previewSize}`
+  }
+  return ''
+})
+
+/**
+ * 根元素类名
+ */
+const rootClass = computed(() : string => {
+  const classes : string[] = ['wd-upload']
+  if (props.disabled) classes.push('is-disabled')
+  if (uploadFiles.value.length > 0) classes.push('is-not-empty')
+  if (props.customClass != '') classes.push(props.customClass)
+  return classes.join(' ')
+})
+
+/**
+ * 是否显示上传按钮
+ */
+const showUpload = computed(() : boolean => {
+  return props.limit == 0 || uploadFiles.value.length < props.limit
+})
+
+// ======================== 工具函数 ========================
+
+/**
+ * 提取干净URL
+ */
+const extractCleanUrl = (fullUrl : string) : string => {
+  if (fullUrl == '' || fullUrl.indexOf('?') == -1) return fullUrl
+  const presignedParams = ['X-Amz-', 'OSSAccessKeyId', 'Signature', 'Expires', 'q-sign-', 'token']
+  const hasPresigned = presignedParams.some((param : string) : boolean => fullUrl.indexOf(param) > -1)
+  return hasPresigned ? fullUrl.split('?')[0] : fullUrl
+}
+
+/**
+ * 文件列表转字符串
+ */
+const filesToString = (files : UploadFileItem[]) : string => {
+  return files.map((file : UploadFileItem) : string => {
+    return file.originalUrl || file[props.valueKey] || file.url
+  }).join(props.separator)
+}
+
+/**
+ * 字符串转文件列表
+ */
+const stringToFiles = (value : string) : UploadFileItem[] => {
+  if (value == '') return []
+  const urls = value.split(props.separator).filter((url : string) : boolean => url != '')
+  return urls.map((url : string, index : number) : UploadFileItem => {
+    return {
+      uid: idCounter++,
+      url: url.trim(),
+      originalUrl: extractCleanUrl(url.trim()),
+      [props.statusKey]: 'success',
+      name: `文件${index + 1}`,
+      percent: 0,
+      response: '',
+    }
+  })
+}
+
+/**
+ * 判断是否为视频
+ */
+const isVideo = (file : UploadFileItem) : boolean => {
+  const name = file.name || ''
+  const url = file.url || ''
+  return (name != '' && isVideoUrl(name)) || isVideoUrl(url)
+}
+
+/**
+ * 判断是否为图片
+ */
+const isImage = (file : UploadFileItem) : boolean => {
+  const name = file.name || ''
+  const url = file.url || ''
+  return (name != '' && isImageUrl(name)) || isImageUrl(url)
+}
+
+/**
+ * 获取文件图标
+ */
+const getFileIcon = (file : UploadFileItem) : string => {
+  const fileName = file.name || file.url
+  const parts = fileName.split('.')
+  const extension = parts.length > 0 ? parts[parts.length - 1].toLowerCase() : ''
+
+  if (extension == '') return 'file'
+
+  // 文档类型
+  if (extension == 'doc' || extension == 'docx') return 'file-word-fill'
+  if (extension == 'xls' || extension == 'xlsx') return 'file-excel-fill'
+  if (extension == 'ppt' || extension == 'pptx') return 'file-ppt-fill'
+  if (extension == 'pdf') return 'file-pdf-fill'
+
+  // 压缩文件
+  if (extension == 'zip' || extension == 'rar' || extension == '7z') return 'folder-fill'
+
+  // 文本文件
+  if (extension == 'txt' || extension == 'md' || extension == 'json' || extension == 'xml') {
+    return 'file-fill'
+  }
+
+  // 音频文件
+  if (extension == 'mp3' || extension == 'wav' || extension == 'flac' || extension == 'aac' || extension == 'ogg') {
+    return 'audio-fill'
+  }
+
+  return 'file-fill'
+}
+
+/**
+ * 触发文件列表更新
+ */
+const emitFileList = () => {
+  emit('update:fileList', uploadFiles.value)
+
+  // 更新 modelValue - 只包含成功的文件
+  const successFiles = uploadFiles.value.filter((file : UploadFileItem) : boolean => {
+    return file[props.statusKey] == 'success'
+  })
+
+  const modelValueType = typeof props.modelValue
+  if (modelValueType == 'object' && Array.isArray(props.modelValue)) {
+    emit('update:modelValue', successFiles)
+  } else {
+    emit('update:modelValue', filesToString(successFiles))
+  }
+}
+
+// ======================== 文件处理 ========================
+
+/**
+ * 上传失败
+ */
+const handleError = (error : any, file : UploadFileItem, formData : UTSJSONObject) => {
+  const index = uploadFiles.value.findIndex((item : UploadFileItem) : boolean => item.uid == file.uid)
+  if (index > -1) {
+    uploadFiles.value[index][props.statusKey] = 'fail'
+    uploadFiles.value[index].error = error.errMsg || '上传失败'
+    uploadFiles.value[index].response = error
+    emit('fail', { error, file, formData })
+    uni.showToast({ title: '上传失败', icon: 'none' })
+    emitFileList()
+  }
+}
+
+/**
+ * 上传成功
+ */
+const handleSuccess = (res : UploadResult, file : UploadFileItem, formData : UTSJSONObject) => {
+  const index = uploadFiles.value.findIndex((item : UploadFileItem) : boolean => item.uid == file.uid)
+  if (index > -1) {
+    uploadFiles.value[index][props.statusKey] = 'success'
+    uploadFiles.value[index].response = res
+    uploadFiles.value[index].url = res.url
+    uploadFiles.value[index].originalUrl = res.originalUrl || extractCleanUrl(res.url)
+    if (res.ossId != '') {
+      uploadFiles.value[index].ossId = res.ossId
+    }
+    emit('change', { fileList: uploadFiles.value })
+    emit('success', { file, fileList: uploadFiles.value, formData })
+    uni.showToast({ title: '上传成功', icon: 'success' })
+    emitFileList()
+  }
+}
+
+/**
+ * 上传进度
+ */
+const handleProgress = (res : any, file : UploadFileItem) => {
+  const index = uploadFiles.value.findIndex((item : UploadFileItem) : boolean => item.uid == file.uid)
+  if (index > -1) {
+    uploadFiles.value[index].percent = res.progress
+    emit('progress', { response: res, file })
+  }
+}
+
+/**
+ * 开始上传
+ */
+const startUploadFiles = () => {
+  const action = props.action != '' ? props.action : '/resource/oss/upload'
+  const header = props.header || {} as UTSJSONObject
+
+  const uploadFormData = {
+    ...props.formData,
+    ...(props.moduleName != '' ? { moduleName: props.moduleName } : {}),
+    ...(props.directoryId != null ? { directoryId: props.directoryId } : {}),
+    ...(props.directoryPath != '' ? { directoryPath: props.directoryPath } : {}),
+  }
+
+  uploadFiles.value.forEach((uploadFile : UploadFileItem) => {
+    if (uploadFile[props.statusKey] == UPLOAD_STATUS.PENDING) {
+      startUpload(uploadFile as any, {
+        action,
+        header,
+        name: props.name,
+        formData: uploadFormData,
+        fileType: props.accept as any,
+        statusCode: props.successStatus,
+        statusKey: props.statusKey,
+        enableDirectUpload: props.enableDirectUpload,
+        moduleName: props.moduleName,
+        directoryId: props.directoryId,
+        directoryPath: props.directoryPath,
+        onSuccess: handleSuccess,
+        onError: handleError,
+        onProgress: handleProgress,
+      })
+    }
+  })
+}
+
+/**
+ * 初始化文件
+ */
+const initFile = (file : ChooseFile) => {
+  const initState : UploadFileItem = {
+    uid: idCounter++,
+    name: file.name || '',
+    thumb: file.thumb || '',
+    [props.statusKey]: 'pending',
+    size: file.size || 0,
+    url: file.path,
+    percent: 0,
+  }
+
+  uploadFiles.value.push(initState)
+
+  if (props.autoUpload) {
+    startUploadFiles()
+  }
+
+  emit('update:fileList', uploadFiles.value)
+}
+
+/**
+ * 删除文件
+ */
+const removeFile = (index : number) => {
+  const file = uploadFiles.value[index]
+  uploadFiles.value.splice(index, 1)
+  emit('change', { fileList: uploadFiles.value })
+  emit('remove', { file })
+  emitFileList()
+}
+
+/**
+ * 清空
+ */
+const handleClear = () => {
+  uploadFiles.value = []
+  emit('change', { fileList: uploadFiles.value })
+  emit('clear')
+  emitFileList()
+}
+
+/**
+ * 选择文件
+ */
+const handleChoose = () => {
+  if (props.disabled) return
+
+  chooseFile({
+    multiple: props.multiple,
+    sizeType: props.sizeType as any,
+    sourceType: props.sourceType as any,
+    maxCount: props.limit > 0 ? props.limit - uploadFiles.value.length : 9,
+    accept: props.accept as any,
+  }).then((files : ChooseFile[]) => {
+    let selectedFiles = files
+    if (!props.multiple) {
+      selectedFiles = files.slice(0, 1)
+    }
+    selectedFiles.forEach((file : ChooseFile) => {
+      const fileSize = file.size || 0
+      if (fileSize <= props.maxSize) {
+        initFile(file)
+      } else {
+        emit('oversize', { file })
+      }
+    })
+  }).catch((error : any) => {
+    emit('chooseerror', { error })
+  })
+}
+
+// ======================== 预览处理 ========================
+
+/**
+ * 预览图片
+ */
+const onPreviewImage = (file : UploadFileItem) => {
+  const imageList = uploadFiles.value.filter((f : UploadFileItem) : boolean => isImage(f))
+  const urls = imageList.map((f : UploadFileItem) : string => f.url)
+  uni.previewImage({
+    urls: urls,
+    current: file.url,
+  })
+}
+
+/**
+ * 预览视频
+ */
+const onPreviewVideo = (file : UploadFileItem) => {
+  // 简化版本 - 直接显示提示
+  uni.showToast({ title: '点击查看视频', icon: 'none' })
+}
+
+/**
+ * 预览文件
+ */
+const onPreviewFile = (file : UploadFileItem) => {
+  uni.showToast({ title: '文件预览功能开发中', icon: 'none' })
+}
+
+// ======================== 监听器 ========================
+
+watch(() => props.modelValue, (newVal : UploadFile[] | string | null) => {
+  if (newVal == null) return
+
+  let newFiles : UploadFileItem[] = []
+
+  if (typeof newVal == 'object' && Array.isArray(newVal)) {
+    newFiles = newVal.map((item : UploadFile) : UploadFileItem => {
+      return {
+        uid: item.uid || idCounter++,
+        url: item.url,
+        name: item.name || '',
+        thumb: item.thumb || '',
+        size: item.size || 0,
+        percent: item.percent || 0,
+        response: item.response || '',
+        [props.statusKey]: item[props.statusKey] || 'success',
+      }
+    })
+  } else if (typeof newVal == 'string') {
+    newFiles = stringToFiles(newVal)
+  }
+
+  const currentString = filesToString(uploadFiles.value)
+  const newString = typeof newVal == 'object' ? filesToString(newFiles) : newVal
+
+  if (currentString != newString) {
+    uploadFiles.value = newFiles
+  }
+}, { deep: true, immediate: true })
+
+watch(() => props.fileList, (val : UploadFile[]) => {
+  if (props.modelValue != null) return
+
+  uploadFiles.value = val.map((item : UploadFile) : UploadFileItem => {
+    const statusValue = item[props.statusKey] || 'success'
+    return {
+      ...item,
+      uid: idCounter++,
+      [props.statusKey]: statusValue,
+      response: item.response || '',
+    }
+  })
+}, { deep: true, immediate: true })
+
+// ======================== 暴露方法 ========================
+
+defineExpose({
+  submit: () => startUploadFiles(),
+  abort: () => abort(),
+  clear: handleClear,
+  getValue: () : UploadFileItem[] => uploadFiles.value,
+  setValue: (files : UploadFileItem[]) => {
+    uploadFiles.value = files
+    emitFileList()
+  },
+})
+</script>
+
+<style lang="scss">
+@import './../common/abstracts/_mixin.scss';
+@import './../common/abstracts/variable.scss';
+
+@include b(upload) {
+  position: relative;
+  text-align: left;
+  background: $-input-bg;
+
+  @include when(disabled) {
+    opacity: $-button-disabled-opacity;
+  }
+
+  @include e(body) {
+    flex: 1;
+    position: relative;
+  }
+
+  @include e(content) {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+
+    // 预览尺寸控制
+    @include when(preview-small) {
+      .wd-upload__preview,
+      .wd-upload__evoke {
+        width: 120rpx;
+        height: 120rpx;
+      }
+    }
+
+    @include when(preview-medium) {
+      .wd-upload__preview,
+      .wd-upload__evoke {
+        width: $-upload-size;
+        height: $-upload-size;
+      }
+    }
+
+    @include when(preview-large) {
+      .wd-upload__preview,
+      .wd-upload__evoke {
+        width: 210rpx;
+        height: 210rpx;
+      }
+    }
+  }
+
+  @include e(evoke) {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: $-upload-size;
+    height: $-upload-size;
+    font-size: $-upload-evoke-icon-size;
+    background-color: $-upload-evoke-bg;
+    color: $-upload-evoke-color;
+    margin-bottom: 24rpx;
+    margin-right: 24rpx;
+
+    @include when(disabled) {
+      color: $-upload-evoke-disabled-color;
+    }
+  }
+
+  @include e(evoke-num) {
+    font-size: 28rpx;
+    line-height: 28rpx;
+    margin-top: 16rpx;
+  }
+
+  @include e(evoke-icon) {
+    width: 64rpx;
+    height: 64rpx;
+  }
+
+  @include e(preview) {
+    position: relative;
+    width: $-upload-size;
+    height: $-upload-size;
+    margin: 0 24rpx 24rpx 0;
+  }
+
+  @include e(picture, file, video) {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  @include e(file, video) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: $-upload-evoke-bg;
+  }
+
+  @include e(video-icon, file-icon) {
+    font-size: $-upload-cover-icon-size;
+  }
+
+  @include e(file-name) {
+    width: 100%;
+    font-size: $-upload-file-fs;
+    color: $-upload-file-color;
+    box-sizing: border-box;
+    padding: 0 8rpx;
+    text-align: center;
+    margin-top: 16rpx;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  @include e(video-play) {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 48rpx;
+    color: $-color-white;
+  }
+
+  @include e(close) {
+    position: absolute;
+    right: calc($-upload-close-icon-size / 2 * -1);
+    top: calc($-upload-close-icon-size / 2 * -1);
+    font-size: $-upload-close-icon-size;
+    z-index: 1;
+    color: $-upload-close-icon-color;
+    width: $-upload-close-icon-size;
+    height: $-upload-close-icon-size;
+    line-height: $-upload-close-icon-size;
+    background-color: $-color-white;
+    border-radius: 50%;
+  }
+
+  @include e(mask) {
+    position: absolute;
+    top: 0;
+    left: 0;
+    background-color: $-upload-preview-name-bg;
+  }
+
+  @include e(progress-txt) {
+    font-size: $-upload-progress-fs;
+    line-height: $-upload-progress-fs;
+    margin-top: 18rpx;
+  }
+
+  @include e(icon) {
+    font-size: $-cell-icon-size;
+  }
+
+  @include e(status-content) {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+  }
+
+  @include e(clear-btn) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: $-upload-size;
+    height: 64rpx;
+    margin-top: 16rpx;
+    background-color: $-upload-evoke-bg;
+    color: $-upload-evoke-color;
+    font-size: 24rpx;
+    border-radius: 8rpx;
+  }
+
+  @include e(clear-icon) {
+    font-size: 28rpx;
+    margin-right: 8rpx;
+  }
+
+  @include e(clear-text) {
+    font-size: 24rpx;
+  }
+}
+</style>

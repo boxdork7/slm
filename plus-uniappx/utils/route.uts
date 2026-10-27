@@ -1,0 +1,159 @@
+/**
+ * 路由工具类 (UniApp X 版本)
+ *
+ * 保持与 plus-app/utils/route.ts 核心功能一致
+ *
+ * 包含以下功能：
+ * - 获取当前页面 (getCurrentPage)
+ * - 判断是否为 tabBar 页面 (isTabBarPage, isCurrentTabBarPage)
+ * - URL 解析 (parseUrl)
+ * - 获取当前路由信息 (getCurrentRoute)
+ *
+ * UTS 适配说明：
+ * - 不能 import pages.json（UTS 不支持），改用 getCurrentPages() 运行时判断
+ * - tabBarList 需要手动维护或通过其他方式获取
+ * - Record<string, string> → UTSJSONObject
+ */
+
+/**
+ * tabBar 页面路径列表
+ * 注意：这里需要与 pages.json 中的 tabBar.list 保持一致
+ * UniApp X 中不能动态 import pages.json，需要手动维护
+ */
+export const tabBarPaths : string[] = [
+	'pages/index/index',
+	/* 后续迁移 tabBar 页面时在此添加 */
+]
+
+/**
+ * 获取当前页面栈中的最后一个页面（即当前页面）
+ */
+export const getCurrentPage = () : UniPage | null => {
+	const pages = getCurrentPages()
+	if (pages.length == 0) return null
+	return pages[pages.length - 1]
+}
+
+/**
+ * 判断当前页面是否是 tabBar 页面
+ */
+export const isCurrentTabBarPage = () : boolean => {
+	try {
+		const lastPage = getCurrentPage()
+		if (lastPage == null) return false
+
+		const currPath = lastPage!.route
+		for (let i = 0; i < tabBarPaths.length; i++) {
+			if (tabBarPaths[i] == currPath) {
+				return true
+			}
+		}
+		return false
+	} catch (_e) {
+		return false
+	}
+}
+
+/**
+ * 判断指定页面路径是否是 tabBar 页面
+ */
+export const isTabBarPage = (path : string) : boolean => {
+	let normalizedPath = path
+	if (normalizedPath.startsWith('/')) {
+		normalizedPath = normalizedPath.substring(1)
+	}
+
+	for (let i = 0; i < tabBarPaths.length; i++) {
+		if (tabBarPaths[i] == normalizedPath) {
+			return true
+		}
+	}
+	return false
+}
+
+/**
+ * 解析结果类型
+ */
+export type ParsedUrl = {
+	path : string
+	query : UTSJSONObject
+}
+
+/**
+ * 递归解码 URL 编码的字符串
+ */
+const fullyDecodeUrl = (url : string) : string => {
+	if (url.startsWith('%')) {
+		const decoded = decodeURIComponent(url) ?? url
+		return fullyDecodeUrl(decoded)
+	}
+	return url
+}
+
+/**
+ * 解析 URL 字符串，提取路径和查询参数
+ */
+export const parseUrl = (url : string) : ParsedUrl => {
+	const questionIndex = url.indexOf('?')
+
+	if (questionIndex == -1) {
+		return {
+			path: url,
+			query: {} as UTSJSONObject,
+		} as ParsedUrl
+	}
+
+	const path = url.substring(0, questionIndex)
+	const queryStr = url.substring(questionIndex + 1)
+
+	const query = {} as UTSJSONObject
+	const pairs = queryStr.split('&')
+	for (let i = 0; i < pairs.length; i++) {
+		const pair = pairs[i]
+		const eqIndex = pair.indexOf('=')
+		if (eqIndex > 0) {
+			const key = pair.substring(0, eqIndex)
+			const value = pair.substring(eqIndex + 1)
+			query[key] = fullyDecodeUrl(value)
+		}
+	}
+
+	return {
+		path: path,
+		query: query,
+	} as ParsedUrl
+}
+
+/**
+ * 获取当前页面的完整路由信息
+ */
+export const getCurrentRoute = () : ParsedUrl => {
+	const lastPage = getCurrentPage()
+	if (lastPage == null) {
+		return {
+			path: '',
+			query: {} as UTSJSONObject,
+		} as ParsedUrl
+	}
+
+	/* UniApp X 中通过 $page 获取完整路径 */
+	const fullPath = lastPage!.route ?? ''
+
+	/* 尝试获取完整路径（含查询参数） */
+	/* 在 UniApp X 中，options 包含页面参数 */
+	const options = lastPage!.options
+	if (options != null) {
+		const query = {} as UTSJSONObject
+		const keys = Object.keys(options!)
+		for (let i = 0; i < keys.length; i++) {
+			const key = keys[i]
+			query[key] = options![key] ?? ''
+		}
+		return {
+			path: '/' + fullPath,
+			query: query,
+		} as ParsedUrl
+	}
+
+	return parseUrl('/' + fullPath)
+}

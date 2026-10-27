@@ -1,0 +1,59 @@
+/**
+ * 单选框组提供的数据接口 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 InjectionKey 泛型（UTS 不支持 Symbol/InjectionKey）
+ * - 改用字符串 key + type 定义
+ * - 类型定义在此文件统一管理（不从 .uvue export）
+ * - provide 数据扁平化（不嵌套 props 对象）
+ * - value 类型统一为 string（UTS 不支持 string | number | boolean 联合）
+ */
+
+/**
+ * 单选框选项
+ */
+export type RadioOption = {
+  /** 选项标签 */
+  label : string
+  /** 选项值 */
+  value : string
+  /** 是否禁用 */
+  disabled ?: boolean
+}
+
+/**
+ * 单选框组 Provide 接口（扁平化）
+ */
+export type RadioGroupProvide = {
+  /** 当前选中的值 */
+  modelValue : string
+  /** 单选框形状：dot / button / check */
+  shape : string
+  /** 选中的颜色 */
+  checkedColor : string
+  /** 是否禁用 */
+  disabled : boolean
+  /** 表单模式 */
+  cell : boolean
+  /** 设置大小：default / small / large */
+  size : string
+  /** 同行展示 */
+  inline : boolean
+  /** 图标位置：left / right */
+  iconPlacement : string
+  /** 每个单选框的宽度 */
+  itemWidth : string
+  /** 子组件 UID 列表 */
+  childUids : number[]
+  /** 注册子组件 */
+  addChild : (uid : number) => void
+  /** 注销子组件 */
+  removeChild : (uid : number) => void
+  /** 更新值的回调函数 */
+  updateValue : (value : string) => void
+}
+
+/**
+ * 单选框组注入键（字符串 key）
+ */
+export const RADIO_GROUP_KEY = 'wd-radio-group'

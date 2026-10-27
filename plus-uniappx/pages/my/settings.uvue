@@ -1,0 +1,172 @@
+<template>
+  <view class="settings-page">
+    <wd-navbar :title="t('app.settings.title')" show-back />
+
+    <!-- 个人信息 -->
+    <wd-cell-group custom-class="cell-group" :title="t('app.settings.personalInfo')">
+      <wd-cell
+        :title="t('app.settings.phone')"
+        :value="phoneDisplay"
+        is-link
+        @click="handlePhoneBinding"
+      />
+      <wd-cell
+        :title="t('app.settings.email')"
+        :value="emailDisplay"
+        is-link
+        @click="handleEmailBinding"
+      />
+    </wd-cell-group>
+
+    <!-- 语言设置 -->
+    <wd-cell-group custom-class="cell-group" :title="t('app.settings.language')">
+      <wd-cell
+        :title="t('app.settings.currentLanguage')"
+        :value="currentLanguageNameDisplay"
+        is-link
+        @click="showLanguageSelector"
+      />
+    </wd-cell-group>
+
+    <!-- 语言选择组件 -->
+    <wd-language-selector
+      v-model="languageSelectorVisible"
+      :current-language="currentLanguageValue"
+      @change="handleLanguageChange"
+    />
+
+    <!-- MessageBox 弹窗容器 -->
+    <wd-message-box />
+    <!-- Toast 容器 -->
+    <wd-toast />
+  </view>
+</template>
+
+<script setup lang="uts">
+import { ref, computed, onMounted } from 'vue'
+import { useI18n } from '@/composables/useI18n'
+import { useMessage, useToast } from '@/wd'
+import { MessageOptions, MessageResult } from '@/wd'
+import { AsyncResult } from '@/utils/to'
+import { isEmail } from '@/utils/validators'
+import { updateUserProfile } from '@/api/system/core/user/userApi'
+import { useUserStore } from '@/stores/modules/user'
+import { SysUserBo } from '@/api/system/core/user/userTypes'
+
+/* 国际化 */
+const i18n = useI18n()
+const t = i18n['t'] as (key : string, fieldInfoOrValue : any | null) => string
+const currentLanguageRef = i18n['currentLanguage'] as Ref<string>
+const currentLanguageNameRef = i18n['currentLanguageName'] as Ref<string>
+
+/* 提示工具 */
+const toast = useToast()
+const message = useMessage()
+
+/* 用户信息 store */
+const userStore = useUserStore()
+
+/* 语言选择器显示状态 */
+const languageSelectorVisible = ref(false)
+
+/* 计算属性：手机号显示 */
+const phoneDisplay = computed((): string => {
+  const info = userStore.userInfo.value
+  if (info != null && info!.phone.length > 0) {
+    return info!.phone
+  }
+  return t('app.settings.notBound', null)
+})
+
+/* 计算属性：邮箱显示 */
+const emailDisplay = computed((): string => {
+  const info = userStore.userInfo.value
+  if (info != null && info!.email.length > 0) {
+    return info!.email
+  }
+  return t('app.settings.notBound', null)
+})
+
+/* 计算属性：当前语言名称显示 */
+const currentLanguageNameDisplay = computed((): string => {
+  return currentLanguageNameRef.value
+})
+
+/* 计算属性：当前语言编码 */
+const currentLanguageValue = computed((): string => {
+  return currentLanguageRef.value
+})
+
+/* 显示语言选择器 */
+const showLanguageSelector = () => {
+  languageSelectorVisible.value = true
+}
+
+/* 处理语言切换 */
+const handleLanguageChange = (lang : string) => {
+  console.log('语言已切换为:', lang)
+  const setLanguageFn = i18n['setLanguage'] as (lang : string) => void
+  setLanguageFn(lang)
+}
+
+/* 处理手机号绑定 */
+const handlePhoneBinding = () => {
+  toast.info('手机绑定待实现')
+}
+
+/* 处理邮箱绑定 */
+const handleEmailBinding = () => {
+  const info = userStore.userInfo.value
+  const currentEmail = info != null ? info!.email : ''
+
+  message.prompt({
+    title: t('app.settings.emailBinding', null),
+    inputValue: currentEmail,
+    inputPlaceholder: t('app.settings.email', null),
+    confirmButtonText: t('confirm', null),
+    cancelButtonText: t('cancel', null),
+    inputError: t('app.settings.emailFormatError', null),
+    inputValidate: (inputValue : string) : boolean => {
+      return isEmail(inputValue)
+    },
+  } as MessageOptions).then((result : MessageResult) => {
+    if (result.action == 'confirm' && result.value != null && result.value!.length > 0) {
+      /* 提交邮箱绑定请求 */
+      const emailValue = result.value!
+      const bo : SysUserBo = {
+        email: emailValue,
+      }
+      updateUserProfile(bo).then((asyncResult : AsyncResult) => {
+        if (asyncResult.err == null) {
+          toast.success(t('app.settings.bindSuccess', null))
+          /* 刷新用户信息 */
+          userStore.fetchUserInfo()
+        } else {
+          toast.error(t('app.settings.bindError', null))
+        }
+      })
+    }
+  })
+}
+
+onMounted(() => {
+  /* 确保用户信息已加载 */
+  const info = userStore.userInfo.value
+  if (info == null) {
+    userStore.fetchUserInfo()
+  }
+})
+</script>
+
+<style lang="scss" scoped>
+.settings-page {
+  min-height: 100vh;
+  background-color: #FFFCF5;
+}
+
+.cell-group {
+  margin-top: 16rpx;
+  margin-left: 24rpx;
+  margin-right: 24rpx;
+}
+</style>

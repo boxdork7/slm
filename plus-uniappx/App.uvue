@@ -1,0 +1,241 @@
+<script lang="uts">
+	/* #ifdef APP-ANDROID || APP-HARMONY */
+	let firstBackTime = 0
+	/* #endif */
+
+	export default {
+		onLaunch() {
+			console.log('App Launch')
+			/* TODO: 阶段 3 迁移后启用
+			 * await featureStore.initFeatures()
+			 * await initializeApp()
+			 * checkAppUpdate()
+			 */
+		},
+		onShow() {
+			console.log('App Show')
+			/* TODO: 阶段 3 迁移后启用 WebSocket 重连 */
+		},
+		onHide() {
+			console.log('App Hide')
+		},
+		onError(error : string) {
+			console.error('App Error:', error)
+		},
+		/* #ifdef APP-ANDROID || APP-HARMONY */
+		onLastPageBackPress() {
+			if (firstBackTime == 0) {
+				uni.showToast({
+					title: '再按一次退出应用',
+					position: 'bottom',
+				})
+				firstBackTime = Date.now()
+				setTimeout(() => {
+					firstBackTime = 0
+				}, 2000)
+			} else if (Date.now() - firstBackTime < 2000) {
+				firstBackTime = Date.now()
+				uni.exit()
+			}
+		},
+		/* #endif */
+		onExit() {
+			console.log('App Exit')
+		},
+	}
+</script>
+
+<style>
+	/*
+	 * 全局公共样式 - 适配 UniApp X 原生渲染
+	 *
+	 * UniApp X 限制：
+	 * - 仅支持 flex 布局（默认 flex-direction: column）
+	 * - 不支持 ::before / ::after 伪元素
+	 * - 不支持 display: inline-block
+	 * - 不支持 -webkit-line-clamp
+	 * - 不支持 :deep() 样式穿透
+	 * - 不支持 * 通配符选择器
+	 */
+
+	/* 页面根容器 */
+	page {
+		width: 100%;
+		height: 100%;
+		overflow-y: auto;
+		background-color: #F8F8F8;
+	}
+
+	/* 常用方向辅助类 */
+	.uni-row {
+		flex-direction: row;
+	}
+
+	.uni-column {
+		flex-direction: column;
+	}
+
+	/* 单行省略 */
+	.lines1 {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	/* 多行省略在 UniApp X 原生渲染中不支持 -webkit-line-clamp */
+	/* 使用 max-height + overflow: hidden 替代 */
+	.lines2 {
+		overflow: hidden;
+		max-height: 2.8em;
+		line-height: 1.4em;
+	}
+
+	.lines3 {
+		overflow: hidden;
+		max-height: 4.2em;
+		line-height: 1.4em;
+	}
+
+	/* flex 布局辅助类 */
+	.flex-1 {
+		flex: 1;
+	}
+
+	.flex-row {
+		flex-direction: row;
+	}
+
+	.flex-col {
+		flex-direction: column;
+	}
+
+	.flex-center {
+		justify-content: center;
+		align-items: center;
+	}
+
+	.flex-between {
+		flex-direction: row;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.flex-wrap {
+		flex-wrap: wrap;
+	}
+
+	.items-center {
+		align-items: center;
+	}
+
+	.justify-center {
+		justify-content: center;
+	}
+
+	.justify-between {
+		justify-content: space-between;
+	}
+
+	.justify-end {
+		justify-content: flex-end;
+	}
+
+	/* 文本对齐 */
+	.text-center {
+		text-align: center;
+	}
+
+	.text-left {
+		text-align: left;
+	}
+
+	.text-right {
+		text-align: right;
+	}
+
+	/* 常用间距 (替代 UnoCSS) */
+	.p-0 { padding: 0; }
+	.p-10 { padding: 10rpx; }
+	.p-20 { padding: 20rpx; }
+	.p-24 { padding: 24rpx; }
+	.p-30 { padding: 30rpx; }
+	.p-32 { padding: 32rpx; }
+
+	.px-20 { padding-left: 20rpx; padding-right: 20rpx; }
+	.px-24 { padding-left: 24rpx; padding-right: 24rpx; }
+	.px-30 { padding-left: 30rpx; padding-right: 30rpx; }
+	.px-32 { padding-left: 32rpx; padding-right: 32rpx; }
+
+	.py-10 { padding-top: 10rpx; padding-bottom: 10rpx; }
+	.py-20 { padding-top: 20rpx; padding-bottom: 20rpx; }
+	.py-24 { padding-top: 24rpx; padding-bottom: 24rpx; }
+
+	.m-0 { margin: 0; }
+	.m-10 { margin: 10rpx; }
+	.m-20 { margin: 20rpx; }
+
+	.mx-20 { margin-left: 20rpx; margin-right: 20rpx; }
+	.mx-24 { margin-left: 24rpx; margin-right: 24rpx; }
+	.mx-auto { margin-left: auto; margin-right: auto; }
+
+	.my-10 { margin-top: 10rpx; margin-bottom: 10rpx; }
+	.my-20 { margin-top: 20rpx; margin-bottom: 20rpx; }
+
+	.mt-10 { margin-top: 10rpx; }
+	.mt-20 { margin-top: 20rpx; }
+	.mt-30 { margin-top: 30rpx; }
+
+	.mb-10 { margin-bottom: 10rpx; }
+	.mb-20 { margin-bottom: 20rpx; }
+	.mb-30 { margin-bottom: 30rpx; }
+
+	.ml-10 { margin-left: 10rpx; }
+	.ml-20 { margin-left: 20rpx; }
+
+	.mr-10 { margin-right: 10rpx; }
+	.mr-20 { margin-right: 20rpx; }
+
+	/* 圆角 */
+	.rounded-sm { border-radius: 4rpx; }
+	.rounded { border-radius: 8rpx; }
+	.rounded-lg { border-radius: 16rpx; }
+	.rounded-xl { border-radius: 24rpx; }
+	.rounded-full { border-radius: 9999px; }
+
+	/* 宽高 */
+	.w-full { width: 100%; }
+	.h-full { height: 100%; }
+
+	/* 字体大小 */
+	.text-xs { font-size: 20rpx; }
+	.text-sm { font-size: 24rpx; }
+	.text-base { font-size: 28rpx; }
+	.text-lg { font-size: 32rpx; }
+	.text-xl { font-size: 36rpx; }
+	.text-2xl { font-size: 40rpx; }
+
+	/* 字体粗细 */
+	.font-normal { font-weight: 400; }
+	.font-medium { font-weight: 500; }
+	.font-bold { font-weight: 700; }
+
+	/* 颜色 */
+	.text-primary { color: #007aff; }
+	.text-success { color: #4cd964; }
+	.text-warning { color: #f0ad4e; }
+	.text-error { color: #dd524d; }
+	.text-grey { color: #999999; }
+	.text-white { color: #ffffff; }
+	.text-black { color: #333333; }
+
+	.bg-white { background-color: #ffffff; }
+	.bg-grey { background-color: #f8f8f8; }
+	.bg-primary { background-color: #007aff; }
+
+	/* 显示控制 */
+	.hidden {
+		overflow: hidden;
+		width: 0;
+		height: 0;
+	}
+</style>

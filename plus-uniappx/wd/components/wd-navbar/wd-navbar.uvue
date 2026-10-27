@@ -1,0 +1,677 @@
+<!--
+Navbar 导航栏 为页面提供导航功能，包含返回、首页等功能。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 CSSProperties，改用 string
+- 移除 useTranslate，直接使用中文文本
+- StatusBarTextStyle 联合类型改为 string
+- 移除手动组件导入（easycom 自动注册）
+- 移除 onShow（UniApp X 暂未实现）
+- 移除 __UNI_PLATFORM__ 编译常量（UniApp X 专用于 APP）
+- 移除微信公众号 H5 胶囊逻辑（UniApp X 不支持 H5）
+- 精简逻辑为 UniApp X APP 单平台兼容
+- edeep 改 e（不用 :deep()）
+- halfPixelBorder 改 border: 1rpx solid
+-->
+<template>
+  <view :style="{ height: addUnit(placeholderHeight) }">
+    <!-- 导航栏主体内容 -->
+    <view
+      :class="`wd-navbar ${customClass} ${fixed ? 'is-fixed' : ''} ${bordered ? 'is-border' : ''}`"
+      :style="`${fixed && isDef(zIndex) ? `z-index: ${zIndex};` : ''}${safeAreaInsetTop ? `padding-top: ${addUnit(statusBarHeight || 0, 'px')};` : ''}${bgColor ? `background: ${bgColor};` : ''}${height ? `height: ${addUnit(height)}; line-height: ${addUnit(height)};` : ''}${customStyle}`"
+    >
+      <view class="wd-navbar__content">
+        <!-- 胶囊按钮区域 -->
+        <view v-if="$slots.capsule || capsule" class="wd-navbar__capsule">
+          <!-- 如果有自定义胶囊插槽，则使用自定义插槽 -->
+          <slot v-if="$slots.capsule" name="capsule" />
+          <!-- 否则使用内置胶囊组件 -->
+          <wd-navbar-capsule
+            v-else
+            :show-back="showBack"
+            :show-home="showHome"
+            @back="handleCapsuleBack"
+            @back-home="handleCapsuleBackHome"
+          />
+        </view>
+
+        <!-- 左侧区域 -->
+        <view
+          v-else-if="shouldShowLeft"
+          :class="`wd-navbar__left ${leftDisabled ? 'is-disabled' : ''}`"
+          @click="handleClickLeft"
+        >
+          <slot name="left">
+            <wd-icon
+              v-if="finalLeftIcon"
+              :name="finalLeftIcon"
+              :size="addUnit(leftIconSize)"
+              :color="leftIconColor"
+              custom-class="wd-navbar__icon"
+            />
+            <view v-if="finalLeftText" class="wd-navbar__text" :style="leftTextStyle">
+              {{ finalLeftText }}
+            </view>
+          </slot>
+        </view>
+
+        <!-- 标题区域 -->
+        <view class="wd-navbar__title" :style="titleStyle">
+          <slot name="title">
+            <block v-if="title">{{ title }}</block>
+          </slot>
+        </view>
+
+        <!-- 右侧区域 -->
+        <view
+          v-if="rightIcon || rightText || $slots.right"
+          :class="`wd-navbar__right ${rightDisabled ? 'is-disabled' : ''}`"
+          @click="handleClickRight"
+        >
+          <slot name="right">
+            <view v-if="rightText" class="wd-navbar__text">{{ rightText }}</view>
+            <wd-icon
+              v-if="rightIcon"
+              :name="rightIcon"
+              :size="addUnit(rightIconSize)"
+              :color="rightIconColor"
+              custom-class="wd-navbar__icon"
+            />
+          </slot>
+        </view>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, getCurrentInstance, nextTick, onMounted, ref, watch } from 'vue'
+import { addUnit, isDef, objToStyle, pxToRpx } from '../common/util'
+
+/**
+ * 导航栏组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+
+  /** 状态栏文字颜色 dark-黑色 light-白色 */
+  statusBarTextStyle ?: string
+
+  /** 导航栏标题 */
+  title ?: string
+  /** 标题字体家族 */
+  titleFamily ?: string
+  /** 标题字体大小 */
+  titleSize ?: string | number
+  /** 标题是否加粗 */
+  titleBold ?: boolean
+  /** 标题文字颜色 */
+  titleColor ?: string
+
+  /** 左侧文本 */
+  leftText ?: string
+  /** 左侧图标名称 */
+  leftIcon ?: string
+  /** 左侧图标大小 */
+  leftIconSize ?: string | number
+  /** 左侧图标颜色 */
+  leftIconColor ?: string
+  /** 是否禁用左侧按钮（禁用时透明度降低，无法点击） */
+  leftDisabled ?: boolean
+
+  /** 右侧文本 */
+  rightText ?: string
+  /** 右侧图标名称 */
+  rightIcon ?: string
+  /** 右侧图标大小 */
+  rightIconSize ?: string | number
+  /** 右侧图标颜色 */
+  rightIconColor ?: string
+  /** 是否禁用右侧按钮（禁用时透明度降低，无法点击） */
+  rightDisabled ?: boolean
+
+  /** 导航栏背景颜色 */
+  bgColor ?: string
+  /** 导航栏高度，单位rpx */
+  height ?: string | number
+  /** 是否显示下边框 */
+  bordered ?: boolean
+
+  /** 是否固定导航栏 */
+  fixed ?: boolean
+  /** 固定在顶部时，是否在标签位置生成一个等高的占位元素 */
+  placeholder ?: boolean
+  /** 导航栏 z-index */
+  zIndex ?: number
+  /** 是否开启顶部安全区域适配 */
+  safeAreaInsetTop ?: boolean
+
+  /** 是否显示胶囊按钮 */
+  capsule ?: boolean
+  /** 胶囊按钮是否显示返回按钮 */
+  showBack ?: boolean
+  /** 胶囊按钮是否显示首页按钮 */
+  showHome ?: boolean
+
+  /** 是否自动处理返回操作（当识别为返回按钮时自动执行uni.navigateBack） */
+  autoBack ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  statusBarTextStyle: 'dark',
+  titleFamily: 'Microsoft YaHei, SimHei, PingFang SC, sans-serif',
+  titleSize: '',
+  titleBold: false,
+  titleColor: '',
+  leftIconSize: 32,
+  rightIconSize: 32,
+  bordered: false,
+  fixed: true,
+  placeholder: true,
+  zIndex: 99,
+  safeAreaInsetTop: true,
+  leftDisabled: false,
+  rightDisabled: false,
+  capsule: false,
+  showBack: false,
+  showHome: false,
+  autoBack: true,
+})
+
+/** 组件事件 */
+const emit = defineEmits(['back', 'back-home', 'click-left', 'click-right', 'height-ready'])
+
+/* 响应式数据：占位高度 */
+const placeholderHeight = ref<number>(0)
+
+/* 组件初始化状态 */
+const isInitialized = ref(false)
+
+/* 高度计算状态 */
+const isCalculating = ref(false)
+
+/* 是否有历史页面可以返回 */
+const hasHistoryPages = ref(true)
+
+/* 获取系统信息中的状态栏高度 */
+const systemInfo = uni.getSystemInfoSync()
+const statusBarHeight = systemInfo.statusBarHeight
+
+/**
+ * 检查是否有历史页面可以返回
+ */
+const checkHistoryPages = () => {
+  const pages = getCurrentPages()
+  hasHistoryPages.value = pages.length > 1
+}
+
+/* 获取当前组件实例 */
+const { proxy } = getCurrentInstance()!
+
+/**
+ * 左侧区域显示配置
+ */
+const leftDisplayConfig = computed(() : any | null => {
+  /* 如果开启胶囊模式，左侧不额外显示 */
+  if (props.capsule) {
+    return null
+  }
+
+  /* 如果显式设置了左侧内容，优先使用 */
+  if (props.leftIcon || props.leftText) {
+    return null
+  }
+
+  /* 根据showBack和showHome自动配置 */
+  if (props.showBack && !props.showHome) {
+    /* 仅设置了显示返回按钮，但没有历史页面，则显示首页按钮 */
+    if (!hasHistoryPages.value) {
+      return {
+        icon: 'home',
+        text: '首页',
+        action: 'home',
+      }
+    }
+    return {
+      icon: 'left',
+      text: '返回',
+      action: 'back',
+    }
+  } else if (props.showHome && !props.showBack) {
+    return {
+      icon: 'home',
+      text: '首页',
+      action: 'home',
+    }
+  }
+
+  return null
+})
+
+/* 标题区域样式 */
+const titleStyle = computed(() : string => {
+  const styleObj : UTSJSONObject = {}
+
+  if (props.titleFamily) {
+    styleObj['fontFamily'] = props.titleFamily
+  }
+
+  if (props.titleSize) {
+    styleObj['fontSize'] = addUnit(props.titleSize)
+  }
+
+  if (props.titleBold) {
+    styleObj['fontWeight'] = 'bold'
+  }
+
+  if (props.titleColor) {
+    styleObj['color'] = props.titleColor
+  }
+
+  return objToStyle(styleObj)
+})
+
+/**
+ * 计算最终的左侧图标
+ */
+const finalLeftIcon = computed(() : string => {
+  if (props.leftIcon) return props.leftIcon
+  const cfg = leftDisplayConfig.value
+  if (cfg != null && cfg['icon'] != null) {
+    return cfg['icon'] as string
+  }
+  return ''
+})
+
+/**
+ * 计算最终的左侧文本
+ */
+const finalLeftText = computed(() : string => {
+  if (props.leftText) return props.leftText
+  const cfg = leftDisplayConfig.value
+  if (cfg != null && cfg['text'] != null) {
+    return cfg['text'] as string
+  }
+  return ''
+})
+
+/**
+ * 左侧区域文字的样式
+ */
+const leftTextStyle = computed(() : string => {
+  const styleObj : UTSJSONObject = {
+    fontSize: addUnit(props.leftIconSize || 32),
+    marginLeft: '8rpx',
+    lineHeight: '1',
+    display: 'flex',
+    alignItems: 'center',
+  }
+
+  /* 如果左侧设置了图标颜色，文字也使用相同颜色 */
+  if (props.leftIconColor) {
+    styleObj['color'] = props.leftIconColor
+  }
+
+  return objToStyle(styleObj)
+})
+
+/**
+ * 判断是否需要自动返回
+ */
+const shouldAutoBack = computed(() : boolean => {
+  /* 检查左侧文本是"返回"，或左侧图标是否是返回的图标 */
+  const backTexts = ['返回', '后退']
+  const backIcons = ['back', 'left']
+
+  return backTexts.includes(finalLeftText.value) || backIcons.includes(finalLeftIcon.value)
+})
+
+/**
+ * 判断是否需要自动回到首页
+ */
+const shouldAutoHome = computed(() : boolean => {
+  /* 检查左侧文本是"首页"，或左侧图标是首页、回到的图标 */
+  const homeTexts = ['首页', '主页', '首页面']
+  const homeIcons = ['home', 'house']
+
+  return homeTexts.includes(finalLeftText.value) || homeIcons.includes(finalLeftIcon.value)
+})
+
+/**
+ * 判断是否显示左侧区域
+ */
+const shouldShowLeft = computed(() : boolean => {
+  return finalLeftIcon.value != '' || finalLeftText.value != '' || leftDisplayConfig.value != null
+})
+
+/**
+ * 使用样式计算占位高度
+ */
+const setPlaceholderHeight = async () : Promise<boolean> => {
+  if (!props.fixed || !props.placeholder) {
+    return false
+  }
+
+  if (isCalculating.value) {
+    return false
+  }
+
+  isCalculating.value = true
+
+  try {
+    /* 使用 .wd-navbar 选择器 */
+    const query = uni.createSelectorQuery().in(proxy)
+
+    const getRect = () : Promise<any> => {
+      return new Promise<any>((resolve, reject) => {
+        query
+          .select('.wd-navbar')
+          .boundingClientRect((rect) => {
+            if (rect) {
+              resolve(rect)
+            } else {
+              reject(new Error('元素未找到'))
+            }
+          })
+          .exec()
+      })
+    }
+
+    const rect = await getRect()
+
+    if (rect && rect.height > 0) {
+      let height = pxToRpx(rect.height)
+      if (height < 60) {
+        height = 88
+      }
+      placeholderHeight.value = height
+      emit('height-ready', height)
+      return true
+    } else {
+      return false
+    }
+  } catch (_error) {
+    return false
+  } finally {
+    isCalculating.value = false
+  }
+}
+
+/**
+ * 组件挂载时的处理
+ */
+onMounted(async () => {
+  /* 检查历史页面状态 */
+  checkHistoryPages()
+
+  /* 设置状态栏样式 */
+  if (props.statusBarTextStyle) {
+    uni.setNavigationBarColor({
+      frontColor: props.statusBarTextStyle === 'dark' ? '#000000' : '#ffffff',
+      backgroundColor: props.bgColor || '#ffffff',
+    })
+  }
+
+  if (props.fixed && props.placeholder) {
+    await nextTick()
+
+    /* 延迟后计算 */
+    setTimeout(async () => {
+      const success = await setPlaceholderHeight()
+      if (!success) {
+        /* 如果计算失败，直接使用默认高度 */
+        const defaultHeight = pxToRpx(statusBarHeight || 0) + 88
+        placeholderHeight.value = defaultHeight
+        emit('height-ready', defaultHeight)
+      }
+    }, 50)
+  }
+
+  isInitialized.value = true
+})
+
+/**
+ * 属性变化监听
+ */
+watch([() => props.fixed, () => props.placeholder], async () => {
+  if (isInitialized.value && props.fixed && props.placeholder) {
+    await nextTick()
+    await setPlaceholderHeight()
+  }
+})
+
+/**
+ * 处理左侧按钮点击事件
+ * 根据按钮类型自动执行相应操作
+ */
+const handleClickLeft = () => {
+  if (props.leftDisabled) return
+
+  const cfg = leftDisplayConfig.value
+  const action = cfg != null ? cfg['action'] as string : ''
+
+  /* 自动返回功能 */
+  if ((shouldAutoBack.value && props.autoBack) || action === 'back') {
+    uni.navigateBack({
+      success: () => {
+        emit('back')
+      },
+      fail: () => {
+        /* 如果没有上一页，则触发事件让外部处理 */
+        emit('click-left')
+      },
+    })
+    return
+  }
+
+  /* 自动回到首页功能 */
+  if (shouldAutoHome.value || action === 'home') {
+    /* 使用 reLaunch 跳转到首页（关闭所有页面，兼容 tabbar 页面） */
+    uni.reLaunch({
+      url: '/pages/index/index',
+      success: () => {
+        emit('back-home')
+      },
+      fail: (_err) => {
+        /* 触发事件让外部处理 */
+        emit('click-left')
+      },
+    })
+    return
+  }
+
+  /* 普通左侧按钮，触发事件 */
+  emit('click-left')
+}
+
+/**
+ * 处理右侧按钮点击事件
+ * 只有右侧按钮未禁用时才触发事件
+ */
+const handleClickRight = () => {
+  if (!props.rightDisabled) {
+    emit('click-right')
+  }
+}
+
+/**
+ * 处理胶囊栏返回按钮点击事件
+ */
+const handleCapsuleBack = () => {
+  emit('back')
+}
+
+/**
+ * 处理胶囊栏首页按钮点击事件
+ */
+const handleCapsuleBackHome = () => {
+  emit('back-home')
+}
+</script>
+
+<style lang="scss">
+/* 引入外部样式文件 */
+@import './../common/abstracts/_mixin.scss';
+@import './../common/abstracts/variable.scss';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(navbar) {
+    background-color: $-dark-background;
+
+    @include e(title) {
+      color: $-dark-color;
+    }
+
+    @include e(text) {
+      color: $-dark-color;
+    }
+
+    /* edeep 改 e（UniApp X 不用 :deep()） */
+    .wd-navbar__icon {
+      color: $-dark-color;
+    }
+  }
+}
+
+/* 导航栏主体样式 */
+@include b(navbar) {
+  position: relative;
+  text-align: center;
+  user-select: none;
+  height: $-navbar-height;
+  line-height: $-navbar-height;
+  background-color: $-navbar-background;
+  box-sizing: content-box;
+
+  /* 内容容器 */
+  @include e(content) {
+    position: relative;
+    height: 100%;
+    width: 100%;
+    /* UniApp X: 显式声明 flex 行布局，确保子元素高度继承正确 */
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  /* 标题样式 */
+  @include e(title) {
+    /* UniApp X: 使用 flex: 1 占满剩余空间，配合 justify-content 实现水平居中 */
+    flex: 1;
+    max-width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    color: $-navbar-color;
+    font-weight: $-navbar-title-font-weight;
+    font-size: $-navbar-title-font-size;
+    @include lineEllipsis();
+  }
+
+  /* 文字样式 */
+  @include e(text) {
+    /* UniApp X: inline-block 不支持，使用 flex-direction: row 模拟 */
+    flex-direction: row;
+    align-items: center;
+    color: $-navbar-desc-font-color;
+    /* UniApp X: 重置行高确保文字在 flex 容器中正确居中 */
+    line-height: 1;
+  }
+
+  /* 左侧、右侧、胶囊区域通用样式 */
+  @include e(left, right, capsule) {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    height: 100%; /* UniApp X: 显式设置高度，确保绝对定位元素获得正确高度 */
+    /* UniApp X: z-index 确保绝对定位区域在 flex:1 的标题区域上方，不被遮挡点击 */
+    z-index: 1;
+    font-size: $-navbar-desc-font-size;
+    display: flex;
+    /* UniApp X 的 view 默认 flex-direction: column，需显式覆盖为行布局 */
+    flex-direction: row;
+    align-items: center;
+    padding: 0 24rpx;
+    /* UniApp X: 重置继承的 line-height，避免大行高干扰 flex 垂直居中 */
+    line-height: 1;
+
+    /* UniApp X: 覆盖 wd-icon 全局的 align-self: flex-start，使图标响应父容器的 align-items: center */
+    .wd-icon {
+      align-self: center;
+    }
+
+    /* UniApp X: 覆盖 wd-navbar__text 的默认对齐，确保文字也垂直居中 */
+    .wd-navbar__text {
+      align-self: center;
+    }
+
+    /* 禁用状态样式 */
+    @include when(disabled) {
+      opacity: $-navbar-disabled-opacity;
+    }
+  }
+
+  /* 左侧区域特殊样式，与胶囊按钮保持一致 */
+  @include e(left) {
+    /* 确保左侧区域的尺寸与胶囊按钮一致 */
+    width: auto;
+    min-width: $-navbar-capsule-height; /* 最小宽度与胶囊栏高度一致 */
+    height: 100%; /* 使用父容器的完整高度 */
+    justify-content: flex-start; /* 内容靠左对齐 */
+    align-items: center; /* 垂直方向居中对齐 */
+
+    /* 确保图标也垂直居中 */
+    .wd-navbar__icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1; /* 消除行高确保居中 */
+    }
+  }
+
+  /* 左侧和胶囊区域定位 */
+  @include e(left, capsule) {
+    left: 0;
+  }
+
+  /* 右侧区域定位 */
+  @include e(right) {
+    right: 0;
+  }
+
+  /* 图标样式 - edeep 改 e */
+  @include e(icon) {
+    font-size: $-navbar-arrow-size;
+    color: $-navbar-color;
+  }
+
+  /* 左侧区域图标样式，与胶囊按钮保持一致 */
+  @include e(left) {
+    .wd-navbar__icon {
+      font-size: $-navbar-capsule-icon-size; /* 使用胶囊按钮的图标大小 */
+      color: $-navbar-desc-font-color; /* 使用胶囊按钮的图标颜色 */
+    }
+  }
+
+  /* 边框样式 - halfPixelBorder 改 border */
+  @include when(border) {
+    border-bottom: 1rpx solid $-color-border;
+  }
+
+  /* 固定定位样式 */
+  @include when(fixed) {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 500;
+  }
+}
+</style>

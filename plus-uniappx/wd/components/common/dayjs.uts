@@ -1,0 +1,243 @@
+/**
+ * Dayjs 轻量级日期处理库 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 属性类型从 any 改为具体类型（number, string）
+ * - isDate 导入从 ./util
+ * - 构造函数参数类型适配 UTS
+ */
+
+import { isDate } from './util'
+
+/**
+ * Dayjs 类 - 轻量级日期处理库
+ * 提供日期解析、格式化、计算等功能
+ */
+class Dayjs {
+  /** 是否为 UTC 时间 */
+  utc : boolean = false
+  /** 内部日期对象 */
+  date : Date
+  /** 时区偏移（小时） */
+  timeZone : number = 0
+  /** 时区字符串表示 */
+  timeZoneString : string = ''
+  /** 缓存的年份 */
+  mYear : number = 0
+  /** 缓存的月份（0-11） */
+  mMonth : number = 0
+  /** 缓存的日期 */
+  mDay : number = 0
+  /** 缓存的星期（0-6，0为周日） */
+  mWeek : number = 0
+  /** 缓存的小时 */
+  mHour : number = 0
+  /** 缓存的分钟 */
+  mMinute : number = 0
+  /** 缓存的秒数 */
+  mSecond : number = 0
+
+  /**
+   * 从日期值构造
+   */
+  constructor(dateValue : Date) {
+    this.utc = false
+    this.date = dateValue
+
+    this.timeZone = this.date.getTimezoneOffset() / 60
+    this.timeZoneString = this.padNumber(
+      String(-1 * this.timeZone).replace(/^(.)?(\d)/, '$10$200'),
+      5,
+      '+',
+    )
+
+    this.mYear = this.date.getFullYear()
+    this.mMonth = this.date.getMonth()
+    this.mDay = this.date.getDate()
+    this.mWeek = this.date.getDay()
+    this.mHour = this.date.getHours()
+    this.mMinute = this.date.getMinutes()
+    this.mSecond = this.date.getSeconds()
+  }
+
+  /**
+   * 数字补零填充
+   */
+  padNumber(num : string, length : number, padChar : string) : string {
+    if (num.length >= length) return num
+    let result = num
+    while (result.length < length) {
+      result = `${padChar}${result}`
+    }
+    return result
+  }
+
+  /** 获取年份 */
+  year() : number {
+    return this.mYear
+  }
+
+  /** 获取月份（0-11） */
+  month() : number {
+    return this.mMonth
+  }
+
+  /** 获取 Unix 时间戳（秒） */
+  unix() : number {
+    const timeZoneOffset = this.utc ? 60 * this.timeZone * 60 * 1000 : 0
+    return Math.floor((this.date.getTime() + timeZoneOffset) / 1000)
+  }
+
+  /** 转换为 UTC 字符串 */
+  toString() : string {
+    return this.date.toUTCString()
+  }
+
+  /** 获取指定单位的开始时间 */
+  startOf(unit : string) : Dayjs {
+    switch (unit) {
+      case 'year':
+        return new Dayjs(new Date(this.year(), 0, 1))
+      case 'month':
+        return new Dayjs(new Date(this.year(), this.month(), 1))
+      default:
+        return this
+    }
+  }
+
+  /** 增加指定时间 */
+  add(amount : number, unit : string) : Dayjs {
+    let interval : number = 1
+
+    switch (unit) {
+      case 'm':
+      case 'minutes':
+        interval = 60
+        break
+      case 'h':
+      case 'hours':
+        interval = 60 * 60
+        break
+      case 'd':
+      case 'days':
+        interval = 24 * 60 * 60
+        break
+      case 'w':
+      case 'weeks':
+        interval = 7 * 24 * 60 * 60
+        break
+      default:
+        interval = 1
+    }
+
+    const newUnixTime = this.unix() + amount * interval
+    return new Dayjs(new Date(1000 * newUnixTime))
+  }
+
+  /** 减少指定时间 */
+  subtract(amount : number, unit : string) : Dayjs {
+    return this.add(-1 * amount, unit)
+  }
+
+  /**
+   * 格式化日期为字符串
+   *
+   * 支持的格式标记：
+   * - YY: 两位年份, YYYY: 四位年份
+   * - M: 月份(1-12), MM: 两位月份(01-12)
+   * - D: 日期(1-31), DD: 两位日期(01-31)
+   * - d: 星期数字(0-6), dddd: 星期全名
+   * - H: 小时(0-23), HH: 两位小时(00-23)
+   * - m: 分钟(0-59), mm: 两位分钟(00-59)
+   * - s: 秒数(0-59), ss: 两位秒数(00-59)
+   * - Z: 时区(+08:00), ZZ: 时区(+0800)
+   */
+  format(formatStr : string = 'YYYY-MM-DDTHH:mm:ssZ') : string {
+    const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+    return formatStr.replace(
+      /Y{2,4}|M{1,2}|D{1,2}|d{1,4}|H{1,2}|m{1,2}|s{1,2}|Z{1,2}/g,
+      (match : string) : string => {
+        switch (match) {
+          case 'YY':
+            return String(this.mYear).slice(-2)
+          case 'YYYY':
+            return String(this.mYear)
+          case 'M':
+            return String(this.mMonth + 1)
+          case 'MM':
+            return this.padNumber(String(this.mMonth + 1), 2, '0')
+          case 'D':
+            return String(this.mDay)
+          case 'DD':
+            return this.padNumber(String(this.mDay), 2, '0')
+          case 'd':
+            return String(this.mWeek)
+          case 'dddd':
+            return weekdays[this.mWeek]
+          case 'H':
+            return String(this.mHour)
+          case 'HH':
+            return this.padNumber(String(this.mHour), 2, '0')
+          case 'm':
+            return String(this.mMinute)
+          case 'mm':
+            return this.padNumber(String(this.mMinute), 2, '0')
+          case 's':
+            return String(this.mSecond)
+          case 'ss':
+            return this.padNumber(String(this.mSecond), 2, '0')
+          case 'Z':
+            return `${this.timeZoneString.slice(0, -2)}:00`
+          case 'ZZ':
+            return this.timeZoneString
+          default:
+            return match
+        }
+      },
+    )
+  }
+}
+
+/**
+ * 工厂函数 - 从 Date 对象创建 Dayjs 实例
+ */
+export function dayjsFromDate(date : Date) : Dayjs {
+  return new Dayjs(date)
+}
+
+/**
+ * 工厂函数 - 从时间戳创建 Dayjs 实例
+ */
+export function dayjsFromTimestamp(timestamp : number) : Dayjs {
+  return new Dayjs(new Date(timestamp))
+}
+
+/**
+ * 工厂函数 - 从字符串创建 Dayjs 实例
+ */
+export function dayjsFromString(dateStr : string) : Dayjs {
+  // 处理 8 位数字格式（如：20231225）
+  if (/^\d{8}$/.test(dateStr)) {
+    const formatted = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`
+    const d = new Dayjs(new Date(formatted))
+    d.utc = true
+    return d
+  }
+  return new Dayjs(new Date(dateStr))
+}
+
+/**
+ * 工厂函数 - 创建当前时间的 Dayjs 实例
+ *
+ * UniApp X 版本差异：
+ * - 原版使用单一 dayjs() 函数支持 string | number | Date 参数
+ * - UTS 不支持联合类型参数的函数重载，拆分为多个工厂函数
+ * - dayjs() 创建当前时间
+ * - dayjsFromDate(date) 从 Date 创建
+ * - dayjsFromTimestamp(ts) 从时间戳创建
+ * - dayjsFromString(str) 从字符串创建
+ */
+export function dayjs() : Dayjs {
+  return new Dayjs(new Date())
+}

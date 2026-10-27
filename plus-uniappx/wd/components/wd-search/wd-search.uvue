@@ -1,0 +1,439 @@
+<!--
+Search 搜索框 搜索框组件，支持输入框聚焦、失焦、输入、搜索、取消、清空事件。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- 移除 useTranslate（直接使用中文文本）
+- async/await pause() → setTimeout 模式
+- slot prefix/suffix → 保留（UniApp X 支持 slot）
+- addUnit 用于 borderRadius 计算
+-->
+<template>
+  <view
+    :class="`wd-search ${light ? 'is-light' : ''} ${hideCancel ? 'is-without-cancel' : ''} ${customClass}`"
+    :style="customStyle"
+  >
+    <!-- 搜索框主体区域 -->
+    <view class="wd-search__block" :style="`border-radius: ${borderRadius};`">
+      <!-- 前置插槽 -->
+      <slot name="prefix" />
+
+      <!-- 搜索输入区域 -->
+      <view class="wd-search__field">
+        <!-- 覆盖层：输入框为空且需要显示占位提示时显示 -->
+        <view
+          v-if="!placeholderLeft"
+          :style="`display: ${inputValue == '' && showPlaceHolder ? 'flex' : 'none'}; border-radius: ${borderRadius};`"
+          class="wd-search__cover"
+          @click="closeCover"
+        >
+          <wd-icon name="search" custom-class="wd-search__search-icon" />
+          <text :class="`wd-search__placeholder-txt ${placeholderClass}`">
+            {{ placeholder != '' ? placeholder : '搜索' }}
+          </text>
+        </view>
+
+        <!-- 搜索图标 -->
+        <wd-icon
+          v-if="showInput || inputValue != '' || placeholderLeft"
+          name="search"
+          custom-class="wd-search__search-left-icon"
+        />
+
+        <!-- 真实输入框 -->
+        <input
+          v-if="showInput || inputValue != '' || placeholderLeft"
+          v-model="inputValue"
+          :placeholder="placeholder != '' ? placeholder : '搜索'"
+          :placeholder-class="`wd-search__placeholder-txt ${placeholderClass}`"
+          :placeholder-style="placeholderStyle"
+          confirm-type="search"
+          class="wd-search__input"
+          :class="[customInputClass]"
+          :disabled="disabled"
+          :maxlength="maxlength"
+          :focus="isFocused"
+          @focus="handleFocus"
+          @input="handleInput"
+          @blur="handleBlur"
+          @confirm="handleConfirm"
+        />
+
+        <!-- 清除按钮 -->
+        <wd-icon
+          v-if="inputValue != ''"
+          custom-class="wd-search__clear wd-search__clear-icon"
+          name="close-fill"
+          @click="handleClear"
+        />
+      </view>
+    </view>
+
+    <!-- 取消按钮区域 -->
+    <slot v-if="!hideCancel" name="suffix">
+      <view class="wd-search__cancel" @click="handleCancel">
+        {{ cancelTxt != '' ? cancelTxt : '取消' }}
+      </view>
+    </slot>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, onMounted, ref, watch } from 'vue'
+import { addUnit } from '../common/util'
+
+/**
+ * Search 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 自定义输入框样式类 */
+  customInputClass ?: string
+  /** 输入框内容 */
+  modelValue ?: string
+  /** 搜索框占位文本 */
+  placeholder ?: string
+  /** 搜索框右侧文本 */
+  cancelTxt ?: string
+  /** 搜索框亮色（白色）主题 */
+  light ?: boolean
+  /** 是否隐藏右侧取消按钮 */
+  hideCancel ?: boolean
+  /** 是否禁用搜索框 */
+  disabled ?: boolean
+  /** 原生属性，设置最大长度。-1 表示无限制 */
+  maxlength ?: number
+  /** placeholder 是否居左显示 */
+  placeholderLeft ?: boolean
+  /** 是否自动聚焦 */
+  focus ?: boolean
+  /** 是否在点击清除按钮时聚焦输入框 */
+  focusWhenClear ?: boolean
+  /** 原生属性，指定 placeholder 的样式 */
+  placeholderStyle ?: string
+  /** 原生属性，指定 placeholder 的样式类 */
+  placeholderClass ?: string
+  /** 搜索框圆角大小 */
+  radius ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  customInputClass: '',
+  modelValue: '',
+  placeholder: '',
+  cancelTxt: '',
+  light: false,
+  hideCancel: false,
+  disabled: false,
+  maxlength: -1,
+  placeholderLeft: false,
+  focus: false,
+  focusWhenClear: false,
+  placeholderStyle: '',
+  placeholderClass: '',
+  radius: '32',
+})
+
+const emit = defineEmits(['update:modelValue', 'change', 'clear', 'search', 'focus', 'blur', 'cancel'])
+
+/* 响应式数据 */
+const isFocused = ref<boolean>(false)
+const showInput = ref<boolean>(false)
+const inputValue = ref<string>('')
+const showPlaceHolder = ref<boolean>(true)
+const clearing = ref<boolean>(false)
+
+const borderRadius = computed(() : string => {
+  return addUnit(props.radius)
+})
+
+/**
+ * 监听 modelValue 变化
+ */
+watch(
+  () : string => props.modelValue,
+  (newValue : string) => {
+    inputValue.value = newValue
+    if (newValue != '') {
+      showInput.value = true
+    }
+  },
+  { immediate: true },
+)
+
+/**
+ * 聚焦状态切换的 hack 方法
+ */
+const hackFocus = (focus : boolean) => {
+  showInput.value = focus
+  setTimeout(() => {
+    isFocused.value = focus
+  }, 33)
+}
+
+/**
+ * 关闭覆盖层并显示输入框
+ */
+const closeCover = () => {
+  if (props.disabled) return
+  setTimeout(() => {
+    showPlaceHolder.value = false
+    hackFocus(true)
+  }, 100)
+}
+
+/**
+ * 监听 focus 属性变化
+ */
+watch(
+  () : boolean => props.focus,
+  (newValue : boolean) => {
+    if (newValue) {
+      if (props.disabled) return
+      closeCover()
+    }
+  },
+)
+
+onMounted(() => {
+  if (props.focus) {
+    closeCover()
+  }
+})
+
+/**
+ * 处理输入事件
+ */
+const handleInput = (event : any) => {
+  const detail = (event as UTSJSONObject)['detail'] as UTSJSONObject
+  const value = detail['value'] as string
+  inputValue.value = value
+  emit('update:modelValue', value)
+  emit('change', { value: value })
+}
+
+/**
+ * 处理清除按钮点击事件
+ */
+const handleClear = () => {
+  inputValue.value = ''
+
+  if (props.focusWhenClear) {
+    clearing.value = true
+    isFocused.value = false
+  }
+
+  setTimeout(() => {
+    if (props.focusWhenClear) {
+      showPlaceHolder.value = false
+      hackFocus(true)
+    } else {
+      showPlaceHolder.value = true
+      hackFocus(false)
+    }
+
+    emit('change', { value: '' })
+    emit('update:modelValue', '')
+    emit('clear')
+  }, 33)
+}
+
+/**
+ * 处理确认搜索事件
+ */
+const handleConfirm = (event : any) => {
+  const detail = (event as UTSJSONObject)['detail'] as UTSJSONObject
+  const value = detail['value'] as string
+  emit('search', { value: value })
+}
+
+/**
+ * 处理输入框获得焦点事件
+ */
+const handleFocus = () => {
+  showPlaceHolder.value = false
+  emit('focus', { value: inputValue.value })
+}
+
+/**
+ * 处理输入框失去焦点事件
+ */
+const handleBlur = () => {
+  setTimeout(() => {
+    if (clearing.value) {
+      clearing.value = false
+      return
+    }
+
+    showPlaceHolder.value = inputValue.value == ''
+    showInput.value = !showPlaceHolder.value
+    isFocused.value = false
+
+    emit('blur', { value: inputValue.value })
+  }, 150)
+}
+
+/**
+ * 处理取消按钮点击事件
+ */
+const handleCancel = () => {
+  emit('cancel', { value: inputValue.value })
+}
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/_mixin.scss';
+@import '../common/abstracts/variable.scss';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(search) {
+    background: $-dark-background4;
+
+    @include e(block) {
+      background-color: $-dark-background;
+    }
+
+    @include e(input) {
+      color: $-dark-color;
+    }
+
+    @include e(cover) {
+      background-color: $-dark-background;
+    }
+
+    .wd-search__search-icon {
+      color: $-dark-color;
+    }
+    .wd-search__search-left-icon {
+      color: $-dark-color;
+    }
+    .wd-search__clear {
+      color: $-dark-color;
+    }
+    @include e(cancel) {
+      color: $-dark-color;
+    }
+
+    @include when(light) {
+      background: $-dark-background4;
+
+      .wd-search__block {
+        background: $-dark-background7;
+      }
+
+      .wd-search__cover {
+        background: $-dark-background7;
+      }
+    }
+  }
+}
+
+/* 搜索框主体样式 */
+@include b(search) {
+  display: flex;
+  padding: $-search-padding;
+  flex-direction: row;
+  align-items: center;
+  background: #fff;
+
+  @include e(block) {
+    flex: 1;
+    background-color: $-search-input-bg;
+    border-radius: $-search-input-radius;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    position: relative;
+  }
+
+  @include e(field) {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    position: relative;
+  }
+
+  @include e(input) {
+    flex: 1;
+    height: $-search-input-height;
+    box-sizing: border-box;
+    padding: $-search-input-padding;
+    border: none;
+    background: transparent;
+    font-size: $-search-input-fs;
+    color: $-search-input-color;
+    z-index: 0;
+  }
+
+  @include e(cover) {
+    width: 100%;
+    height: $-search-input-height;
+    background-color: $-search-input-bg;
+    font-size: $-search-input-fs;
+    border-radius: $-search-input-radius;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .wd-search__search-icon {
+    margin-right: 16rpx;
+    color: $-search-icon-color;
+    font-size: $-search-icon-size;
+  }
+
+  .wd-search__search-left-icon {
+    position: absolute;
+    font-size: $-search-icon-size;
+    top: 50%;
+    left: 32rpx;
+    transform: translateY(-50%);
+    color: $-search-icon-color;
+  }
+
+  @include e(placeholder-txt) {
+    color: $-search-placeholder-color;
+    font-size: $-search-input-fs;
+  }
+
+  .wd-search__clear {
+    position: absolute;
+    right: 0;
+    padding: 12rpx 18rpx 12rpx 14rpx;
+    color: $-search-cancel-color;
+  }
+
+  .wd-search__clear-icon {
+    font-size: $-search-clear-icon-size;
+  }
+
+  @include e(cancel) {
+    padding: $-search-cancel-padding;
+    height: $-search-input-height;
+    font-size: $-search-cancel-fs;
+    color: $-search-cancel-color;
+  }
+
+  @include when(light) {
+    background: $-search-light-bg;
+
+    .wd-search__block {
+      background: #fff;
+    }
+
+    .wd-search__cover {
+      background: #fff;
+    }
+  }
+
+  @include when(without-cancel) {
+    padding-right: $-search-side-padding;
+  }
+}
+</style>

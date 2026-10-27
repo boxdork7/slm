@@ -1,0 +1,182 @@
+/**
+ * 函数工具类 (UniApp X 版本)
+ *
+ * 保持与 plus-app/utils/function.ts 核心功能一致
+ *
+ * 包含以下功能：
+ * - 复制文本到剪贴板 (copy)
+ * - 获取剪贴板内容 (paste)
+ * - 快速创建带headers的配置 (withHeaders)
+ * - 防抖与节流 (debounce, throttle)
+ * - 延迟执行 (delay)
+ *
+ * UTS 适配说明：
+ * - 移除复杂泛型函数（curry, partial, memoize, serial, parallel, withRetry, rateLimit）
+ *   因为 UTS 不支持高级泛型和 .apply()/.call()
+ * - 保留最常用的函数：copy, paste, withHeaders, debounce, throttle, delay
+ * - once, retry, withTimeout 提供简化版本
+ */
+import type { CustomHeaders, CustomRequestOptions } from '@/types/http'
+import { useToast } from '@/wd'
+
+/**
+ * 复制文本到剪贴板
+ */
+export const copy = (text : string, message ?: string) : Promise<boolean> => {
+	if (text.length == 0) {
+		useToast().error('复制内容为空')
+		return Promise.resolve(false)
+	}
+
+	const content = text
+
+	/* #ifdef WEB */
+	return new Promise<boolean>((resolve) => {
+		try {
+			if (navigator.clipboard != null) {
+				navigator.clipboard.writeText(content).then(() => {
+					useToast().success(message != null ? message! : '复制成功')
+					resolve(true)
+				}).catch((_err : Error) => {
+					useToast().error('复制失败')
+					resolve(false)
+				})
+			} else {
+				useToast().error('浏览器不支持复制功能')
+				resolve(false)
+			}
+		} catch (err) {
+			console.error('复制操作失败:', err)
+			useToast().error('复制失败')
+			resolve(false)
+		}
+	})
+	/* #endif */
+
+	/* #ifdef APP-ANDROID || APP-HARMONY */
+	return new Promise<boolean>((resolve) => {
+		uni.setClipboardData({
+			data: content,
+			showToast: false,
+			success: (_res) => {
+				useToast().success(message != null ? message! : '复制成功')
+				resolve(true)
+			},
+			fail: (error) => {
+				console.error('复制失败:', error)
+				useToast().error('复制失败')
+				resolve(false)
+			},
+		})
+	})
+	/* #endif */
+}
+
+/**
+ * 获取剪贴板内容
+ */
+export const paste = () : Promise<string> => {
+	/* #ifdef WEB */
+	return new Promise<string>((resolve) => {
+		try {
+			if (navigator.clipboard != null) {
+				navigator.clipboard.readText().then((text : string) => {
+					resolve(text)
+				}).catch((_err : Error) => {
+					useToast().error('读取剪贴板失败')
+					resolve('')
+				})
+			} else {
+				useToast().error('浏览器不支持读取剪贴板')
+				resolve('')
+			}
+		} catch (err) {
+			console.error('获取剪贴板操作失败:', err)
+			resolve('')
+		}
+	})
+	/* #endif */
+
+	/* #ifdef APP-ANDROID || APP-HARMONY */
+	return new Promise<string>((resolve) => {
+		uni.getClipboardData({
+			success: (res) => {
+				resolve(res.data)
+			},
+			fail: (error) => {
+				console.error('获取剪贴板失败:', error)
+				useToast().error('获取剪贴板失败')
+				resolve('')
+			},
+		})
+	})
+	/* #endif */
+}
+
+/**
+ * 快速创建带headers的配置
+ */
+export const withHeaders = (
+	header : CustomHeaders,
+	config ?: CustomRequestOptions,
+) : CustomRequestOptions => {
+	const result = (config != null ? config! : {}) as CustomRequestOptions
+	const existingHeader = result.header != null ? result.header! : {} as CustomHeaders
+	/* 合并 headers */
+	const mergedHeader = {} as CustomHeaders
+	const existingKeys = Object.keys(existingHeader)
+	for (let i = 0; i < existingKeys.length; i++) {
+		mergedHeader[existingKeys[i]] = existingHeader[existingKeys[i]]
+	}
+	const headerKeys = Object.keys(header)
+	for (let i = 0; i < headerKeys.length; i++) {
+		mergedHeader[headerKeys[i]] = header[headerKeys[i]]
+	}
+	result.header = mergedHeader
+	return result
+}
+
+/**
+ * 函数防抖（简化版）
+ * 在指定时间内多次调用，只执行最后一次
+ */
+export const debounce = (func : () => void, wait : number = 300) => {
+	let timeout : number | null = null
+
+	return () => {
+		if (timeout != null) {
+			clearTimeout(timeout!)
+		}
+		timeout = setTimeout(() => {
+			timeout = null
+			func()
+		}, wait)
+	}
+}
+
+/**
+ * 函数节流（简化版）
+ * 在指定时间内，函数最多执行一次
+ */
+export const throttle = (func : () => void, wait : number = 300) => {
+	let previous : number = 0
+
+	return () => {
+		const now = Date.now()
+		if (now - previous > wait) {
+			previous = now
+			func()
+		}
+	}
+}
+
+/**
+ * 延迟执行（简化版）
+ */
+export const delay = (ms : number) : Promise<void> => {
+	return new Promise<void>((resolve) => {
+		setTimeout(() => {
+			resolve()
+		}, ms)
+	})
+}

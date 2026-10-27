@@ -1,0 +1,65 @@
+<template>
+	<scroll-view
+		class="page-container"
+		scroll-y
+		:show-scrollbar="false"
+		:scroll-top="scrollTopValue"
+		@scroll="handleScroll"
+	>
+		<Home v-if="tabbarStore.tabs.value[0].loaded" v-show="tabbarStore.currentTab.value === 0" />
+		<Menu v-if="tabbarStore.tabs.value[1].loaded" v-show="tabbarStore.currentTab.value === 1" />
+		<My v-if="tabbarStore.tabs.value[2].loaded" v-show="tabbarStore.currentTab.value === 2" />
+
+		<!-- Tabbar -->
+		<wd-tabbar v-model="tabbarStore.currentTab.value" :items="tabbarStore.tabs.value" @change="handleTabChange" />
+	</scroll-view>
+</template>
+
+<script setup lang="uts">
+import { ref, onMounted } from 'vue'
+import { useTabbarStore } from '@/stores/modules/tabbar'
+import { useScroll } from '@/composables/useScroll'
+import Home from '@/components/tabbar/Home.uvue'
+import Menu from '@/components/tabbar/Menu.uvue'
+import My from '@/components/tabbar/My.uvue'
+
+/**
+ * 组件属性定义
+ * @param tab - 初始显示的标签页标识（从路由参数传入）
+ */
+const props = defineProps({
+	tab: {
+		type: Number,
+		default: 0,
+	},
+})
+
+/* 使用 tabbar 状态管理 store */
+const tabbarStore = useTabbarStore()
+
+/**
+ * 处理标签页切换事件
+ */
+const handleTabChange = (index : number) => {
+	tabbarStore.toTab(index)
+}
+
+/* 使用 useScroll 创建 scroll-view 处理器（自动处理所有滚动逻辑） */
+const scrollHandler = useScroll().createScrollViewHandler()
+const scrollTopValue = scrollHandler.scrollTopValue
+const handleScroll = scrollHandler.handleScroll
+
+/**
+ * 组件挂载后的初始化处理
+ */
+onMounted(() => {
+	/* 根据传入的 tab 参数切换到对应的标签页 */
+	tabbarStore.toTab(props.tab)
+})
+</script>
+
+<style lang="scss" scoped>
+.page-container {
+	height: 100vh;
+}
+</style>

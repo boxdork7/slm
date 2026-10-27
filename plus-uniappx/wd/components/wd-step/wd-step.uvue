@@ -1,0 +1,491 @@
+<!--
+Steps 步骤条的每一项 用于引导用户按照流程完成任务或向用户展示当前状态。
+
+UniApp X 版本改动说明：
+- 移除 defineOptions（UTS 不支持）
+- 移除手动组件导入（easycom 自动注册）
+- useParent(STEPS_KEY) → inject(STEPS_KEY) + genChildUid 模式
+- Union literal 类型 StepStatus 改为 string
+- IconName 类型改为 string
+- useTranslate → 直接使用中文文本
+- 计算属性显式标注返回类型
+- <text> 代替文本节点
+- $slots.xxx 判断改为使用 $slots 访问
+-->
+<template>
+  <view
+    v-if="currentStatus"
+    :class="`wd-step ${customClass} ${currentStatus ? `is-${currentStatus}` : ''} ${canAlignCenter ? 'is-center' : ''} ${vertical ? 'is-vertical' : ''}`"
+    :style="`${steps && !steps.props.vertical && (steps.props.space || `${100 / childrenLength}%`) ? `width: ${steps.props.space || `${100 / childrenLength}%`};` : ''}${steps && steps.props.vertical && isDef(steps.props.space) ? `height: ${steps.props.space};` : ''}${customStyle}`"
+  >
+    <!-- 步骤头部区域 -->
+    <view :class="`wd-step__header ${dot ? 'is-dot' : ''}`">
+      <!-- 步骤图标区域 -->
+      <view
+        :class="`wd-step__icon ${dot ? 'is-dot' : !!icon || $slots.icon ? 'is-icon' : 'is-text'}`"
+      >
+        <view v-if="dot" class="wd-step__dot" />
+        <!-- process 状态下的点状样式需要显示脉冲光晕效果（原 ::after 伪元素） -->
+        <view v-if="dot && currentStatus === 'process'" class="wd-step__dot-pulse" />
+        <slot v-else-if="$slots.icon" name="icon" />
+        <wd-icon v-else-if="icon" custom-class="wd-step__icon-inner" :name="icon" />
+        <view v-else class="wd-step__icon-outer">
+          <wd-icon v-if="currentStatus === 'finished'" name="check" />
+          <wd-icon v-else-if="currentStatus === 'error'" name="close" />
+          <text v-else>
+            {{ index + 1 }}
+          </text>
+        </view>
+      </view>
+      <!-- 连接线 -->
+      <view v-if="index < childrenLength - 1" class="wd-step__line" />
+    </view>
+
+    <!-- 步骤内容区域 -->
+    <view class="wd-step__content">
+      <!-- 步骤标题 -->
+      <view
+        :class="`wd-step__title ${$slots.description || description ? 'is-description' : ''}`"
+      >
+        <slot v-if="$slots.title" name="title" />
+        <text v-else>
+          {{ currentTitle }}
+        </text>
+      </view>
+      <!-- 步骤描述 -->
+      <view v-if="$slots.description || description" class="wd-step__description">
+        <slot v-if="$slots.description" name="description" />
+        <text v-else>
+          {{ description }}
+        </text>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, inject, onMounted, onUnmounted } from 'vue'
+import { isDef } from '../common/util'
+import { genChildUid } from '../../composables/useChildren'
+import { STEPS_KEY, type StepsProvide } from '../wd-steps/wd-steps-key'
+
+/**
+ * 步骤组件属性接口
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 步骤标题，如果没有则使用默认文案 */
+  title ?: string
+  /** 步骤描述 */
+  description ?: string
+  /** 步骤图标 */
+  icon ?: string
+  /** 步骤状态，可选值为 'finished'、'process'、'error'、'wait' */
+  status ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  title: '',
+  description: '',
+  icon: '',
+  status: '',
+})
+
+/* 获取父级步骤条组件 */
+const steps = inject<StepsProvide | null>(STEPS_KEY, null)
+
+/* 生成唯一 ID */
+const uid = genChildUid()
+
+/**
+ * 计算在兄弟组件中的索引
+ */
+const index = computed(() : number => {
+  if (steps != null) return steps!.childUids.indexOf(uid)
+  return -1
+})
+
+/**
+ * 计算子组件总数
+ */
+const childrenLength = computed(() : number => {
+  if (steps != null) return steps!.childUids.length
+  return 0
+})
+
+/**
+ * 计算当前步骤状态
+ * 优先使用 props.status，否则根据 active 和 index 计算
+ */
+const currentStatus = computed(() : string => {
+  if (props.status) {
+    return props.status
+  }
+
+  if (steps != null) {
+    const active = steps!.props.active ?? 0
+    const activeValue = Number(active)
+    const currentIndex = index.value
+
+    if (activeValue > currentIndex) {
+      return 'finished'
+    } else if (activeValue == currentIndex) {
+      return 'process'
+    } else {
+      return 'wait'
+    }
+  }
+
+  return 'wait'
+})
+
+/**
+ * 计算当前步骤标题
+ * 优先使用 props.title，否则根据状态使用默认文案
+ */
+const currentTitle = computed(() : string => {
+  if (props.title) {
+    return props.title
+  }
+
+  const statusTitleMap = new Map<string, string>([
+    ['finished', '已完成'],
+    ['error', '失败'],
+    ['process', '进行中'],
+    ['wait', '未开始'],
+  ])
+
+  return statusTitleMap.get(currentStatus.value) ?? '未开始'
+})
+
+/**
+ * 计算是否可以居中对齐
+ * 只有在非垂直方向且设置了 alignCenter 时才生效
+ */
+const canAlignCenter = computed(() : boolean => {
+  if (isDef(steps)) {
+    const isVertical = steps!.props.vertical ?? false
+    const alignCenter = steps!.props.alignCenter ?? false
+    return !isVertical && alignCenter
+  }
+  return false
+})
+
+/**
+ * 计算是否为垂直方向
+ */
+const vertical = computed(() : boolean => {
+  if (isDef(steps)) {
+    return steps!.props.vertical ?? false
+  }
+  return false
+})
+
+/**
+ * 计算是否为点状样式
+ */
+const dot = computed(() : boolean => {
+  if (isDef(steps)) {
+    return steps!.props.dot ?? false
+  }
+  return false
+})
+
+/**
+ * 组件挂载后的处理
+ */
+onMounted(() => {
+  /* 注册到父组件 */
+  if (steps != null) {
+    steps!.addChild(uid)
+  }
+})
+
+/**
+ * 组件卸载前的处理
+ */
+onUnmounted(() => {
+  /* 从父组件注销 */
+  if (steps != null) {
+    steps!.removeChild(uid)
+  }
+})
+</script>
+
+<style lang="scss">
+/* 引入外部样式文件 */
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(step) {
+    @include e(icon) {
+      background: $-dark-background2;
+    }
+
+    @include e(content) {
+      color: $-dark-color3;
+    }
+
+    @include e(line) {
+      background: $-dark-color-gray;
+    }
+
+    @include e(dot) {
+      background: $-dark-color-gray;
+    }
+
+    @include e(description) {
+      color: $-dark-color3;
+    }
+
+    @include when(wait) {
+      .wd-step__description {
+        color: $-dark-color-gray;
+      }
+    }
+
+    .wd-step__icon-outer,
+    .wd-step__icon-inner {
+      color: $-dark-color3;
+      border-color: $-dark-color-gray;
+    }
+  }
+}
+
+/* 步骤组件样式 */
+@include b(step) {
+  position: relative;
+  display: inline-block;
+  vertical-align: top;
+
+  /* 步骤头部样式 */
+  @include e(header) {
+    position: relative;
+    font-size: 0;
+
+    @include when(dot) {
+      .wd-step__line {
+        margin-top: -2rpx;
+      }
+    }
+  }
+
+  /* 步骤图标样式 */
+  @include e(icon) {
+    display: inline-block;
+    position: relative;
+    width: $-steps-icon-size;
+    height: $-steps-icon-size;
+    background: #fff;
+    z-index: 1;
+
+    @include when(icon) {
+      width: $-steps-is-icon-width;
+      text-align: center;
+    }
+
+    @include when(dot) {
+      width: $-steps-dot-size;
+      height: $-steps-dot-size;
+      border: 1px solid transparent;
+      margin-left: -2rpx;
+      border-radius: 50%;
+      background: transparent;
+    }
+  }
+
+  /* 图标内部样式 */
+  .wd-step__icon-inner {
+    font-size: $-steps-icon-size;
+    color: $-steps-inactive-color;
+  }
+
+  /* 图标外部样式 */
+  @include e(icon-outer) {
+    width: calc($-steps-icon-size - 2px);
+    height: calc($-steps-icon-size - 2px);
+    border: 1px solid $-steps-inactive-color;
+    color: $-steps-inactive-color;
+    text-align: center;
+    line-height: calc($-steps-icon-size - 2px);
+    border-radius: 50%;
+    font-size: $-steps-icon-text-fs;
+  }
+
+  /* 连接线样式 */
+  @include e(line) {
+    position: absolute;
+    width: 100%;
+    height: 1px;
+    background: $-steps-line-color;
+    transform: scaleY(0.5);
+    top: 50%;
+    left: 0;
+  }
+
+  /* 点状样式 */
+  @include e(dot) {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: $-steps-line-color;
+  }
+
+  /* 内容区域样式 */
+  @include e(content) {
+    margin-top: 14rpx;
+    color: $-steps-inactive-color;
+    font-size: $-steps-label-fs;
+  }
+
+  /* 标题样式 */
+  @include e(title) {
+    font-weight: $-steps-title-fw;
+    line-height: 1.43;
+
+    @include when(description) {
+      font-size: $-steps-title-fs;
+    }
+  }
+
+  /* 描述样式 */
+  @include e(description) {
+    margin-top: 10rpx;
+    padding: 0 4rpx;
+    color: $-steps-description-color;
+  }
+
+  /* 等待状态样式 */
+  @include when(wait) {
+    .wd-step__description {
+      color: $-steps-inactive-color;
+    }
+  }
+
+  /* 完成状态样式 */
+  @include when(finished) {
+    .wd-step__icon-inner {
+      color: $-steps-finished-color;
+    }
+    .wd-step__icon-outer {
+      color: $-steps-finished-color;
+      border-color: $-steps-finished-color;
+    }
+    .wd-step__title {
+      color: $-steps-finished-color;
+    }
+    .wd-step__dot {
+      background: $-steps-finished-color;
+    }
+  }
+
+  /* 点状脉冲光晕效果（原 ::after 伪元素） */
+  @include e(dot-pulse) {
+    position: absolute;
+    content: '';
+    width: $-steps-dot-size + 20rpx;
+    height: $-steps-dot-size + 20rpx;
+    left: -10rpx;
+    top: -10rpx;
+    border-radius: 50%;
+    background: $-steps-finished-color;
+    opacity: 0.2;
+  }
+
+  /* 进行中状态样式 */
+  @include when(process) {
+    .wd-step__icon.is-icon {
+      .wd-step__icon-inner {
+        color: $-steps-finished-color;
+      }
+    }
+    .wd-step__icon-outer {
+      color: #fff;
+      background: $-steps-finished-color;
+      border-color: $-steps-finished-color;
+    }
+    .wd-step__title {
+      color: $-steps-finished-color;
+    }
+    .wd-step__icon {
+      border-color: $-steps-finished-color;
+
+      &.is-dot {
+        position: relative;
+      }
+    }
+    .wd-step__dot {
+      background: $-steps-finished-color;
+    }
+  }
+
+  /* 错误状态样式 */
+  @include when(error) {
+    .wd-step__icon-inner,
+    .wd-step__title {
+      color: $-steps-error-color;
+    }
+    .wd-step__icon-outer {
+      color: $-steps-error-color;
+      border-color: $-steps-error-color;
+    }
+    .wd-step__dot {
+      background: $-steps-error-color;
+    }
+  }
+
+  /* 居中对齐样式 */
+  @include when(center) {
+    text-align: center;
+
+    .wd-step__line {
+      left: 50%;
+      right: -50%;
+    }
+  }
+
+  /* 垂直方向样式 */
+  @include when(vertical) {
+    display: block;
+
+    .wd-step__header {
+      position: absolute;
+      left: 0;
+      top: 0;
+      height: 100%;
+
+      &.is-dot {
+        top: 12rpx;
+
+        .wd-step__line {
+          margin-left: -2rpx;
+          margin-top: 0;
+        }
+      }
+    }
+    .wd-step__content {
+      margin-left: 60rpx;
+      margin-top: 0;
+      padding-bottom: 40rpx;
+    }
+    .wd-step__line {
+      top: 0;
+      left: 50%;
+      width: 2rpx;
+      height: 100%;
+      transform: scaleX(0.5);
+    }
+    .wd-step__icon.is-dot {
+      margin-left: 0;
+      margin-top: -2rpx;
+    }
+  }
+}
+</style>

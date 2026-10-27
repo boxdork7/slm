@@ -1,0 +1,67 @@
+/**
+ * HTTP 请求类型定义 (UniApp X 版本)
+ *
+ * 从 plus-app/types/http.d.ts 迁移
+ *
+ * UTS 适配说明：
+ * - 移除 index signature [key: string]: any（UTS 不支持）
+ * - Partial<UniApp.RequestOptions> → 显式字段声明
+ * - Record<string, any> → UTSJSONObject
+ * - CustomHeaders 中的控制字段改为显式可选属性
+ */
+
+/**
+ * 自定义请求头（控制字段）
+ *
+ * 除了标准 HTTP 请求头外，还包含以下控制字段：
+ * - auth: 是否携带认证信息（默认 true）
+ * - tenant: 是否携带租户信息（默认 true）
+ * - repeatSubmit: 是否启用防重复提交（默认 true）
+ * - isEncrypt: 是否加密请求数据（默认 false）
+ */
+export type CustomHeaders = {
+	/** 是否携带认证 Token（默认 true） */
+	auth ?: boolean
+	/** 是否携带租户ID（默认 true） */
+	tenant ?: boolean
+	/** 是否启用防重复提交（默认 true） */
+	repeatSubmit ?: boolean
+	/** 是否加密请求（默认 false） */
+	isEncrypt ?: boolean
+}
+
+/**
+ * 自定义请求配置
+ *
+ * 扩展 uni.request 的标准选项，增加业务相关配置
+ */
+export type CustomRequestOptions = {
+	/** 额外的查询参数（GET 请求附加到 URL） */
+	query ?: UTSJSONObject
+	/** 额外的查询参数（query 的别名） */
+	params ?: UTSJSONObject
+	/** 自定义请求头（含控制字段） */
+	header ?: CustomHeaders
+	/** 请求超时时间（毫秒） */
+	timeout ?: number
+	/** 请求体数据 */
+	data ?: any
+	/** 是否跳过应用初始化等待 */
+	skipWait ?: boolean
+	/** 初始化等待超时时间（毫秒） */
+	initTimeout ?: number
+	/** 是否禁用错误消息提示 */
+	noMsgError ?: boolean
+}
+
+/**
+ * API 标准响应格式
+ */
+export type ApiResponse = {
+	/** 响应码 */
+	code : number
+	/** 响应消息 */
+	msg : string
+	/** 响应数据 */
+	data : any | null
+}

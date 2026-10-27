@@ -1,0 +1,280 @@
+/**
+ * 滚动管理钩子 (useScroll) - UTS 版本
+ * 从 plus-app/composables/useScroll.ts 迁移
+ *
+ * 基于全局单例模式实现页面滚动位置的统一管理。
+ * 解决微信小程序中 onPageScroll 只能在页面组件中生效的平台差异问题。
+ *
+ * 包含以下功能:
+ * - 状态管理: 响应式滚动位置状态 (scrollTop)
+ * - 更新滚动位置: 更新当前页面的滚动位置 (updateScrollTop)
+ * - 重置滚动位置: 重置滚动位置为0 (resetScrollTop)
+ * - 判断滚动状态: 判断是否已滚动、是否可显示返回顶部按钮 (isScrolled, shouldShowBacktop)
+ */
+
+import { ref, readonly, onMounted, onUnmounted, nextTick } from 'vue'
+
+/** 滚动到顶部的函数类型 */
+type ScrollToTopFn = (duration : number) => void
+
+/** 页面滚动事件数据类型 */
+type PageScrollEvent = {
+  scrollTop : number
+}
+
+/** scroll-view 滚动事件数据类型 */
+type ScrollViewEvent = {
+  detail : ScrollViewEventDetail
+}
+
+type ScrollViewEventDetail = {
+  scrollTop : number
+}
+
+/** scroll-view 处理器返回类型 */
+export type ScrollViewHandlerResult = {
+  scrollTopValue : Ref<number | null>
+  handleScroll : (e : ScrollViewEvent) => void
+}
+
+/** 页面滚动处理器返回类型 */
+export type PageScrollHandlerResult = {
+  handlePageScroll : (e : PageScrollEvent) => void
+}
+
+/** useScroll 返回值类型 */
+export type UseScrollResult = {
+  scrollTop : Ref<number>
+  getScrollTop : () => number
+  updateScrollTop : (value : number) => void
+  resetScrollTop : () => void
+  isScrolled : (threshold : number) => boolean
+  shouldShowBacktop : (top : number) => boolean
+  getScrollProgress : (maxScrollTop : number) => number
+  registerScrollToTop : (fn : ScrollToTopFn) => void
+  unregisterScrollToTop : () => void
+  scrollToTop : (duration : number) => void
+  createScrollViewHandler : () => ScrollViewHandlerResult
+  createPageScrollHandler : () => PageScrollHandlerResult
+}
+
+/**
+ * 创建滚动状态实例
+ * 内部方法，用于创建滚动状态的实际实现
+ */
+function createScrollInstance() : UseScrollResult {
+  /**
+   * 当前滚动位置
+   */
+  const scrollTopRef = ref<number>(0)
+
+  /**
+   * 滚动操作函数引用（由外部滚动容器注册）
+   */
+  let scrollToTopFn : ScrollToTopFn | null = null
+
+  /**
+   * 获取当前滚动位置
+   * @returns 当前页面的滚动位置（像素）
+   */
+  const getScrollTop = () : number => {
+    return scrollTopRef.value
+  }
+
+  /**
+   * 更新滚动位置
+   * 智能处理滚动状态，当滚动到顶部时自动重置
+   * @param value 新的滚动位置（像素）
+   */
+  const updateScrollTop = (value : number) : void => {
+    const newValue = Math.max(0, value)
+
+    // 如果滚动到顶部，完全重置状态
+    if (newValue == 0 && scrollTopRef.value != 0) {
+      scrollTopRef.value = 0
+    } else {
+      scrollTopRef.value = newValue
+    }
+  }
+
+  /**
+   * 重置滚动位置
+   * 将滚动位置重置为0，通常用于页面切换时
+   */
+  const resetScrollTop = () : void => {
+    scrollTopRef.value = 0
+  }
+
+  /**
+   * 判断页面是否已滚动
+   * @param threshold 判断滚动的阈值，默认为0
+   * @returns 是否已滚动
+   */
+  const isScrolled = (threshold : number = 0) : boolean => {
+    return scrollTopRef.value > threshold
+  }
+
+  /**
+   * 判断是否应该显示返回顶部按钮
+   * @param top 显示按钮的滚动阈值，默认为600（与wd-backtop组件默认值保持一致）
+   * @returns 是否应该显示返回顶部按钮
+   */
+  const shouldShowBacktop = (top : number = 600) : boolean => {
+    return scrollTopRef.value > top
+  }
+
+  /**
+   * 计算滚动进度百分比
+   * @param maxScrollTop 页面最大滚动高度
+   * @returns 滚动进度百分比 (0-100)
+   */
+  const getScrollProgress = (maxScrollTop : number) : number => {
+    if (maxScrollTop <= 0) return 0
+    return Math.min(100, (scrollTopRef.value / maxScrollTop) * 100)
+  }
+
+  /**
+   * 注册滚动到顶部的方法
+   * 由实际的滚动容器调用，提供具体的滚动实现
+   * @param fn 滚动到顶部的实现函数
+   */
+  const registerScrollToTop = (fn : ScrollToTopFn) : void => {
+    scrollToTopFn = fn
+  }
+
+  /**
+   * 注销滚动到顶部的方法
+   * 通常在组件卸载时调用，避免内存泄漏
+   */
+  const unregisterScrollToTop = () : void => {
+    scrollToTopFn = null
+  }
+
+  /**
+   * 滚动到顶部
+   * 调用已注册的滚动方法，如果未注册则输出警告
+   * @param duration 滚动动画时长（毫秒），默认300ms
+   */
+  const scrollToTop = (duration : number = 300) : void => {
+    if (scrollToTopFn != null) {
+      scrollToTopFn!(duration)
+    } else {
+      console.warn('useScroll: scrollToTop 方法未注册，请在滚动容器中调用 registerScrollToTop')
+    }
+  }
+
+  /**
+   * 创建 scroll-view 滚动处理器
+   * 返回配置好的 scrollTopValue 和 handleScroll，直接绑定到 scroll-view
+   */
+  const createScrollViewHandler = () : ScrollViewHandlerResult => {
+    const scrollTopValue = ref<number | null>(null)
+    let isScrollingToTop = false
+
+    const handleScroll = (e : ScrollViewEvent) : void => {
+      const currentScrollTop = e.detail.scrollTop
+      if (isScrollingToTop) {
+        updateScrollTop(currentScrollTop)
+        return
+      }
+      updateScrollTop(currentScrollTop)
+    }
+
+    // 自动注册滚动方法
+    onMounted(() => {
+      registerScrollToTop((duration : number) : void => {
+        isScrollingToTop = true
+        scrollTopValue.value = 1
+        nextTick(() => {
+          scrollTopValue.value = 0
+          setTimeout(() => {
+            scrollTopValue.value = null
+            isScrollingToTop = false
+          }, duration + 100)
+        })
+      })
+    })
+
+    onUnmounted(() => {
+      unregisterScrollToTop()
+    })
+
+    return {
+      scrollTopValue,
+      handleScroll,
+    } as ScrollViewHandlerResult
+  }
+
+  /**
+   * 创建页面级滚动处理器
+   * 自动注册 uni.pageScrollTo 方法
+   */
+  const createPageScrollHandler = () : PageScrollHandlerResult => {
+    const handlePageScroll = (e : PageScrollEvent) : void => {
+      updateScrollTop(e.scrollTop)
+    }
+
+    // 自动注册滚动方法
+    onMounted(() => {
+      registerScrollToTop((duration : number) : void => {
+        const scrollDuration = duration > 0 ? duration : 300
+        uni.pageScrollTo({
+          scrollTop: 0,
+          duration: scrollDuration,
+        })
+      })
+    })
+
+    onUnmounted(() => {
+      unregisterScrollToTop()
+    })
+
+    return {
+      handlePageScroll,
+    } as PageScrollHandlerResult
+  }
+
+  return {
+    // 只读的滚动位置状态，防止外部直接修改
+    scrollTop: readonly(scrollTopRef),
+    // 基础操作方法
+    getScrollTop,
+    updateScrollTop,
+    resetScrollTop,
+    // 状态判断方法
+    isScrolled,
+    shouldShowBacktop,
+    getScrollProgress,
+    // 滚动操作方法
+    registerScrollToTop,
+    unregisterScrollToTop,
+    scrollToTop,
+    // 便捷方法
+    createScrollViewHandler,
+    createPageScrollHandler,
+  } as UseScrollResult
+}
+
+/**
+ * 全局滚动状态实例
+ * 确保所有调用 useScroll() 的地方共享同一个状态
+ */
+let globalScrollInstance : UseScrollResult | null = null
+
+/**
+ * 滚动管理钩子 (useScroll)
+ *
+ * 基于全局单例模式实现页面滚动位置的统一管理。
+ * 提供跨组件的滚动位置共享，适配不同平台的滚动监听差异。
+ *
+ * @returns 包含滚动位置相关操作的方法和状态
+ */
+export const useScroll = () : UseScrollResult => {
+  // 如果全局实例不存在，创建一个新实例
+  if (globalScrollInstance == null) {
+    globalScrollInstance = createScrollInstance()
+  }
+
+  // 返回全局单例实例
+  return globalScrollInstance!
+}

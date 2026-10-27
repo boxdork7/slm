@@ -1,0 +1,88 @@
+/**
+ * 系统功能配置 Store (useFeatureStore) - UniApp X 版本
+ *
+ * 保持与 plus-app/stores/modules/feature.ts 相同的导出接口
+ *
+ * UTS 适配说明：
+ * - 不使用 Pinia（UTS 不支持），采用模块级 ref + 导出函数模式
+ * - SystemFeature 类型在此文件中本地定义（API 层尚未迁移）
+ * - keyof 运算符改为字符串参数 + if/else 判断
+ * - API 调用暂用占位（阶段 4 迁移 API 后替换）
+ */
+import { ref } from 'vue'
+
+/**
+ * 系统功能配置类型
+ */
+export type SystemFeature = {
+	langchain4jEnabled : boolean
+	websocketEnabled : boolean
+	sseEnabled : boolean
+}
+
+/* ==================== 模块级状态（单例） ==================== */
+
+/* 功能配置 */
+const features = ref<SystemFeature>({
+	langchain4jEnabled: false,
+	websocketEnabled: false,
+	sseEnabled: false,
+} as SystemFeature)
+
+/* 是否已初始化 */
+const initialized = ref(false)
+
+/* ==================== 方法 ==================== */
+
+/**
+ * 初始化功能配置
+ * TODO: 阶段 4 迁移 API 后替换为实际 API 调用
+ */
+const initFeatures = async () : Promise<void> => {
+	if (initialized.value) return
+
+	try {
+		/* 占位：API 层迁移后替换 */
+		/* const [err, data] = await getSystemFeatures() */
+		/* if (!err) { features.value = data } */
+
+		/* 暂时使用默认值 */
+		features.value.langchain4jEnabled = false
+		features.value.websocketEnabled = false
+		features.value.sseEnabled = false
+	} catch (_e) {
+		features.value.langchain4jEnabled = false
+		features.value.websocketEnabled = false
+		features.value.sseEnabled = false
+	}
+	initialized.value = true
+}
+
+/**
+ * 判断功能是否启用
+ * @param featureName 功能名称
+ */
+const isFeatureEnabled = (featureName : string) : boolean => {
+	if (featureName == 'langchain4jEnabled') {
+		return features.value.langchain4jEnabled
+	} else if (featureName == 'websocketEnabled') {
+		return features.value.websocketEnabled
+	} else if (featureName == 'sseEnabled') {
+		return features.value.sseEnabled
+	}
+	return false
+}
+
+/* ==================== Store 导出 ==================== */
+
+/**
+ * 获取功能配置 Store 实例
+ */
+export function useFeatureStore() {
+	return {
+		features,
+		initialized,
+		initFeatures,
+		isFeatureEnabled,
+	}
+}

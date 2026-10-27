@@ -1,0 +1,139 @@
+/**
+ * 父子组件通信 - 子组件端 (useParent) - UniApp X 版本
+ *
+ * 保持与 plus-app/wd/components/composables/useParent.ts 等效的功能
+ *
+ * UTS 适配说明：
+ * - 原实现依赖 getCurrentInstance()、ComponentInternalInstance，UniApp X 不支持
+ * - 替代方案：子组件通过 inject 获取父组件 provide 的 ChildManager，
+ *   使用 genChildUid() 生成唯一 ID，在 onMounted/onUnmounted 中注册/注销
+ * - index 通过 computed 从 childUids 数组中查找自身 UID 位置
+ * - 不使用泛型函数，子组件需自行 inject 并断言为具体 Provide 类型
+ *
+ * 使用模式：
+ * ```
+ * // 子组件 setup 中
+ * import { inject, computed, onMounted, onUnmounted } from 'vue'
+ * import { genChildUid } from '@/wd/composables/useChildren'
+ * import { FORM_KEY } from '../wd-form/wd-form-key'
+ * import type { FormProvide } from '../wd-form/wd-form-key'
+ *
+ * // 1. inject 父组件 context
+ * const parent = inject<FormProvide | null>(FORM_KEY, null)
+ *
+ * // 2. 生成唯一 ID 并注册
+ * const uid = genChildUid()
+ * onMounted(() => { if (parent != null) parent!.addChild(uid) })
+ * onUnmounted(() => { if (parent != null) parent!.removeChild(uid) })
+ *
+ * // 3. 计算在兄弟组件中的索引
+ * const index = computed((): number => {
+ *     if (parent != null) return parent!.childUids.indexOf(uid)
+ *     return -1
+ * })
+ *
+ * // 4. 使用父组件数据
+ * const errorMessage = computed((): string => {
+ *     if (parent != null && props.prop.length > 0) {
+ *         return parent!.getError(props.prop)
+ *     }
+ *     return ''
+ * })
+ * ```
+ */
+
+/**
+ * ChildSetup 结果类型
+ * 子组件 setup 中手动注册后的返回值
+ */
+export type ChildSetupResult = {
+	/** 子组件唯一 ID */
+	uid : number
+}
+
+/**
+ * ========================================
+ * 使用说明（非通用函数，提供模式参考）
+ * ========================================
+ *
+ * 由于 UTS 不支持泛型函数，无法创建通用的 useParent<T>(key) 函数。
+ * 每个子组件需要：
+ *
+ * 1. 定义自己的 Provide 接口（在 key 文件中）
+ * 2. 使用 inject 获取父组件 context
+ * 3. 手动完成注册/注销（4 行代码）
+ *
+ * 完整子组件模板：
+ * ```uts
+ * <script setup lang="uts">
+ * import { inject, computed, onMounted, onUnmounted } from 'vue'
+ * import { genChildUid } from '@/wd/composables/useChildren'
+ * import { FORM_KEY } from '../wd-form/wd-form-key'
+ * import type { FormProvide } from '../wd-form/wd-form-key'
+ *
+ * // 获取父组件 context（如果没有父组件则为 null）
+ * const form = inject<FormProvide | null>(FORM_KEY, null)
+ *
+ * // 注册到父组件
+ * const uid = genChildUid()
+ * onMounted(() => { if (form != null) form!.addChild(uid) })
+ * onUnmounted(() => { if (form != null) form!.removeChild(uid) })
+ *
+ * // 计算索引（在兄弟组件中的位置）
+ * const index = computed((): number => {
+ *     if (form != null) return form!.childUids.indexOf(uid)
+ *     return -1
+ * })
+ *
+ * // 使用父组件数据
+ * const isFirst = computed((): boolean => index.value == 0)
+ * const border = computed((): boolean => {
+ *     return index.value > 0 && form != null && form!.border
+ * })
+ * </script>
+ * ```
+ *
+ * 完整父组件模板：
+ * ```uts
+ * <script setup lang="uts">
+ * import { provide } from 'vue'
+ * import { createChildManager } from '@/wd/composables/useChildren'
+ * import { FORM_KEY } from './wd-form-key'
+ *
+ * const props = defineProps<{ model: UTSJSONObject, border: boolean }>()
+ *
+ * // 创建子组件管理器
+ * const manager = createChildManager()
+ *
+ * // provide 给子组件
+ * provide(FORM_KEY, {
+ *     childUids: manager.childUids,
+ *     addChild: manager.addChild,
+ *     removeChild: manager.removeChild,
+ *     model: props.model,
+ *     border: props.border,
+ * })
+ * </script>
+ * ```
+ *
+ * Key 文件模板（wd-form-key.uts）：
+ * ```uts
+ * // 字符串 key（替代原始的 Symbol/InjectionKey）
+ * export const FORM_KEY = 'wd-form'
+ *
+ * // Provide 接口（包含 ChildManager 字段 + 业务字段）
+ * export type FormProvide = {
+ *     // ChildManager 字段（必须）
+ *     childUids: number[]
+ *     addChild: (uid: number) => void
+ *     removeChild: (uid: number) => void
+ *     // 业务字段
+ *     model: UTSJSONObject
+ *     border: boolean
+ * }
+ * ```
+ */
+
+/* 本文件主要作为模式文档，导出 genChildUid 的引用便于子组件使用 */
+export { genChildUid } from './useChildren'
+export type { ChildManager } from './useChildren'

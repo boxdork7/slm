@@ -1,0 +1,271 @@
+<!--
+Sidebar 侧边导航每一项
+
+UniApp X 版本改动点:
+1. 移除 defineOptions
+2. 移除手动组件导入 (easycom 自动注册)
+3. 使用 inject + genChildUid 替代 useParent
+4. WdBadgeProps → UTSJSONObject
+5. Record<string, any> → UTSJSONObject
+6. any → 具体类型
+7. 计算属性返回类型需要显式标注
+8. ::before 伪元素保留在样式中 (与 wd-sidebar.uvue 共享)
+-->
+<template>
+  <view
+    :class="`wd-sidebar-item ${active ? 'wd-sidebar-item--active' : ''} ${prefix ? 'wd-sidebar-item--prefix' : ''} ${suffix ? 'wd-sidebar-item--suffix' : ''} ${disabled ? 'wd-sidebar-item--disabled' : ''} ${customClass}`"
+    :style="customStyle"
+    @click="handleClick"
+  >
+    <slot name="icon" />
+    <template v-if="!$slots.icon && icon">
+      <wd-icon custom-class="wd-sidebar-item__icon" :name="icon" />
+    </template>
+    <wd-badge v-bind="customBadgeProps" custom-class="wd-sidebar-item__badge">
+      {{ label }}
+    </wd-badge>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, inject, ref, onMounted, onUnmounted } from 'vue'
+import { deepAssign, isDef, isUndefined, omitBy } from '../common/util'
+import { genChildUid } from '../../composables/useChildren'
+import { SIDEBAR_KEY, type SidebarProvide } from '../wd-sidebar/wd-sidebar-key'
+
+/**
+ * 侧边栏项组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 当前选项标题 */
+  label : string
+  /** 当前选项的值,唯一标识 */
+  value : number | string
+  /** 徽标显示值 */
+  badge ?: string | number
+  /** 徽标属性,透传给 Badge 组件 */
+  badgeProps ?: UTSJSONObject | null
+  /** 图标 */
+  icon ?: string
+  /** 是否点状徽标 */
+  isDot ?: boolean
+  /** 徽标最大值 */
+  max ?: number
+  /** 是否禁用 */
+  disabled ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  badge: null,
+  badgeProps: null,
+  icon: '',
+  isDot: false,
+  max: 99,
+  disabled: false,
+})
+
+/** 定义组件事件 */
+const emit = defineEmits(['itemclick'])
+
+/** 获取父组件 (Sidebar) 实例 */
+const sidebar = inject<SidebarProvide | null>(SIDEBAR_KEY, null)
+
+/** 当前组件的唯一 ID */
+const myUid = ref<number>(0)
+
+/** 当前组件在父组件中的索引 */
+const index = computed(() : number => {
+  if (sidebar == null) return -1
+  const idx = sidebar.childUids.indexOf(myUid.value)
+  return idx
+})
+
+/**
+ * 计算 Badge 组件属性
+ * 合并用户传入的 badgeProps 和组件内部的 badge 相关属性
+ */
+const customBadgeProps = computed(() : UTSJSONObject => {
+  const baseProps = isDef(props.badgeProps) && props.badgeProps != null
+    ? omitBy(props.badgeProps as UTSJSONObject, isUndefined)
+    : {}
+
+  const itemProps = omitBy(
+    {
+      max: props.max,
+      isDot: props.isDot,
+      modelValue: props.badge,
+    },
+    isUndefined,
+  )
+
+  return deepAssign(baseProps, itemProps) as UTSJSONObject
+})
+
+/**
+ * 计算当前项是否激活
+ */
+const active = computed(() : boolean => {
+  return sidebar != null && sidebar.props.modelValue === props.value
+})
+
+/**
+ * 计算当前项是否为前缀项 (激活项的前一项)
+ */
+const prefix = computed(() : boolean => {
+  if (sidebar == null) return false
+
+  // 在 UniApp X 中简化处理,暂不实现前缀/后缀逻辑
+  // 因为需要访问其他子组件的 value,需要在父组件中维护完整子组件数据
+  return false
+})
+
+/**
+ * 计算当前项是否为后缀项 (激活项的后一项)
+ */
+const suffix = computed(() : boolean => {
+  if (sidebar == null) return false
+
+  // 在 UniApp X 中简化处理,暂不实现前缀/后缀逻辑
+  return false
+})
+
+/**
+ * 处理点击事件
+ */
+const handleClick = () => {
+  if (props.disabled) return
+
+  // 触发点击事件
+  emit('itemclick')
+
+  // 通知父组件状态变更
+  if (sidebar != null) {
+    sidebar.setChange(props.value, props.label)
+  }
+}
+
+/**
+ * 组件挂载时注册到父组件
+ */
+onMounted(() => {
+  myUid.value = genChildUid()
+  if (sidebar != null) {
+    sidebar.addChild(myUid.value)
+  }
+})
+
+/**
+ * 组件卸载时从父组件注销
+ */
+onUnmounted(() => {
+  if (sidebar != null) {
+    sidebar.removeChild(myUid.value)
+  }
+})
+</script>
+
+<style lang="scss">
+// 引入外部样式文件
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+// 暗色主题样式
+.wot-theme-dark {
+  @include b(sidebar-item) {
+    background: $-dark-background2;
+    color: $-dark-color;
+
+    &:active {
+      background-color: $-dark-background4;
+    }
+
+    @include m(active) {
+      background: $-dark-background;
+      color: $-sidebar-active-color;
+    }
+
+    @include m(disabled) {
+      color: $-dark-color-gray;
+
+      &:active {
+        background-color: $-dark-background2;
+      }
+    }
+  }
+}
+
+// 侧边栏项主体样式
+@include b(sidebar-item) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 32rpx;
+  font-size: $-sidebar-font-size;
+  color: $-sidebar-color;
+  background: $-sidebar-bg;
+  min-height: $-sidebar-item-height;
+  box-sizing: border-box;
+  white-space: wrap;
+  line-height: $-sidebar-item-line-height;
+
+  &:active {
+    background-color: $-sidebar-hover-bg;
+  }
+
+  @include m(active) {
+    font-weight: 600;
+    background: $-sidebar-active-bg;
+    color: $-sidebar-active-color;
+
+    &:active {
+      background-color: transparent;
+    }
+  }
+
+  @include m(prefix) {
+    border-bottom-right-radius: $-sidebar-border-radius;
+  }
+
+  @include m(suffix) {
+    border-top-right-radius: $-sidebar-border-radius;
+  }
+
+  @include m(disabled) {
+    color: $-sidebar-disabled-color;
+    cursor: not-allowed;
+
+    &:active {
+      background-color: $-sidebar-bg;
+    }
+  }
+
+  /* edeep → 直接类选择器 (UniApp X 无 :deep()) */
+  .wd-sidebar-item__badge {
+    z-index: 2;
+    word-break: break-all;
+  }
+
+  .wd-sidebar-item__icon {
+    font-size: $-sidebar-icon-size;
+    margin-right: 4rpx;
+  }
+}
+
+/* 激活项左侧指示条 - ::before 伪元素 */
+.wd-sidebar-item--active::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: $-sidebar-active-border-width;
+  height: $-sidebar-active-border-height;
+  background: $-sidebar-active-color;
+  transform: translateY(-50%);
+  border-radius: $-sidebar-active-border-width;
+}
+</style>

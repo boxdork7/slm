@@ -1,0 +1,505 @@
+<!--
+Tabbar 标签栏 底部导航栏，用于在不同页面之间进行切换。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- TabbarShape 联合类型改为 string
+- WdTabbarItemProps 移到 wd-tabbar-key.uts
+- InjectionKey<TabbarProvide> → 字符串 key + provide
+- useChildren → createChildManager + provide 模式
+- Record<string, any> → UTSJSONObject
+- :deep() → 直接类选择器
+- halfPixelBorder('top') → border-top: 1rpx solid
+- export interface/type → 移到 wd-tabbar-key.uts
+- getCurrentInstance() as any → getCurrentInstance()
+- CSSProperties → UTSJSONObject（样式对象）
+- watch 中的 deep: true 保留，immediate: false 改为 true
+-->
+<template>
+  <view
+    :class="`${fixed && placeholder && safeAreaInsetBottom && shape === 'round' ? 'wd-tabbar__placeholder' : ''}`"
+    :style="fixed && placeholder ? `height: ${addUnit(height)};` : ''"
+  >
+    <!-- 标签栏主体容器 -->
+    <view
+      :class="`wd-tabbar wd-tabbar--${shape} ${fixed ? 'is-fixed' : ''} ${safeAreaInsetBottom ? 'is-safe' : ''} ${bordered ? 'is-border' : ''} ${customClass}`"
+      :style="`${isDef(zIndex) ? `z-index: ${zIndex};` : ''}${customStyle}`"
+    >
+      <!-- Items 模式：通过 items 数组渲染标签项 -->
+      <template v-if="isItemsMode">
+        <view
+          v-for="(item, index) in items"
+          :key="item.name || index"
+          :class="`wd-tabbar-item ${customClass}`"
+          @click="handleItemClick(item, index)"
+        >
+          <wd-badge v-bind="getCustomBadgeProps(item)">
+            <view
+              class="wd-tabbar-item__body"
+              :style="getBodyStyle(item, index)"
+            >
+              <!-- 自定义图标插槽 -->
+              <slot :name="`icon-${item.name || index}`" :active="isItemActive(item, index)">
+                <wd-icon
+                  v-if="getIconName(item, index) != ''"
+                  :name="getIconName(item, index)"
+                  :color="getIconColor(item, index)"
+                  :custom-class="`wd-tabbar-item__body-icon ${isItemActive(item, index) ? 'is-active' : 'is-inactive'}`"
+                />
+              </slot>
+              <text
+                v-if="item.title != '' && item.title != null"
+                :style="getTextStyle(item, index)"
+                :class="`wd-tabbar-item__body-title ${isItemActive(item, index) ? 'is-active' : 'is-inactive'}`"
+              >
+                {{ item.title }}
+              </text>
+            </view>
+          </wd-badge>
+        </view>
+      </template>
+
+      <!-- 子组件模式：使用 wd-tabbar-item 子组件 -->
+      <slot v-else />
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, getCurrentInstance, nextTick, onMounted, ref, watch, provide } from 'vue'
+import {
+  addUnit,
+  deepAssign,
+  getRect,
+  isDef,
+  isUndefined,
+  objToStyle,
+  omitBy,
+  pxToRpx,
+} from '../common/util'
+import { createChildManager } from '../../composables/useChildren'
+import { TABBAR_KEY, type TabbarProvide, type WdTabbarProvideProps, type WdTabbarItemProps } from './wd-tabbar-key'
+
+/**
+ * 标签栏组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 选中标签的索引值或者名称 */
+  modelValue ?: number | string
+  /** 标签栏配置列表 */
+  items ?: WdTabbarItemProps[]
+  /** 是否固定在底部 */
+  fixed ?: boolean
+  /** 是否显示顶部边框 */
+  bordered ?: boolean
+  /** 是否设置底部安全距离（iPhone X 类型的机型） */
+  safeAreaInsetBottom ?: boolean
+  /** 标签栏的形状 */
+  shape ?: string
+  /** 激活标签的颜色 */
+  activeColor ?: string
+  /** 未激活标签的颜色 */
+  inactiveColor ?: string
+  /** 固定在底部时，是否在标签位置生成一个等高的占位元素 */
+  placeholder ?: boolean
+  /** tabbar组件的层级 */
+  zIndex ?: number
+  /** 图标大小 */
+  iconSize ?: string | number
+  /** 文字大小 */
+  fontSize ?: string | number
+}>(), {
+  customStyle: '',
+  customClass: '',
+  modelValue: 0,
+  items: () : WdTabbarItemProps[] => [] as WdTabbarItemProps[],
+  fixed: true,
+  bordered: true,
+  safeAreaInsetBottom: true,
+  shape: 'default',
+  placeholder: true,
+  zIndex: 99,
+  activeColor: '',
+  inactiveColor: '',
+  iconSize: '',
+  fontSize: '',
+})
+
+/** 组件事件 */
+const emit = defineEmits(['update:modelValue', 'change', 'update:items'])
+
+/** 响应式数据 */
+const height = ref<number | string>('')
+
+/** 获取当前组件实例 */
+const { proxy } = getCurrentInstance()!
+
+/** 子组件管理器 */
+const manager = createChildManager()
+
+/**
+ * 判断是否使用 items 模式
+ * 当传入 items 数组且有内容时，使用 items 模式
+ */
+const isItemsMode = computed(() : boolean => {
+  return props.items != null && props.items!.length > 0
+})
+
+/**
+ * 处理子组件变更（用于子组件模式）
+ */
+const handleChildChange = (child : WdTabbarItemProps) => {
+  const active = child.name
+  emit('update:modelValue', active)
+  emit('change', active)
+}
+
+/**
+ * Provide 数据给子组件（仅在子组件模式下使用）
+ */
+const tabbarProvide : TabbarProvide = {
+  childUids: manager.childUids,
+  addChild: manager.addChild,
+  removeChild: manager.removeChild,
+  props: {
+    modelValue: props.modelValue as number | string,
+    fixed: props.fixed,
+    safeAreaInsetBottom: props.safeAreaInsetBottom,
+    bordered: props.bordered,
+    shape: props.shape,
+    activeColor: props.activeColor,
+    inactiveColor: props.inactiveColor,
+    placeholder: props.placeholder,
+    zIndex: props.zIndex,
+    iconSize: props.iconSize as string | number,
+    fontSize: props.fontSize as string | number,
+  } as WdTabbarProvideProps,
+  setChange: handleChildChange,
+}
+
+provide(TABBAR_KEY, tabbarProvide)
+
+/**
+ * 设置占位高度
+ * 当标签栏固定定位且需要占位时，计算并设置占位高度
+ */
+const setPlaceholderHeight = () => {
+  if (!props.fixed || !props.placeholder) {
+    return
+  }
+
+  getRect('.wd-tabbar', false, proxy).then((res : any | null) => {
+    if (res != null) {
+      /* Math.floor 替代 .toInt()（UTS 独有方法，Web 运行时不存在） */
+      height.value = Math.floor(pxToRpx(res.height as number))
+    }
+  })
+}
+
+/**
+ * 监听相关属性变化
+ * 当固定定位或占位属性变化时，重新计算占位高度
+ */
+watch(
+  [() => props.fixed, () => props.placeholder],
+  () => {
+    setPlaceholderHeight()
+  },
+  /* 移除 immediate: true — onMounted 中已有初始调用，避免 setup 阶段 DOM 未就绪 */
+  { deep: true },
+)
+
+/**
+ * 判断项目是否激活（用于 items 模式）
+ */
+const isItemActive = (item : WdTabbarItemProps, index : number) : boolean => {
+  const name = isDef(item.name) ? item.name : index
+  return props.modelValue === name
+}
+
+/**
+ * 获取图标名称（用于 items 模式）
+ * 如果有 activeIcon 且当前项激活，返回 activeIcon
+ * 否则返回默认的 icon
+ */
+const getIconName = (item : WdTabbarItemProps, index : number) : string => {
+  const active = isItemActive(item, index)
+
+  // 如果激活状态且设置了 activeIcon，使用 activeIcon
+  if (active && item.activeIcon != null && item.activeIcon != '') {
+    return item.activeIcon!
+  }
+
+  // 否则使用默认的 icon
+  return item.icon != null ? item.icon! : ''
+}
+
+/**
+ * 获取徽标属性（用于 items 模式）
+ */
+const getCustomBadgeProps = (item : WdTabbarItemProps) : UTSJSONObject => {
+  const badgeProps : UTSJSONObject = deepAssign(
+    isDef(item.badgeProps) ? omitBy(item.badgeProps!, isUndefined) : {} as UTSJSONObject,
+    omitBy(
+      {
+        max: item.max,
+        isDot: item.isDot,
+        modelValue: item.value,
+      } as UTSJSONObject,
+      isUndefined,
+    ),
+  ) as UTSJSONObject
+  if (!isDef(badgeProps['max'])) {
+    badgeProps['max'] = 99
+  }
+  return badgeProps
+}
+
+/**
+ * 获取图标颜色（用于 items 模式）
+ */
+const getIconColor = (item : WdTabbarItemProps, index : number) : string => {
+  const active = isItemActive(item, index)
+
+  if (active && props.activeColor != '') {
+    return props.activeColor
+  }
+  if (!active && props.inactiveColor != '') {
+    return props.inactiveColor
+  }
+
+  return ''
+}
+
+/**
+ * 获取主体容器样式（用于 items 模式）
+ * 设置 CSS 变量来控制图标和文字大小
+ */
+const getBodyStyle = (item : WdTabbarItemProps, index : number) : string => {
+  const style : UTSJSONObject = {} as UTSJSONObject
+
+  // 设置图标大小 CSS 变量
+  if (props.iconSize != '' && props.iconSize != 0) {
+    style['--custom-icon-size'] = addUnit(props.iconSize)
+  }
+
+  // 设置文字大小 CSS 变量
+  if (props.fontSize != '' && props.fontSize != 0) {
+    style['--custom-font-size'] = addUnit(props.fontSize)
+  }
+
+  return objToStyle(style)
+}
+
+/**
+ * 获取文字样式（用于 items 模式）
+ */
+const getTextStyle = (item : WdTabbarItemProps, index : number) : string => {
+  const style : UTSJSONObject = {} as UTSJSONObject
+  const active = isItemActive(item, index)
+
+  if (active && props.activeColor != '') {
+    style['color'] = props.activeColor
+  }
+  if (!active && props.inactiveColor != '') {
+    style['color'] = props.inactiveColor
+  }
+
+  return objToStyle(style)
+}
+
+/**
+ * 处理项目点击（用于 items 模式）
+ */
+const handleItemClick = (item : WdTabbarItemProps, index : number) => {
+  const name = isDef(item.name) ? item.name : index
+
+  // 自动标记当前页面为已加载
+  const currentItems = [...props.items!]
+  if (currentItems[index].loaded != true) {
+    currentItems[index].loaded = true
+    emit('update:items', currentItems)
+  }
+
+  emit('update:modelValue', name)
+  emit('change', name)
+}
+
+/**
+ * 获取当前激活项的索引（用于 items 模式）
+ */
+const getCurrentIndex = () : number => {
+  for (let i = 0; i < props.items!.length; i++) {
+    const item = props.items![i]
+    const name = isDef(item.name) ? item.name : i
+    if (props.modelValue === name) {
+      return i
+    }
+  }
+  return 0
+}
+
+/**
+ * 组件挂载后处理
+ */
+onMounted(() => {
+  // 设置占位高度
+  if (props.fixed && props.placeholder) {
+    nextTick(() => {
+      setPlaceholderHeight()
+    })
+  }
+
+  // 确保当前选中的页面被标记为已加载（仅在 items 模式下）
+  if (isItemsMode.value) {
+    const currentIndex = getCurrentIndex()
+    if (currentIndex >= 0 && currentIndex < props.items!.length) {
+      const currentItems = [...props.items!]
+      if (currentItems[currentIndex].loaded != true) {
+        currentItems[currentIndex].loaded = true
+        emit('update:items', currentItems)
+      }
+    }
+  }
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(tabbar) {
+    background: $-dark-background;
+
+    @include b(tabbar-item) {
+      @include e(body) {
+        /* :deep() → 直接类选择器 */
+        .is-inactive {
+          color: $-dark-color-gray;
+        }
+      }
+    }
+  }
+}
+
+/* 标签栏主体样式 */
+@include b(tabbar) {
+  display: flex;
+  /* UniApp X 的 view 默认 flex-direction: column，需显式覆盖为行布局 */
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+  position: relative;
+  background: $-color-white;
+  height: $-tabbar-height;
+
+  /* 占位元素样式 */
+  @include e(placeholder) {
+    box-sizing: content-box;
+    padding-bottom: constant(safe-area-inset-bottom);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* 圆形样式 */
+  @include m(round) {
+    margin-left: 32rpx;
+    margin-right: 32rpx;
+    border-radius: 999rpx;
+    box-shadow: $-tabbar-box-shadow;
+
+    @include when(fixed) {
+      @include when(safe) {
+        bottom: constant(safe-area-inset-bottom);
+        bottom: env(safe-area-inset-bottom);
+      }
+    }
+  }
+
+  /* 默认样式 */
+  @include m(default) {
+    @include when(fixed) {
+      @include when(safe) {
+        box-sizing: content-box;
+        padding-bottom: constant(safe-area-inset-bottom);
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+    }
+
+    @include when(border) {
+      /* halfPixelBorder('top') → border-top: 1rpx solid */
+      border-top: 1rpx solid rgba(0, 0, 0, 0.1);
+    }
+  }
+
+  /* 固定定位样式 */
+  @include when(fixed) {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    z-index: 500;
+  }
+}
+
+/* 标签项样式 */
+@include b(tabbar-item) {
+  flex: 1;
+  text-align: center;
+  text-decoration: none;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  /* UniApp X: 覆盖 wd-badge 的 align-self: flex-start，确保 badge 在 tabbar-item 内居中 */
+  .wd-badge {
+    align-self: center;
+  }
+
+  /* 主体区域样式 */
+  @include e(body) {
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    line-height: 1;
+    padding: 0;
+    position: relative;
+
+    /* 定义 CSS 变量，优先使用自定义值，否则使用默认值 */
+    --icon-size: var(--custom-icon-size, #{$-tabbar-item-icon-size});
+    --font-size: var(--custom-font-size, #{$-tabbar-item-title-font-size});
+
+    /* UniApp X: 覆盖 wd-icon 的 align-self: flex-start，确保图标在 body 内居中 */
+    .wd-icon {
+      align-self: center;
+    }
+
+    /* :deep() → 直接类选择器 */
+    .is-active {
+      color: $-tabbar-active-color;
+    }
+
+    .is-inactive {
+      color: $-tabbar-inactive-color;
+    }
+  }
+
+  /* 标题样式 */
+  @include e(body-title) {
+    font-size: var(--font-size);
+    line-height: $-tabbar-item-title-line-height;
+  }
+
+  /* 图标样式 - edeep → e */
+  @include e(body-icon) {
+    font-size: var(--icon-size)!important;
+  }
+}
+</style>

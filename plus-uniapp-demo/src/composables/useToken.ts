@@ -1,0 +1,106 @@
+// Token 管理钩子
+import { cache } from '@/utils/cache'
+import { objectToQuery } from '@/utils/string'
+
+/**
+ * Token 管理钩子 (useToken)
+ *
+ * 基于自定义缓存工具实现 token 的本地持久化管理。
+ *
+ * 包含以下功能:
+ * - 状态管理: 响应式 token 状态 (token)
+ * - 获取 Token: 获取当前存储的 token (getToken)
+ * - 设置 Token: 设置并持久化新的 token (setToken)
+ * - 移除 Token: 清除存储的 token (removeToken)
+ * - 认证头部: 获取认证头部的不同格式 (getAuthHeaders, getAuthQuery)
+ *
+ * @description 提供 token 的存取、删除、监听和认证头部生成功能
+ * @returns 包含 token 相关操作的方法和状态
+ */
+export const useToken = () => {
+  /**
+   * Token键名
+   */
+  const TOKEN_KEY = 'token'
+  /**
+   * 获取 token
+   * @returns 当前存储的 token
+   */
+  const getToken = (): string | null => {
+    return cache.get(TOKEN_KEY)
+  }
+
+  /**
+   * 设置 token
+   * @param accessToken 要存储的 token
+   */
+  const setToken = (accessToken: string): void => {
+    // 设置缓存，7天后过期（安全实践）
+    const success = cache.set(TOKEN_KEY, accessToken, 7 * 24 * 3600)
+
+    if (!success) {
+      console.error('Token 设置失败')
+    }
+  }
+
+  /**
+   * 移除 token
+   */
+  const removeToken = (): void => {
+    cache.remove(TOKEN_KEY)
+  }
+
+  /**
+   * 获取认证头部 (Record 格式)
+   * @returns 认证头部对象，如果没有 token 则返回空对象
+   *
+   * @example
+   * const headers = getAuthHeaders();
+   * // 返回: { Authorization: 'Bearer token123' } 或 {}
+   */
+  const getAuthHeaders = (): Record<string, string> => {
+    const tokenValue = getToken()
+    if (!tokenValue) {
+      return {}
+    }
+
+    return {
+      Authorization: `Bearer ${tokenValue}`,
+    }
+  }
+
+  /**
+   * 获取认证头部 (查询字符串格式)
+   * @returns 认证头部的查询字符串，如果没有 token 则返回空字符串
+   *
+   * @example
+   * const queryString = getAuthQuery();
+   * // 返回: "Authorization=Bearer%20token123" 或 ""
+   */
+  const getAuthQuery = (): string => {
+    const headers = getAuthHeaders()
+    return objectToQuery(headers)
+  }
+  /**
+   * 计算属性，用于响应式获取 token
+   */
+  const token = computed({
+    get: () => cache.get(TOKEN_KEY),
+    set: (value: string | null) => {
+      if (value) {
+        setToken(value)
+      } else {
+        removeToken()
+      }
+    },
+  })
+
+  return {
+    token,
+    getToken,
+    setToken,
+    removeToken,
+    getAuthHeaders,
+    getAuthQuery,
+  }
+}

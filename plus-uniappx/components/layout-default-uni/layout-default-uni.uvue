@@ -1,0 +1,24 @@
+<template>
+  <wd-config-provider :theme-vars="themeVars">
+    <!-- 内容插槽 -->
+    <slot />
+    <!-- 轻提示组件 -->
+    <wd-toast />
+    <!-- 消息通知 -->
+    <wd-notify />
+    <!-- 消息确认弹窗 -->
+    <wd-message-box />
+    <!-- 授权头像昵称弹窗 -->
+    <AuthModal />
+  </wd-config-provider>
+</template>
+
+<script setup lang="uts">
+import { useTheme } from '@/composables/useTheme'
+
+const { themeVars } = useTheme()
+</script>
+
+<style lang="scss" scoped>
+/* 布局组件无额外样式 */
+</style>

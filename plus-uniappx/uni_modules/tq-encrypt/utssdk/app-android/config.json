@@ -1,0 +1,6 @@
+{
+  "minSdkVersion": "21",
+  "dependencies": [
+	  "com.github.mtjsoft:lib_encryption:1.4.0"
+  ]
+}

@@ -1,0 +1,81 @@
+/**
+ * 触摸事件管理组合式函数 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 事件参数类型从 any 改为 UniTouchEvent
+ * - ref 从 vue 导入（UniApp X 中 vue 仍然可用）
+ */
+import { ref } from 'vue'
+
+/**
+ * useTouch 返回值类型
+ */
+export type UseTouchReturn = {
+  touchStart : (event : UniTouchEvent) => void
+  touchMove : (event : UniTouchEvent) => void
+  direction : Ref<string>
+  deltaX : Ref<number>
+  deltaY : Ref<number>
+  offsetX : Ref<number>
+  offsetY : Ref<number>
+  startX : Ref<number>
+  startY : Ref<number>
+}
+
+/**
+ * 触摸事件管理
+ * 提供触摸手势的识别和处理
+ */
+export const useTouch = () : UseTouchReturn => {
+  const direction = ref<string>('')
+  const deltaX = ref<number>(0)
+  const deltaY = ref<number>(0)
+  const offsetX = ref<number>(0)
+  const offsetY = ref<number>(0)
+  const startX = ref<number>(0)
+  const startY = ref<number>(0)
+
+  /**
+   * 处理触摸开始事件
+   */
+  const touchStart = (event : UniTouchEvent) => {
+    const touch = event.touches[0]
+
+    direction.value = ''
+    deltaX.value = 0
+    deltaY.value = 0
+    offsetX.value = 0
+    offsetY.value = 0
+
+    startX.value = touch.clientX
+    startY.value = touch.clientY
+  }
+
+  /**
+   * 处理触摸移动事件
+   */
+  const touchMove = (event : UniTouchEvent) => {
+    const touch = event.touches[0]
+
+    deltaX.value = touch.clientX - startX.value
+    deltaY.value = touch.clientY - startY.value
+
+    offsetX.value = Math.abs(deltaX.value)
+    offsetY.value = Math.abs(deltaY.value)
+
+    direction.value =
+      offsetX.value > offsetY.value ? 'horizontal' : offsetX.value < offsetY.value ? 'vertical' : ''
+  }
+
+  return {
+    touchStart,
+    touchMove,
+    direction,
+    deltaX,
+    deltaY,
+    offsetX,
+    offsetY,
+    startX,
+    startY,
+  }
+}

@@ -1,0 +1,460 @@
+<!-- Signature ǩ�� ����ǩ������������ Canvas ʵ�ֵ�ǩ��������ṩ�˻���ǩ������ʷ��¼���ʷ�Ч���ȹ��ܡ� -->
+<!-- TODO: ����Canvas 2D����API�����ѹ�бʷ湦�� -->
+<template>
+  <view :class="`wd-signature ${customClass}`" :style="customStyle">
+    <view class="wd-signature__content">
+      <canvas
+        :id="canvasId"
+        :canvas-id="canvasId"
+        class="wd-signature__content-canvas"
+        :style="canvasStyle"
+        :disable-scroll="disableScroll"
+        @touchstart="startDrawing"
+        @touchend="stopDrawing"
+        @touchmove="draw"
+      />
+    </view>
+    <view class="wd-signature__footer">
+      <slot
+        name="footer"
+        :clear="clear"
+        :confirm="confirmSignature"
+        :current-step="currentStep"
+        :revoke="revoke"
+        :restore="restore"
+        :can-undo="lines.length > 0"
+        :can-redo="redoLines.length > 0"
+        :history-list="lines"
+      >
+        <block v-if="enableHistory">
+          <wd-button size="small" plain :disabled="lines.length <= 0" @click="revoke">
+            {{ revokeText || '����' }}
+          </wd-button>
+          <wd-button size="small" plain :disabled="redoLines.length <= 0" @click="restore">
+            {{ restoreText || '�ָ�' }}
+          </wd-button>
+        </block>
+        <wd-button size="small" plain @click="clear">
+          {{ clearText || '���' }}
+        </wd-button>
+        <wd-button size="small" @click="confirmSignature">
+          {{ confirmText || 'ȷ��' }}
+        </wd-button>
+      </slot>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, getCurrentInstance, onBeforeMount, onMounted, reactive, ref, watch } from 'vue'
+import { addUnit, objToStyle, uuid } from '../common/util'
+
+/**
+ * ǩ���������
+ */
+interface SignatureResult {
+  /** ����ͼƬ����ʱ·�� */
+  tempFilePath: string
+  /** �Ƿ�ɹ�����ͼƬ */
+  success: boolean
+  /** ����ͼƬ�Ŀ��� */
+  width: number
+  /** ����ͼƬ�ĸ߶� */
+  height: number
+}
+
+/**
+ * ǩ����λ����
+ */
+interface Point {
+  /** ��ĺ����� */
+  x: number
+  /** ��������� */
+  y: number
+  /** ���ʱ��� */
+  t: number
+  /** ��ǰ��Ļ����ٶ� */
+  speed?: number
+  /** ����һ����ľ��� */
+  distance?: number
+  /** ��ǰ����߿������ڱʷ�ģʽ�� */
+  lineWidth?: number
+  /** ���������ߵ�һ�����Ƶ��x���� */
+  lastX1?: number
+  /** ���������ߵ�һ�����Ƶ��y���� */
+  lastY1?: number
+  /** ���������ߵڶ������Ƶ��x���� */
+  lastX2?: number
+  /** ���������ߵڶ������Ƶ��y���� */
+  lastY2?: number
+  /** �Ƿ�Ϊ�����ĵ�һ���� */
+  isFirstPoint?: boolean
+}
+
+/**
+ * ǩ����������
+ */
+interface Line {
+  /** ���������������е������ */
+  points: Point[]
+  /** ������ɫ */
+  color: string
+  /** �������� */
+  width: number
+  /** ��������ɫ */
+  backgroundColor?: string
+  /** �Ƿ�Ϊ�ʷ�ģʽ������ */
+  isPressure?: boolean
+}
+
+/**
+ * ǩ��������Խӿ�
+ */
+interface WdSignatureProps {
+  /** �Զ�����ڵ���ʽ */
+  customStyle?: string
+  /** �Զ�����ڵ���ʽ�� */
+  customClass?: string
+
+  /** ǩ������ɫ */
+  penColor?: string
+  /** ǩ���ʿ��� */
+  lineWidth?: number
+  /** ��հ�ť���ı� */
+  clearText?: string
+  /** ���ذ�ť���ı� */
+  revokeText?: string
+  /** �ָ���ť���ı� */
+  restoreText?: string
+  /** ȷ�ϰ�ť���ı� */
+  confirmText?: string
+  /** Ŀ���ļ������� */
+  fileType?: string
+  /** Ŀ���ļ������� */
+  quality?: number
+  /** ����ͼƬ�����ű��� */
+  exportScale?: number
+  /** �Ƿ����ǩ���� */
+  disabled?: boolean
+  /** �����ĸ߶� */
+  height?: string | number
+  /** �����Ŀ��� */
+  width?: string | number
+  /** ����ı���ɫ */
+  backgroundColor?: string
+  /** �Ƿ���û������� */
+  disableScroll?: boolean
+  /** �Ƿ�����ʷ��¼ */
+  enableHistory?: boolean
+  /** ���غͻָ��Ĳ��� */
+  step?: number
+  /** �Ƿ�����ѹ��ģʽ(�ʷ�) */
+  pressure?: boolean
+  /** ѹ��ģʽ�±ʻ���С���� */
+  minWidth?: number
+  /** ѹ��ģʽ�±ʻ������� */
+  maxWidth?: number
+  /** ��С�ٶ���ֵ��Ӱ��ѹ��ģʽ�µıʻ����ȱ仯 */
+  minSpeed?: number
+}
+
+/**
+ * ǩ������¼��ӿ�
+ */
+interface WdSignatureEmits {
+  /** ��ʼ����ʱ���� */
+  start: [event: any]
+  /** ��������ʱ���� */
+  end: [event: TouchEvent]
+  /** ���ƹ����д��� */
+  signing: [event: any]
+  /** ȷ��ǩ��ʱ���� */
+  confirm: [result: SignatureResult]
+  /** ���ǩ��ʱ���� */
+  clear: []
+}
+
+/**
+ * ǩ�������¶�����ӿ�
+ */
+interface WdSignatureExpose {
+  /** ��ʼ��ǩ���� */
+  init: (forceUpdate?: boolean) => void
+  /** ��������ť���ǩ�� */
+  clear: () => void
+  /** ���ȷ����ť */
+  confirm: () => void
+  /** ����ָ� */
+  restore: () => void
+  /** ������� */
+  revoke: () => void
+}
+
+// ʹ�� withDefaults ����������Ժ�Ĭ��ֵ
+const props = withDefaults(defineProps<WdSignatureProps>(), {
+  customStyle: '',
+  customClass: '',
+  penColor: '#000',
+  lineWidth: 3,
+  fileType: 'png',
+  quality: 1,
+  exportScale: 1,
+  disabled: false,
+  disableScroll: true,
+  enableHistory: false,
+  step: 1,
+  pressure: false,
+  minWidth: 2,
+  maxWidth: 6,
+  minSpeed: 1.5,
+})
+
+// ��������¼�
+const emit = defineEmits<WdSignatureEmits>()
+
+// ��ȡ��ǰ���ʵ��
+const { proxy } = getCurrentInstance()!
+
+// ��Ӧʽ����
+const canvasId = ref<string>(`signature${uuid()}`) // canvas �����Ψһ��ʶ��
+const drawing = ref<boolean>(false) // �Ƿ����ڻ���
+const pixelRatio = ref<number>(1) // ���ر�
+const lines = ref<Line[]>([]) // ������������
+const redoLines = ref<Line[]>([]) // ���泷��������
+const currentLine = ref<Line | null>(null) // ��ǰ���ڻ��Ƶ���
+const currentStep = ref<number>(0) // ��ǰ����
+
+// canvas ״̬
+const canvasState = reactive({
+  canvasWidth: 0,
+  canvasHeight: 0,
+  ctx: null as DrawableContext | null,
+})
+
+/**
+ * ���㻭����ʽ
+ */
+const canvasStyle = computed<string>(() => {
+  const style: UTSJSONObject = {}
+  if (props.width !== undefined) {
+    style['width'] = addUnit(props.width)
+  }
+  if (props.height !== undefined) {
+    style['height'] = addUnit(props.height)
+  }
+  return objToStyle(style)
+})
+
+/**
+ * ��ջ���
+ */
+const clearCanvas = () => {
+  const { canvasWidth, canvasHeight, ctx } = canvasState
+  if (ctx) {
+    // TODO: ��Ҫ����UTS��Canvas API
+    console.log('[Signature] TODO: ��ջ���')
+  }
+}
+
+/**
+ * �ػ���������
+ */
+const redrawCanvas = () => {
+  const { ctx } = canvasState
+  if (!ctx) return
+
+  // TODO: ��Ҫ����UTS��Canvas����API
+  console.log('[Signature] TODO: �ػ滭��')
+}
+
+/**
+ * ��ʼ�� canvas
+ * @param forceUpdate �Ƿ�ǿ�Ƹ���
+ */
+const initCanvas = (forceUpdate: boolean = false) => {
+  // TODO: ��Ҫ����UTS��Canvas��ʼ��
+  console.log('[Signature] TODO: ��ʼ��Canvas')
+}
+
+/**
+ * ��� canvas
+ */
+const clear = () => {
+  lines.value = []
+  redoLines.value = []
+  currentStep.value = 0
+  clearCanvas()
+  emit('clear')
+}
+
+/**
+ * canvas ����ͼƬ������ļ�����
+ */
+const canvasToImage = () => {
+  const { fileType, quality, exportScale } = props
+  const { canvasWidth, canvasHeight } = canvasState
+
+  // TODO: ��Ҫ����UTS��canvasToTempFilePath API
+  console.log('[Signature] TODO: ����ͼƬ')
+
+  const result: SignatureResult = {
+    tempFilePath: '',
+    width: canvasWidth * exportScale / pixelRatio.value,
+    height: canvasHeight * exportScale / pixelRatio.value,
+    success: false,
+  }
+  emit('confirm', result)
+}
+
+/**
+ * ȷ��ǩ��
+ */
+const confirmSignature = () => {
+  canvasToImage()
+}
+
+/**
+ * ��������
+ */
+const revoke = () => {
+  if (!lines.value.length) return
+  const step = Math.min(props.step, lines.value.length)
+  const removedLines = lines.value.splice(lines.value.length - step)
+  redoLines.value.push(...removedLines)
+  currentStep.value = Math.max(0, currentStep.value - step)
+  redrawCanvas()
+}
+
+/**
+ * �ָ�����
+ */
+const restore = () => {
+  if (!redoLines.value.length) return
+  const step = Math.min(props.step, redoLines.value.length)
+  const restoredLines = redoLines.value.splice(redoLines.value.length - step)
+  lines.value.push(...restoredLines)
+  currentStep.value = Math.min(lines.value.length, currentStep.value + step)
+  redrawCanvas()
+}
+
+/**
+ * canvas����
+ * @param e �����¼�
+ */
+const draw = (e: any) => {
+  e.preventDefault()
+  const { ctx } = canvasState
+
+  if (!drawing.value || props.disabled || !ctx) return
+
+  // TODO: ��Ҫ����UTS�Ĵ����¼���Canvas����
+  console.log('[Signature] TODO: ����·��')
+
+  emit('signing', e)
+}
+
+/**
+ * ��ʼ����
+ * @param e �����¼�
+ */
+const startDrawing = (e: any) => {
+  e.preventDefault()
+  drawing.value = true
+  emit('start', e)
+
+  // TODO: ����������
+  console.log('[Signature] TODO: ��ʼ����')
+
+  // ���������¼
+  redoLines.value = []
+  draw(e)
+}
+
+/**
+ * ��������
+ * @param e �����¼�
+ */
+const stopDrawing = (e: TouchEvent) => {
+  e.preventDefault()
+  drawing.value = false
+  if (currentLine.value) {
+    lines.value.push(currentLine.value)
+    currentStep.value = lines.value.length
+  }
+  currentLine.value = null
+  emit('end', e)
+}
+
+/**
+ * �������Ա仯
+ */
+watch(
+  () => props.penColor,
+  () => {
+    // TODO: ����������ɫ
+  },
+)
+
+watch(
+  () => props.lineWidth,
+  () => {
+    // TODO: ������������
+  },
+)
+
+/**
+ * �������ǰ����
+ */
+onBeforeMount(() => {
+  pixelRatio.value = uni.getSystemInfoSync().pixelRatio
+})
+
+/**
+ * ������غ���
+ */
+onMounted(() => {
+  initCanvas()
+})
+
+// ��¶�������
+defineExpose<WdSignatureExpose>({
+  init: initCanvas,
+  clear,
+  confirm: confirmSignature,
+  restore,
+  revoke,
+})
+</script>
+
+<style lang="scss">
+// �����ⲿ��ʽ�ļ�
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+// ǩ�������ʽ
+@include b(signature) {
+  @include e(content) {
+    justify-content: center;
+    align-items: center;
+    display: flex;
+    overflow: hidden;
+    background: $-signature-bg;
+    border-radius: $-signature-radius;
+    border: $-signature-border;
+  }
+
+  @include e(content-canvas) {
+    width: 100%;
+  }
+
+  @include e(footer) {
+    margin-top: $-signature-footer-margin-top;
+    justify-content: flex-end;
+    display: flex;
+
+    .wd-button {
+      margin-left: $-signature-button-margin-left;
+    }
+  }
+}
+</style>

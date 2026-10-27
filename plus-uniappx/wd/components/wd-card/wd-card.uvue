@@ -1,0 +1,146 @@
+<!--
+Card 卡片 用于展示商品的图片、价格等信息。
+
+UniApp X 版本
+- 移除 defineOptions（UniApp X 不支持）
+- halfPixelBorder 替换为直接 border（伪元素不可用）
+- CardType 字面量类型改为 string
+-->
+<template>
+  <view
+    :class="`wd-card ${type === 'rectangle' ? 'is-rectangle' : ''} ${customClass}`"
+    :style="customStyle"
+  >
+    <!-- 标题区域 -->
+    <view
+      v-if="title || $slots.title"
+      :class="`wd-card__title-content ${customTitleClass}`"
+    >
+      <view class="wd-card__title">
+        <text v-if="title">{{ title }}</text>
+        <slot v-else name="title" />
+      </view>
+    </view>
+
+    <!-- 内容区域 -->
+    <view :class="`wd-card__content ${customContentClass}`">
+      <slot />
+    </view>
+
+    <!-- 底部区域 -->
+    <view v-if="$slots.footer" :class="`wd-card__footer ${customFooterClass}`">
+      <slot name="footer" />
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+/**
+ * 卡片组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 卡片类型，可选值：rectangle */
+  type ?: string
+  /** 卡片标题 */
+  title ?: string
+  /** 标题自定义样式类 */
+  customTitleClass ?: string
+  /** 内容自定义样式类 */
+  customContentClass ?: string
+  /** 底部自定义样式类 */
+  customFooterClass ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  type: '',
+  title: '',
+  customTitleClass: '',
+  customContentClass: '',
+  customFooterClass: '',
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable.scss';
+@import '../common/abstracts/_mixin.scss';
+
+.wot-theme-dark {
+  @include b(card) {
+    background-color: $-dark-background2;
+
+    @include when(rectangle) {
+      .wd-card__content {
+        /* halfPixelBorder 替代：直接使用 border */
+        border-top: 1rpx solid $-dark-border-color;
+      }
+      .wd-card__footer {
+        border-top: 1rpx solid $-dark-border-color;
+      }
+    }
+
+    @include e(title-content) {
+      color: $-dark-color;
+    }
+
+    @include e(content) {
+      color: $-dark-color3;
+    }
+  }
+}
+
+@include b(card) {
+  padding: $-card-padding;
+  background-color: $-card-bg;
+  line-height: $-card-line-height;
+  margin: $-card-margin;
+  border-radius: $-card-radius;
+  box-shadow: $-card-shadow-color;
+  font-size: $-card-fs;
+  margin-bottom: 24rpx;
+
+  @include when(rectangle) {
+    margin-left: 0;
+    margin-right: 0;
+    border-radius: 0;
+    box-shadow: none;
+
+    .wd-card__title-content {
+      font-size: $-card-fs;
+    }
+
+    .wd-card__content {
+      position: relative;
+      padding: $-card-rectangle-content-padding;
+      /* halfPixelBorder 替代 */
+      border-top: 1rpx solid $-card-content-border-color;
+    }
+
+    .wd-card__footer {
+      position: relative;
+      padding: $-card-rectangle-footer-padding;
+      /* halfPixelBorder 替代 */
+      border-top: 1rpx solid $-card-content-border-color;
+    }
+  }
+
+  @include e(title-content) {
+    padding: 32rpx 0;
+    color: $-card-title-color;
+    font-size: $-card-title-fs;
+  }
+
+  @include e(content) {
+    color: $-card-content-color;
+    line-height: $-card-content-line-height;
+  }
+
+  @include e(footer) {
+    padding: $-card-footer-padding;
+    text-align: right;
+  }
+}
+</style>

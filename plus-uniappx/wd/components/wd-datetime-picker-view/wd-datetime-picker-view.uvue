@@ -1,0 +1,741 @@
+<!--
+DatetimePickerView ����ʱ��ѡ������ͼ
+Ϊ PickerView ����ķ�װ�������ڲ�����������ʱ��ѡ��
+
+UniApp X �汾Ǩ��˵��:
+- �Ƴ� defineOptions
+- �Ƴ� import ComponentPublicInstance/dayjs
+- �Ƴ��������Ͳ�����UTS ���ƣ�
+- Record<string, any> �� UTSJSONObject
+- any �� ��������
+- �Ƴ��ֶ�������루easycom��
+- padZero/range/times �ȹ��ߺ�������
+-->
+<template>
+  <wd-picker-view
+    ref="datePickerview"
+    v-model="pickerValue"
+    :custom-class="customClass"
+    :custom-style="customStyle"
+    :immediate-change="immediateChange"
+    :columns="columns"
+    :columns-height="columnsHeight"
+    :column-change="columnChange"
+    :loading="loading"
+    :loading-color="loadingColor"
+    @change="onChange"
+    @pickstart="onPickStart"
+    @pickend="onPickEnd"
+  />
+</template>
+
+<script lang="uts" setup>
+import { getCurrentInstance, onBeforeMount, ref, watch } from 'vue'
+import { debounce, isArray, isDef, isFunction, isString, padZero, range } from '../common/util'
+
+/**
+ * ����ʱ������
+ */
+export type DateTimeType = 'date' | 'year-month' | 'time' | 'datetime' | 'year'
+
+/**
+ * ����ʱ��ѡ����������
+ */
+export type DatetimePickerViewColumnType = 'year' | 'month' | 'date' | 'hour' | 'minute' | 'second'
+
+/**
+ * ����ʱ��ѡ����ѡ��
+ */
+interface DatetimePickerViewOption {
+  label : string
+  value : number
+  disabled ?: boolean
+}
+
+/**
+ * ����ʱ��ѡ������������������
+ */
+export type DatetimePickerViewFilter = (
+  type : DatetimePickerViewColumnType,
+  values : number[],
+) => number[]
+
+/**
+ * ����ʱ��ѡ������ʽ����������
+ */
+export type DatetimePickerViewFormatter = (type : string, value : string) => string
+
+/**
+ * ����ʱ��ѡ�����и�ʽ����������
+ */
+export type DatetimePickerViewColumnFormatter = (
+  picker : DatetimePickerViewInstance | null,
+) => DatetimePickerViewOption[][]
+
+/**
+ * ����ʱ��ѡ����������Խӿ�
+ */
+const props = withDefaults(defineProps<{
+  /** �Զ�����ڵ���ʽ */
+  customStyle ?: string
+  /** �Զ�����ڵ���ʽ�� */
+  customClass ?: string
+  /** ѡ����� type Ϊ time ʱ������Ϊ�ַ���������Ϊʱ��� */
+  modelValue : string | number
+  /** ������ */
+  loading ?: boolean
+  /** ���ص���ɫ��ֻ��ʹ��ʮ�����Ƶ�ɫֵд�����Ҳ���ʹ����д */
+  loadingColor ?: string
+  /** picker�ڲ���Ͳ�� */
+  columnsHeight ?: number
+  /** ѡ���key */
+  valueKey ?: string
+  /** ѡ���label */
+  labelKey ?: string
+  /** ѡ�������ͣ���ѡֵ��date / year-month / time / datetime / year */
+  type ?: DateTimeType
+  /** �Զ������ѡ��ĺ����������е�ѡ������ */
+  filter ?: DatetimePickerViewFilter | null
+  /** �Զ��嵯����ѡ���İ��ĸ�ʽ������������һ���ַ��� */
+  formatter ?: DatetimePickerViewFormatter | null
+  /** �Զ����еĸ�ʽ������ */
+  columnFormatter ?: DatetimePickerViewColumnFormatter | null
+  /** ��С���� */
+  minDate ?: number
+  /** ������� */
+  maxDate ?: number
+  /** ��ССʱ��time����ʱ��Ч */
+  minHour ?: number
+  /** ���Сʱ��time����ʱ��Ч */
+  maxHour ?: number
+  /** ��С���ӣ�time����ʱ��Ч */
+  minMinute ?: number
+  /** �����ӣ�time����ʱ��Ч */
+  maxMinute ?: number
+  /** �Ƿ���ʾ��ѡ�񣬽��� time �� datetime ��������Ч */
+  useSecond ?: boolean
+  /** ��С���������� time �� datetime ��������Ч */
+  minSecond ?: number
+  /** ������������� time �� datetime ��������Ч */
+  maxSecond ?: number
+  /** �Ƿ�����ָ�ɿ�ʱ��������picker-view�� change �¼� */
+  immediateChange ?: boolean
+  /** ����ѡ��ʱ�Ŀ�ʼ/������־ */
+  startSymbol ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  loading: false,
+  loadingColor: '#4D80F0',
+  columnsHeight: 217,
+  valueKey: 'value',
+  labelKey: 'label',
+  type: 'datetime',
+  filter: null,
+  formatter: null,
+  columnFormatter: null,
+  minDate: () : number => {
+    const now = new Date()
+    return new Date(now.getFullYear() - 10, 0, 1).getTime()
+  },
+  maxDate: () : number => {
+    const now = new Date()
+    return new Date(now.getFullYear() + 10, 11, 31).getTime()
+  },
+  minHour: 0,
+  maxHour: 23,
+  minMinute: 0,
+  maxMinute: 59,
+  useSecond: false,
+  minSecond: 0,
+  maxSecond: 59,
+  immediateChange: false,
+  startSymbol: false,
+})
+
+/**
+ * ����ʱ��ѡ��������¼��ӿ�
+ */
+const emit = defineEmits<{
+  /** ѡ����仯ʱ���� */
+  change : [event : { value : string | number, picker : DatetimePickerViewInstance | null }]
+  /** ��ʼѡ��ʱ���� */
+  pickstart : []
+  /** ����ѡ��ʱ���� */
+  pickend : []
+  /** ����ģ��ֵ */
+  'update:modelValue' : [value : string | number]
+}>()
+
+// ��Ӧʽ����
+const datePickerview = ref<any | null>(null)
+const innerValue = ref<null | string | number>(null)
+const columns = ref<DatetimePickerViewOption[][]>([])
+const pickerValue = ref<string | number | boolean | Array<string | number | boolean>>([])
+const created = ref<boolean>(false)
+
+// ��ȡ��ǰ���ʵ��
+const { proxy } = getCurrentInstance()!
+
+/**
+ * �жϴ��������ֵ�Ƿ���Ч
+ */
+const isValidDate = (date : string | number | Date) : boolean => {
+  return isDef(date) && !Number.isNaN(date)
+}
+
+/**
+ * ��������֤����ֵ��ȷ��ֵ����Ч��Χ��
+ */
+const correctValue = (value : string | number | Date) : string | number => {
+  const isDateType = props.type !== 'time'
+
+  // ����������֤����Чʱʹ����С����
+  if (isDateType && !isValidDate(value)) {
+    value = props.minDate
+  } else if (!isDateType && !value) {
+    // ʱ�����ͣ���ֵʱʹ����Сʱ��
+    value = props.useSecond ? `${padZero(props.minHour)}:00:00` : `${padZero(props.minHour)}:00`
+  }
+
+  // ʱ���ʽ�����ͷ�Χ����
+  if (!isDateType) {
+    let hour = '00'
+    let minute = '00'
+    let second = '00'
+    const parts = (isString(value) ? value : value.toString()).split(':')
+    if (parts.length > 0) hour = parts[0]
+    if (parts.length > 1) minute = parts[1]
+    if (parts.length > 2) second = parts[2]
+
+    hour = padZero(range(Number(hour), props.minHour, props.maxHour))
+    minute = padZero(range(Number(minute), props.minMinute, props.maxMinute))
+    if (props.useSecond) {
+      second = padZero(range(Number(second), props.minSecond, props.maxSecond))
+      return `${hour}:${minute}:${second}`
+    }
+    return `${hour}:${minute}`
+  }
+
+  // ���ڷ�Χ���ƣ�ȷ������С�������֮��
+  value = Math.min(Math.max(Number(value), props.minDate), props.maxDate)
+
+  return value
+}
+
+/**
+ * ��ȡָ�����µ����һ������
+ */
+const getMonthEndDay = (year : number, month : number) : number => {
+  return 32 - new Date(year, month - 1, 32).getDate()
+}
+
+/**
+ * ���ݱ߽����ͺ͵�ǰʱ������ʱ�䵥λ�ı߽�ֵ
+ */
+const getBoundary = (type : 'min' | 'max', innerValue : number) : UTSJSONObject => {
+  const value = new Date(innerValue)
+  const boundary = new Date(props[`${type}Date`] as number)
+  const year = boundary.getFullYear()
+  let month : number = 1
+  let date : number = 1
+  let hour : number = 0
+  let minute : number = 0
+  let second : number = 0
+
+  // �������ֵ��Ĭ�ϱ߽�
+  if (type === 'max') {
+    month = 12
+    date = getMonthEndDay(value.getFullYear(), value.getMonth() + 1)
+    hour = 23
+    minute = 59
+    second = 59
+  }
+
+  // ��ѡ�������߽������ͬʱ����Ҫ��һ�������·�
+  if (value.getFullYear() === year) {
+    month = boundary.getMonth() + 1
+    if (value.getMonth() + 1 === month) {
+      date = boundary.getDate()
+      if (value.getDate() === date) {
+        hour = boundary.getHours()
+        if (value.getHours() === hour) {
+          minute = boundary.getMinutes()
+          if (value.getMinutes() === minute) {
+            second = boundary.getSeconds()
+          }
+        }
+      }
+    }
+  }
+
+  const result = {} as UTSJSONObject
+  result[`${type}Year`] = year
+  result[`${type}Month`] = month
+  result[`${type}Date`] = date
+  result[`${type}Hour`] = hour
+  result[`${type}Minute`] = minute
+  result[`${type}Second`] = second
+  return result
+}
+
+/**
+ * ������е�ʱ��߽緶Χ
+ */
+const getRanges = () : Array<{ type : DatetimePickerViewColumnType, range : number[] }> => {
+  // ʱ���������⴦����ֻ��Ҫʱ������
+  if (props.type === 'time') {
+    const result : Array<{ type : DatetimePickerViewColumnType, range : number[] }> = [
+      { type: 'hour', range: [props.minHour, props.maxHour] },
+      { type: 'minute', range: [props.minMinute, props.maxMinute] },
+    ]
+    if (props.useSecond) {
+      result.push({ type: 'second', range: [props.minSecond, props.maxSecond] })
+    }
+    return result
+  }
+
+  // �������ʹ�����������С������ڼ���߽�
+  const maxBoundary = getBoundary('max', innerValue.value as number)
+  const minBoundary = getBoundary('min', innerValue.value as number)
+
+  const maxYear = maxBoundary['maxYear'] as number
+  const maxMonth = maxBoundary['maxMonth'] as number
+  const maxDate = maxBoundary['maxDate'] as number
+  const maxHour = maxBoundary['maxHour'] as number
+  const maxMinute = maxBoundary['maxMinute'] as number
+  const maxSecond = maxBoundary['maxSecond'] as number
+
+  const minYear = minBoundary['minYear'] as number
+  const minMonth = minBoundary['minMonth'] as number
+  const minDate = minBoundary['minDate'] as number
+  const minHour = minBoundary['minHour'] as number
+  const minMinute = minBoundary['minMinute'] as number
+  const minSecond = minBoundary['minSecond'] as number
+
+  const result : Array<{ type : DatetimePickerViewColumnType, range : number[] }> = [
+    { type: 'year', range: [minYear, maxYear] },
+    { type: 'month', range: [minMonth, maxMonth] },
+    { type: 'date', range: [minDate, maxDate] },
+    { type: 'hour', range: [minHour, maxHour] },
+    { type: 'minute', range: [minMinute, maxMinute] },
+  ]
+
+  // ����ѡ�������͵�����ʾ����
+  if (props.type === 'datetime' && props.useSecond) {
+    result.push({ type: 'second', range: [minSecond, maxSecond] })
+  }
+  if (props.type === 'date') result.splice(3, 2) // �Ƴ�ʱ����
+  if (props.type === 'year-month') result.splice(2, 3) // �Ƴ���ʱ����
+  if (props.type === 'year') result.splice(1, 4) // �Ƴ�����ʱ����
+
+  return result
+}
+
+/**
+ * ����ָ�����ȵ����鲢ʹ�õ������������
+ */
+const times = (n : number, iteratee : (index : number) => number) : number[] => {
+  let index : number = -1
+  const length = n < 0 ? 0 : n
+  const result : number[] = []
+  while (++index < n) {
+    result.push(iteratee(index))
+  }
+  return result
+}
+
+/**
+ * ��ȡԭʼ����������
+ */
+const getOriginColumns = () : Array<{ type : DatetimePickerViewColumnType, values : number[] }> => {
+  const filter = props.filter
+  return getRanges().map((item) => {
+    const type = item.type
+    const range1 = item.range
+
+    // ���ݷ�Χ������������ֵ����
+    let values = times(range1[1] - range1[0] + 1, (index : number) : number => {
+      return range1[0] + index
+    })
+
+    // ����й��˺�������Ӧ�ù���
+    if (filter != null) {
+      values = filter!(type, values)
+    }
+
+    return {
+      type,
+      values,
+    }
+  })
+}
+
+/**
+ * ʹ�ø�ʽ����������������������
+ */
+const updateColumns = () : DatetimePickerViewOption[][] => {
+  const formatter = props.formatter
+  const columnFormatter = props.columnFormatter
+  if (columnFormatter != null) {
+    // ʹ���Զ����и�ʽ������
+    return columnFormatter!(proxy.$.exposed as DatetimePickerViewInstance)
+  } else {
+    // ʹ��Ĭ�ϸ�ʽ���߼�
+    return getOriginColumns().map((column) => {
+      return column.values.map((value) => {
+        const option : DatetimePickerViewOption = {
+          label: formatter != null ? formatter!(column.type, padZero(value)) : padZero(value),
+          value,
+        }
+        return option
+      })
+    })
+  }
+}
+
+/**
+ * ���ݴ����ֵ������ת��Ϊpickerѡ������
+ */
+const getPickerValue = (value : string | number, type : DateTimeType) : number[] => {
+  const values : number[] = []
+
+  if (type === 'time') {
+    // ʱ�����ͣ����� "HH:mm:ss" ��ʽ�ַ���
+    const pair = String(value).split(':')
+    values.push(Number.parseInt(pair[0]), Number.parseInt(pair[1]))
+    if (pair.length > 2) {
+      values.push(Number.parseInt(pair[2]))
+    }
+  } else {
+    // �������ͣ�����ʱ�������ȡ������ʱ����
+    const date = new Date(value as number)
+    values.push(date.getFullYear(), date.getMonth() + 1)
+    if (type === 'date') {
+      values.push(date.getDate())
+    } else if (type === 'datetime') {
+      values.push(date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds())
+    }
+  }
+  return values
+}
+
+/**
+ * ���ݴ���ֵ���������ݺ�ѡ����
+ */
+const updateColumnValue = (value : string | number) : void => {
+  // ��ֵת��Ϊpicker��ʶ��������ʽ
+  const values = getPickerValue(value, props.type)
+  // ����ⲿ����ֵ�뵱ǰֵ��ͬ�����������¼�
+  if (props.modelValue !== value) {
+    emit('update:modelValue', value)
+    emit('change', {
+      value,
+      picker: proxy.$.exposed as DatetimePickerViewInstance,
+    })
+  }
+  // �����ڲ�״̬
+  innerValue.value = value
+  columns.value = updateColumns()
+  pickerValue.value = values
+}
+
+/**
+ * �������º���������Ƶ�������ݸ��²���
+ */
+const updateValue = debounce(() : void => {
+  // ֻ���������ʼ����ɺ��ִ�и���
+  if (!created.value) return
+  const val = correctValue(props.modelValue)
+  const isEqual = val === innerValue.value
+  if (!isEqual) {
+    // ֵ�����仯��������ֵ��ѡ����
+    updateColumnValue(val)
+  } else {
+    // ֵδ�仯�������¼���������
+    columns.value = updateColumns()
+  }
+}, 50)
+
+/**
+ * ���� modelValue �仯
+ */
+watch(
+  () : string | number => props.modelValue,
+  (val, oldVal) : void => {
+    if (val === oldVal) return
+    // ��������ֵ������������
+    const value = correctValue(val)
+    updateColumnValue(value)
+  },
+  { deep: true, immediate: true },
+)
+
+/**
+ * ���� type �仯������������֤
+ */
+watch(
+  () : DateTimeType => props.type,
+  (target) : void => {
+    const validTypes = ['date', 'year-month', 'time', 'datetime', 'year']
+    if (!validTypes.includes(target)) {
+      console.error(`type must be one of ${validTypes.join(', ')}`)
+    }
+    // ÿ��type����ʱ����Ҫˢ�������б�
+    updateValue()
+  },
+  { deep: true, immediate: true },
+)
+
+/**
+ * �������ָ�ʽ���������Ա仯
+ */
+watch(
+  () : DatetimePickerViewFilter | null => props.filter,
+  (fn) : void => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of filter must be Function')
+    }
+    updateValue()
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  () : DatetimePickerViewFormatter | null => props.formatter,
+  (fn) : void => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of formatter must be Function')
+    }
+    updateValue()
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  () : DatetimePickerViewColumnFormatter | null => props.columnFormatter,
+  (fn) : void => {
+    if (fn != null && !isFunction(fn)) {
+      console.error('The type of columnFormatter must be Function')
+    }
+    updateValue()
+  },
+  { deep: true, immediate: true },
+)
+
+/**
+ * ����ʱ�䷶Χ������Ա仯
+ */
+watch(
+  [
+    () : number => props.minDate,
+    () : number => props.maxDate,
+    () : number => props.minHour,
+    () : number => props.maxHour,
+    () : number => props.minMinute,
+    () : number => props.maxMinute,
+    () : number => props.minSecond,
+    () : number => props.maxSecond,
+    () : boolean => props.useSecond,
+  ],
+  () : void => {
+    updateValue()
+  },
+  { deep: true, immediate: true },
+)
+
+/**
+ * �������ǰ�Ĵ���
+ */
+onBeforeMount(() : void => {
+  // ��ʼ����ϣ���observer����render�Ŀ���
+  created.value = true
+  const innerValueCorrected = correctValue(props.modelValue)
+  updateColumnValue(innerValueCorrected)
+})
+
+/**
+ * ���ݵ�ǰpicker��ѡ��������Ӧ��ʱ��ֵ
+ */
+const updateInnerValue = () : string | number => {
+  const type = props.type
+  const useSecond = props.useSecond
+  let innerValueResult : string | number = ''
+
+  const pickerVal = datePickerview.value != null ? datePickerview.value.getValues() : []
+  const values = isArray(pickerVal) ? pickerVal as any[] : [pickerVal]
+
+  // ʱ�����ͣ�����HH:mm:ss��ʽ�ַ���
+  if (type === 'time') {
+    const hour = Number(values[0]) || 0
+    const minute = Number(values[1]) || 0
+    const second = Number(values[2]) || 0
+
+    if (useSecond) {
+      innerValueResult = `${padZero(hour)}:${padZero(minute)}:${padZero(second)}`
+    } else {
+      innerValueResult = `${padZero(hour)}:${padZero(minute)}`
+    }
+    return innerValueResult
+  }
+
+  // �������ͣ�����ʱ���
+  const year = Number(values[0]) || new Date().getFullYear()
+  const month = type === 'year' ? 1 : Number(values[1]) || 1
+  const maxDate = getMonthEndDay(year, month)
+
+  // �������ڣ�ȷ�������������������
+  let date = 1
+  if (type !== 'year-month' && type !== 'year') {
+    const dateValue = Number(values[2]) || 1
+    date = dateValue > maxDate ? maxDate : dateValue
+  }
+
+  // ����ʱ���루��datetime���ͣ�
+  let hour = 0
+  let minute = 0
+  let second = 0
+  if (type === 'datetime') {
+    hour = Number(values[3]) || 0
+    minute = Number(values[4]) || 0
+    if (useSecond) {
+      second = Number(values[5]) || 0
+    }
+  }
+
+  // ����Date����ת��Ϊʱ���
+  const value = new Date(year, month - 1, date, hour, minute, second).getTime()
+  innerValueResult = correctValue(value)
+  return innerValueResult
+}
+
+/**
+ * ����ѡ����ֵ�仯�¼�
+ */
+const onChange = (event : { picker : any, value : any, index : number }) : void => {
+  // ���¼���������ȡ value
+  pickerValue.value = event.value
+
+  // ��picker��ѡ��ֵת��Ϊʵ�ʵ�ʱ��ֵ
+  const result = updateInnerValue()
+  emit('update:modelValue', result)
+
+  // ����ط���value���ص���picker���飬ʵ�����ڴ˴�����Ӧ�÷��� change ���� value date���͵�ֵ
+  emit('change', {
+    value: result,
+    picker: proxy.$.exposed as DatetimePickerViewInstance,
+  })
+}
+
+/**
+ * �ֶ�����������
+ */
+const setColumns = (columnList : DatetimePickerViewOption[][]) : void => {
+  columns.value = columnList
+}
+
+/**
+ * �����м������仯
+ */
+const columnChange = (picker : any) : void => {
+  // time��year-month��year ����������������
+  if (props.type === 'time' || props.type === 'year-month' || props.type === 'year') {
+    return
+  }
+
+  // ��ȡ��ǰѡ�еĸ���ֵ�����¼���Ϸ���ʱ��
+  const values = picker.getValues() as string[]
+  const year = Number(values[0])
+  const month = Number(values[1])
+  const maxDate = getMonthEndDay(year, month)
+  let date = Number(values[2])
+  // ȷ�����ڲ����������������
+  date = date > maxDate ? maxDate : date
+
+  let hour : number = 0
+  let minute : number = 0
+  let second : number = 0
+  if (props.type === 'datetime') {
+    hour = Number(values[3])
+    minute = Number(values[4])
+    if (props.useSecond) {
+      second = Number(values[5])
+    }
+  }
+
+  // �����������ֵ���¼���ʱ���
+  const value = new Date(year, month - 1, date, hour, minute, second).getTime()
+  // ����ѡ��ʱ���
+  innerValue.value = correctValue(value)
+
+  // ���������������Է�ӳ�µķ�Χ����
+  const newColumns = updateColumns()
+  // �������֮ǰ��ѡ����
+  const selectedIndex = picker.getSelectedIndex().slice(0)
+
+  // ������Ӱ��ĺ���������
+  newColumns.forEach((_columns : DatetimePickerViewOption[], index : number) => {
+    const nextColumnIndex = index + 1
+    const nextColumnData = newColumns[nextColumnIndex]
+    if (nextColumnIndex > newColumns.length - 1) return
+    // �����µ������ݣ�����ԭѡ����������Ϊ0�����������Χ��
+    picker.setColumnData(
+      nextColumnIndex,
+      nextColumnData,
+      selectedIndex[nextColumnIndex] <= nextColumnData.length - 1
+        ? selectedIndex[nextColumnIndex]
+        : 0,
+    )
+  })
+}
+
+/**
+ * ������ʼѡ���¼�
+ */
+const onPickStart = () : void => {
+  emit('pickstart')
+}
+
+/**
+ * ��������ѡ���¼�
+ */
+const onPickEnd = () : void => {
+  emit('pickend')
+}
+
+/**
+ * ��ȡ��ǰѡ�е���Ŀ����
+ */
+const getSelects = () : UTSJSONObject | UTSJSONObject[] | null => {
+  if (datePickerview.value == null) return null
+  const pickerVal = datePickerview.value.getSelects()
+  if (pickerVal == null) return null
+  if (isArray(pickerVal)) return pickerVal as UTSJSONObject[]
+  return [pickerVal as UTSJSONObject]
+}
+
+/**
+ * ����ʱ��ѡ���������¶�ӿ�
+ */
+export interface DatetimePickerViewExpose {
+  updateColumns : () => DatetimePickerViewOption[][]
+  setColumns : (columnList : DatetimePickerViewOption[][]) => void
+  getSelects : () => UTSJSONObject | UTSJSONObject[] | null
+  correctValue : (value : string | number) => string | number
+  getPickerValue : (value : string | number, type : DateTimeType) => number[]
+  getOriginColumns : () => Array<{ type : DatetimePickerViewColumnType, values : number[] }>
+}
+
+// ��¶�������
+defineExpose<DatetimePickerViewExpose>({
+  updateColumns,
+  setColumns,
+  getSelects,
+  correctValue,
+  getPickerValue,
+  getOriginColumns,
+})
+
+/** ����ʱ��ѡ����ʵ������ */
+export type DatetimePickerViewInstance = DatetimePickerViewExpose
+</script>

@@ -1,0 +1,207 @@
+<!--
+CountTo 数字滚动 数字滚动组件。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type（UTS 不支持 script setup 内 export type）
+- 移除 ComponentPublicInstance 导入
+- 移除 WdCountToExpose 接口定义
+- TextType 联合类型改为 string
+- 移除手动 wdText 导入（easycom 自动注册）
+-->
+<template>
+  <view :class="`wd-count-to ${customClass}`">
+    <!-- 前缀插槽 -->
+    <slot name="prefix">
+      <wd-text
+        :type="type"
+        :color="color"
+        :size="`${addUnit(fontSize * 0.7)}`"
+        :text="prefix"
+      />
+    </slot>
+    <!-- 默认文本插槽 -->
+    <slot>
+      <wd-text
+        :type="type"
+        :color="color"
+        :size="`${addUnit(fontSize)}`"
+        :text="parseFormat(current.total)"
+      />
+    </slot>
+    <!-- 后缀插槽 -->
+    <slot name="suffix">
+      <wd-text
+        :type="type"
+        :color="color"
+        :size="`${addUnit(fontSize * 0.7)}`"
+        :text="suffix"
+      />
+    </slot>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { onMounted, watch } from 'vue'
+import { addUnit, easingFn, isNumber } from '../common/util'
+import { useCountDown } from '../composables/useCountDown'
+
+/**
+ * 数字滚动组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 字体大小 */
+  fontSize ?: number
+  /** 文本颜色 */
+  color ?: string
+  /** 主题类型，可选值：default / primary / success / warning / error */
+  type ?: string
+  /** 起始值 */
+  startVal ?: number
+  /** 最终值 */
+  endVal ?: number
+  /** 从起始值到结束值数字变动的时间，单位毫秒 */
+  duration ?: number
+  /** 是否自动开始 */
+  autoStart ?: boolean
+  /** 保留的小数位数，必须大于等于0 */
+  decimals ?: number
+  /** 小数点符号 */
+  decimal ?: string
+  /** 千分位分隔符 */
+  separator ?: string
+  /** 前缀 */
+  prefix ?: string
+  /** 后缀 */
+  suffix ?: string
+  /** 是否使用缓动效果 */
+  useEasing ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  fontSize: 32,
+  color: '',
+  type: 'default',
+  startVal: 0,
+  endVal: 2024,
+  duration: 3000,
+  autoStart: true,
+  decimals: 0,
+  decimal: '.',
+  separator: ',',
+  prefix: '',
+  suffix: '',
+  useEasing: true,
+})
+
+/** 组件事件 */
+const emit = defineEmits(['mounted', 'finish'])
+
+/** 验证 decimals 属性 */
+if (props.decimals < 0) {
+  console.error('decimals must be greater than or equal to 0')
+}
+
+/** 使用倒计时组合函数控制动画 */
+const { start, pause, reset, current } = useCountDown({
+  time: props.duration,
+  millisecond: true,
+  onFinish: () => { emit('finish') },
+})
+
+/**
+ * 重置动画
+ */
+const resetTime = () => {
+  reset(props.duration)
+  if (props.autoStart) {
+    start()
+  }
+}
+
+/** 监听相关属性变化 */
+watch([() => props.startVal, () => props.endVal, () => props.duration], () => {
+  resetTime()
+}, {
+  immediate: false,
+})
+
+/**
+ * 格式化数字
+ */
+const formatNumber = (num : number) : string => {
+  const fixed = num.toFixed(props.decimals)
+  const parts = fixed.split('.')
+  let integerPart = parts[0]
+  const decimalPart = parts.length > 1 ? props.decimal + parts[1] : ''
+  const rgx = /(\d+)(\d{3})/
+
+  if (props.separator != '' && !isNumber(props.separator)) {
+    while (rgx.test(integerPart)) {
+      integerPart = integerPart.replace(rgx, `$1${props.separator}$2`)
+    }
+  }
+
+  return integerPart + decimalPart
+}
+
+/**
+ * 解析格式化数字
+ */
+const parseFormat = (remain : number) : string => {
+  const startV = props.startVal
+  const endV = props.endVal
+  const dur = props.duration
+  const progress = dur - remain
+  const isPositive = startV > endV
+  const progressRatio = progress / dur
+
+  let currentVal : number
+
+  if (props.useEasing) {
+    if (isPositive) {
+      currentVal = startV - easingFn(progress, 0, startV - endV, dur)
+    } else {
+      currentVal = easingFn(progress, startV, endV - startV, dur)
+    }
+  } else {
+    if (isPositive) {
+      currentVal = startV - (startV - endV) * progressRatio
+    } else {
+      currentVal = startV + (endV - startV) * progressRatio
+    }
+  }
+
+  /* 确保 currentVal 在 startVal 和 endVal 之间 */
+  currentVal = isPositive ? Math.max(endV, currentVal) : Math.min(endV, currentVal)
+  return formatNumber(currentVal)
+}
+
+/** 组件挂载后初始化 */
+onMounted(() => {
+  resetTime()
+  emit('mounted')
+})
+
+/** 暴露组件方法 */
+defineExpose({
+  start,
+  reset: resetTime,
+  pause,
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 数字滚动组件样式 */
+.wd-count-to {
+  display: flex;
+  align-items: baseline;
+}
+</style>

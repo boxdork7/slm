@@ -1,0 +1,362 @@
+<template>
+	<view class="register-page">
+		<wd-navbar title="注册" />
+
+		<!-- 顶部占位 -->
+		<view class="top-spacer" />
+
+		<!-- 注册表单 -->
+		<view class="form-container">
+			<!-- Logo -->
+			<wd-img width="150" height="150" src="/static/logo.png" />
+			<!-- 租户所在公司标题 -->
+			<wd-text :text="captcha.tenantTitle != '' ? captcha.tenantTitle : '若依工作室'" size="45" bold />
+
+			<wd-form ref="registerFormRef" custom-class="form-area" :model="registerForm" :rules="formRules">
+				<!-- 用户名 -->
+				<wd-input
+					v-model="registerForm.userName"
+					no-border
+					custom-input-class="input-field"
+					error-message-offset="38"
+					prop="userName"
+					placeholder="请输入用户名"
+					clearable
+				/>
+				<!-- 密码 -->
+				<wd-input
+					v-model="registerForm.password"
+					no-border
+					custom-input-class="input-field input-field-mt"
+					error-message-offset="38"
+					prop="password"
+					show-password
+					placeholder="请输入密码"
+					clearable
+				/>
+				<!-- 确认密码 -->
+				<wd-input
+					v-model="registerForm.confirmPassword"
+					no-border
+					custom-input-class="input-field input-field-mt"
+					error-message-offset="38"
+					prop="confirmPassword"
+					show-password
+					placeholder="请确认密码"
+					clearable
+				/>
+				<!-- 验证码 -->
+				<view v-if="captcha.captchaEnabled" class="captcha-row">
+					<wd-img
+						width="240"
+						height="80"
+						custom-class="captcha-img"
+						:src="captcha.img"
+						@click="refreshCaptcha"
+					/>
+					<wd-input
+						v-model="registerForm.code"
+						no-border
+						:reserve-error-space="false"
+						custom-input-class="input-field captcha-input"
+						error-message-offset="64"
+						prop="code"
+						clearable
+						placeholder="请输入验证码"
+					/>
+				</view>
+
+				<!-- 注册按钮 -->
+				<view>
+					<wd-button
+						custom-class="register-btn"
+						type="primary"
+						:loading="isSubmitting"
+						@click="handleRegisterSubmit"
+					>
+						<text v-if="!isSubmitting">注册</text>
+						<text v-else>注册中...</text>
+					</wd-button>
+				</view>
+
+				<!-- 登录链接 -->
+				<view class="login-link">
+					<wd-button type="default" @click="handleLogin" custom-class="login-link-btn">
+						已有账号？立即登录
+					</wd-button>
+				</view>
+			</wd-form>
+		</view>
+
+		<!-- 底部占位 -->
+		<view class="bottom-spacer" />
+	</view>
+</template>
+
+<script setup lang="uts">
+	import { ref, onMounted } from 'vue'
+	import { imgCode, userRegister } from '@/api/system/auth/authApi'
+	import { type RegisterBody } from '@/api/system/auth/authTypes'
+	import { useToast } from '@/wd'
+	import { AsyncResult } from '@/utils/to'
+
+	/**
+	 * 组件属性定义
+	 */
+	const props = defineProps({
+		redirect: {
+			type: String,
+			default: ''
+		}
+	})
+
+	const toast = useToast()
+
+	/* 表单引用 */
+	const registerFormRef = ref<any>(null)
+
+	/* 表单数据 */
+	const registerForm = ref({
+		authType: 'password',
+		userType: 'app_user',
+		userName: '',
+		password: '',
+		confirmPassword: '',
+		code: '',
+		uuid: '',
+	})
+
+	/* 验证码信息 */
+	const captcha = ref({
+		tenantEnabled: false,
+		tenantTitle: '',
+		registerEnabled: false,
+		captchaEnabled: false,
+		uuid: '',
+		img: '',
+	})
+
+	/* 业务状态 */
+	const isSubmitting = ref(false)
+
+	/* 表单校验规则 */
+	const formRules = {
+		userName: [
+			{ required: true, message: '请输入用户名' },
+			{ min: 2, max: 20, message: '用户名长度为2-20个字符' },
+		] as UTSJSONObject[],
+		password: [
+			{ required: true, message: '请输入密码' },
+			{ min: 5, max: 20, message: '密码长度为5-20个字符' },
+		] as UTSJSONObject[],
+		confirmPassword: [
+			{ required: true, message: '请确认密码' },
+		] as UTSJSONObject[],
+		code: [
+			{ required: true, message: '请输入验证码' },
+		] as UTSJSONObject[],
+	}
+
+	/* ==================== 数据初始化方法 ==================== */
+
+	/** 获取并刷新验证码图片 */
+	const refreshCaptchaImage = () => {
+		imgCode().then((result : AsyncResult) => {
+			if (result.err == null && result.data != null) {
+				const data = result.data as UTSJSONObject
+				captcha.value = {
+					tenantEnabled: data.getBoolean('tenantEnabled') ?? false,
+					tenantTitle: data.getString('tenantTitle') ?? '',
+					registerEnabled: data.getBoolean('registerEnabled') ?? false,
+					captchaEnabled: data.getBoolean('captchaEnabled') ?? false,
+					uuid: data.getString('uuid') ?? '',
+					img: data.getString('img') ?? '',
+				}
+
+				if (captcha.value.captchaEnabled) {
+					registerForm.value.uuid = captcha.value.uuid
+				}
+			}
+		})
+	}
+
+	/** 初始化注册页面 */
+	const initRegisterPage = () => {
+		refreshCaptchaImage()
+	}
+
+	/* ==================== 业务处理方法 ==================== */
+
+	/** 刷新验证码 */
+	const refreshCaptcha = () => {
+		refreshCaptchaImage()
+		registerForm.value.code = ''
+	}
+
+	/** 验证确认密码一致性 */
+	const validateConfirmPassword = () : boolean => {
+		if (registerForm.value.password != registerForm.value.confirmPassword) {
+			toast.error('两次输入的密码不一致')
+			return false
+		}
+		return true
+	}
+
+	/** 验证密码格式 */
+	const validatePasswordFormat = () : boolean => {
+		const pwd = registerForm.value.password
+		/* 不能包含特殊字符 < > " ' \ | */
+		const invalidChars = ['<', '>', '"', "'", '\\', '|'] as string[]
+		for (let i = 0; i < invalidChars.length; i++) {
+			if (pwd.indexOf(invalidChars[i]) > -1) {
+				toast.error('密码不能包含特殊字符 < > " \' \\ |')
+				return false
+			}
+		}
+		return true
+	}
+
+	/** 处理用户注册提交 */
+	const handleRegisterSubmit = () => {
+		/* 手动校验确认密码和密码格式 */
+		if (!validatePasswordFormat()) return
+		if (!validateConfirmPassword()) return
+
+		isSubmitting.value = true
+
+		/* 准备提交的注册数据 */
+		const submitData : RegisterBody = {
+			authType: registerForm.value.authType,
+			type: 'password',
+			userName: registerForm.value.userName.trim(),
+			password: registerForm.value.password,
+			userType: registerForm.value.userType,
+			code: registerForm.value.code.trim(),
+			uuid: captcha.value.uuid,
+		}
+
+		userRegister(submitData).then((result : AsyncResult) => {
+			if (result.err == null) {
+				/* 注册成功 */
+				const userName = registerForm.value.userName
+				toast.success(`注册成功！欢迎 ${userName}`)
+
+				/* 延时跳转到登录页面 */
+				setTimeout(() => {
+					let redirectUrl = '/pages/auth/login'
+					if (props.redirect.length > 0) {
+						redirectUrl = `/pages/auth/login?redirect=${encodeURIComponent(props.redirect)}`
+					}
+					uni.navigateBack({
+						fail: () => {
+							uni.redirectTo({ url: redirectUrl })
+						}
+					})
+				}, 2000)
+			} else {
+				/* 注册失败 */
+				const err = result.err as Error
+				toast.error(err.message.length > 0 ? err.message : '注册失败，请重试')
+
+				/* 刷新验证码 */
+				if (captcha.value.captchaEnabled) {
+					refreshCaptcha()
+					registerForm.value.code = ''
+				}
+			}
+
+			isSubmitting.value = false
+		})
+	}
+
+	/** 处理登录跳转 */
+	const handleLogin = () => {
+		let redirectUrl = '/pages/auth/login'
+		if (props.redirect.length > 0) {
+			redirectUrl = `/pages/auth/login?redirect=${encodeURIComponent(props.redirect)}`
+		}
+		uni.navigateBack({
+			fail: () => {
+				uni.redirectTo({ url: redirectUrl })
+			}
+		})
+	}
+
+	/** 组件挂载后的初始化处理 */
+	onMounted(() => {
+		initRegisterPage()
+	})
+</script>
+
+<style lang="scss" scoped>
+	.register-page {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		height: 100vh;
+	}
+
+	.top-spacer {
+		min-height: 80rpx;
+		width: 100vw;
+		flex: 1;
+	}
+
+	.form-container {
+		display: flex;
+		flex-shrink: 0;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.form-area {
+		padding: 40rpx;
+	}
+
+	.input-field {
+		border: 1px solid #f3f4f6;
+		border-radius: 24rpx;
+		padding: 6rpx 16rpx;
+	}
+
+	.input-field-mt {
+		margin-top: 32rpx;
+	}
+
+	.captcha-row {
+		margin-top: 32rpx;
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.captcha-img {
+		background-color: #f3f4f6;
+	}
+
+	.captcha-input {
+		margin-left: 16rpx;
+	}
+
+	.register-btn {
+		margin-top: 32rpx;
+		width: 100%;
+	}
+
+	.login-link {
+		margin-top: 16rpx;
+		display: flex;
+		flex-direction: row;
+		justify-content: center;
+	}
+
+	.login-link-btn {
+		color: #4D80F0 !important;
+	}
+
+	.bottom-spacer {
+		min-height: 80rpx;
+		width: 100vw;
+		flex: 2;
+	}
+</style>

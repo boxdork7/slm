@@ -1,0 +1,212 @@
+/**
+ * 用户管理 API - UniApp X 版本
+ *
+ * 从 plus-app/api/system/core/user/userApi.ts 迁移
+ *
+ * UTS 适配说明：
+ * - 移除所有泛型 <T>（UTS 不支持）
+ * - Record<string, any> → UTSJSONObject
+ * - http.get<T>() → http.get()
+ * - Promise<Result<T>> → Promise<AsyncResult>
+ * - import type → import
+ * - 对象字面量显式 as UTSJSONObject
+ */
+
+import { http } from '@/composables/useHttp'
+import { withHeaders } from '@/utils/function'
+import { parseStrEmpty } from '@/utils/string'
+import { AsyncResult } from '@/utils/to'
+import { SysRoleVo } from '../role/roleTypes'
+import {
+	ProfileVo,
+	SysUserBo,
+	SysUserInfoVo,
+	SysUserPasswordBo,
+	SysUserQuery,
+	SysUserVo,
+	UserInfoVo,
+} from './userTypes'
+
+/**
+ * 获取当前用户详细信息 (登录成功后调用)
+ * 用于获取登录用户的权限、角色等详细信息
+ * @returns 返回用户详情对象
+ */
+export const getUserInfo = () : Promise<AsyncResult> => {
+	return http.get('/system/user/getUserInfo')
+}
+
+/**
+ * 查询用户个人信息(个人中心)
+ * @returns 用户个人信息
+ */
+export const getUserProfile = () : Promise<AsyncResult> => {
+	return http.get('/system/user/getUserProfile')
+}
+
+/**
+ * 查询用户列表
+ * @param query 查询参数
+ * @returns 分页结果
+ */
+export const pageUsers = (query? : SysUserQuery) : Promise<AsyncResult> => {
+	const params = query != null ? query as UTSJSONObject : null
+	return http.get('/system/user/pageUsers', params)
+}
+
+/**
+ * 获取用户详情
+ * @param userId 用户ID
+ * @returns 用户详细信息
+ */
+export const getUser = (userId? : string | number) : Promise<AsyncResult> => {
+	const userIdStr = userId != null ? '' + userId! : ''
+	const finalUserId = parseStrEmpty(userIdStr)
+	return http.get(`/system/user/getUser/${finalUserId}`)
+}
+
+/**
+ * 新增用户
+ * @param data 用户数据
+ * @returns 新增用户ID
+ */
+export const addUser = (data : SysUserBo) : Promise<AsyncResult> => {
+	return http.post('/system/user/addUser', data)
+}
+
+/**
+ * 修改用户
+ * @param data 用户数据
+ * @returns 修改结果
+ */
+export const updateUser = (data : SysUserBo) : Promise<AsyncResult> => {
+	return http.put('/system/user/updateUser', data)
+}
+
+/**
+ * 删除用户
+ * @param userId 用户ID（数组或单个值）
+ * @returns 删除结果
+ */
+export const deleteUsers = (userId : string | number | (string | number)[]) : Promise<AsyncResult> => {
+	const userIdStr = Array.isArray(userId) ? userId.join(',') : '' + userId
+	return http.del(`/system/user/deleteUsers/${userIdStr}`)
+}
+
+/**
+ * 用户密码重置
+ * @param userId 用户ID
+ * @param password 密码
+ * @returns 重置结果
+ */
+export const resetUserPwd = (
+	userId : string | number,
+	password : string,
+) : Promise<AsyncResult> => {
+	const data = {
+		userId: userId,
+		password: password,
+	} as UTSJSONObject
+	return http.put(
+		'/system/user/resetUserPwd',
+		data,
+		withHeaders({
+			isEncrypt: true,
+			repeatSubmit: false,
+		}),
+	)
+}
+
+/**
+ * 修改用户个人信息
+ * @param data 用户信息
+ * @returns 修改结果
+ */
+export const updateUserProfile = (data : SysUserBo) : Promise<AsyncResult> => {
+	return http.put('/system/user/updateUserProfile', data)
+}
+
+/**
+ * 用户密码重置（个人）
+ * @param data 用户密码信息
+ * @returns 修改结果
+ */
+export const updateUserPwd = (data : SysUserPasswordBo) : Promise<AsyncResult> => {
+	return http.put(
+		'/system/user/updateUserPwd',
+		data,
+		withHeaders({
+			isEncrypt: true,
+			repeatSubmit: false,
+		}),
+	)
+}
+
+/**
+ * 用户状态修改
+ * @param userId 用户ID
+ * @param status 用户状态
+ * @returns 修改结果
+ */
+export const changeUserStatus = (userId : string | number, status : string) : Promise<AsyncResult> => {
+	const data = {
+		userId: userId,
+		status: status,
+	} as UTSJSONObject
+	return http.put('/system/user/changeUserStatus', data)
+}
+
+/**
+ * 查询授权角色
+ * @param userId 用户ID
+ * @returns 用户和角色信息
+ */
+export const getUserWithRoles = (userId : string | number) : Promise<AsyncResult> => {
+	return http.get(`/system/user/getUserWithRoles/${userId}`)
+}
+
+/**
+ * 通过用户ids查询用户
+ * @param userIds 用户ID数组
+ * @returns 用户列表
+ */
+export const getUserOptions = (userIds : (string | number)[]) : Promise<AsyncResult> => {
+	const userIdsStr = userIds.join(',')
+	return http.get(`/system/user/getUserOptions?userIds=${userIdsStr}`)
+}
+
+/**
+ * 查询当前部门的所有用户信息
+ * @param deptId 部门ID
+ * @returns 用户列表
+ */
+export const listUsersByDeptId = (deptId : string | number) : Promise<AsyncResult> => {
+	return http.get(`/system/user/listUsersByDeptId/${deptId}`)
+}
+
+/**
+ * 用户头像上传
+ *
+ * TODO: UTS 不支持 FormData，需要等待 HTTP 模块完全迁移后
+ * 当前实现暂时不可用，等 UniApp X 提供文件上传 API 后再完成实现
+ *
+ * @param filePath 头像文件路径
+ * @returns 上传结果
+ */
+export const uploadAvatar = (filePath : string) : Promise<AsyncResult> => {
+	/* TODO: 使用 UniApp X 文件上传 API 替换 FormData
+	const result = await http.post(
+		'/system/user/uploadAvatar',
+		filePath,
+		withHeaders({ repeatSubmit: false }),
+	)
+	return result
+	*/
+	return new Promise<AsyncResult>((resolve) => {
+		console.warn('[userApi] uploadAvatar 方法尚未完全实现，等待 UTS 文件上传 API')
+		resolve({
+			err: new Error('头像上传功能尚未实现（等待 UTS 文件上传 API）'),
+			data: null,
+		} as AsyncResult)
+	})
+}

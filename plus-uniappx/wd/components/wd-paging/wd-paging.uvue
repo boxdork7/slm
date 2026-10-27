@@ -1,0 +1,1552 @@
+<!--
+/**
+ * wd-paging - 智能分页组件（UniApp X 版本）
+ *
+ * 迁移说明：
+ * - 移除 defineOptions
+ * - 移除泛型 <T>，数据类型改为 any[]
+ * - Union literal 类型改为 string
+ * - Record<string, any> → UTSJSONObject
+ * - getCurrentInstance() 已移除，使用直接查询
+ * - nextTick → setTimeout(() => {}, 0)
+ * - watch 回调参数显式类型标注
+ * - 计算属性返回类型显式标注
+ * - defineExpose 方法参数具体化
+ * - Array.isArray → isArray
+ * - 移除手动组件 import（easycom）
+ * - :deep() → 直接类选择器
+ * - sticky 定位保留（UniApp X 支持）
+ * - IntersectionObserver 保留（UniApp X 支持）
+ *
+ * 核心功能：
+ * - 基于scroll-view实现，无需页面生命周期处理
+ * - 自动管理分页逻辑，对接标准PageResult接口
+ * - 使用wd-tabs组件，支持徽标和粘性布局
+ * - 使用wd-backtop组件，平滑回到顶部
+ * - 内置wd-search组件搜索功能，支持下拉刷新
+ * - 使用官方wd-status-tip组件展示空数据状态
+ * - 支持radio-group选项筛选功能
+ * - 支持禁用自动分页加载功能
+ * - 支持清空数据缓存功能
+ * - 完整TypeScript支持，UnoCSS样式
+ *
+ * 使用示例：
+ * <template>
+ *   <wd-paging
+ *     :fetch="pageUsers"
+ *     :tabs="tabsConfig"
+ *     :radio-group-config="radioGroupConfig"
+ *     show-search
+ *     :disabled-auto-load="true"
+ *     :max-records="5"
+ *     custom-style="margin-top: 20rpx;"
+ *     custom-class="my-paging-wrapper"
+ *     @tab-change="handleTabChange"
+ *     @radio-change="handleRadioChange"
+ *   >
+ *     <template #item="{ item }">
+ *       <UserCard :user="item" />
+ *     </template>
+ *   </wd-paging>
+ * </template>
+ */
+-->
+
+<template>
+  <view
+    :class="`w-full ${customClass}`"
+    :style="`${background != '' ? `background: ${background};` : ''}${customStyle}`"
+  >
+    <!-- Tabs 区域 - 手动实现粘性定位 -->
+    <view
+      v-if="showTabs"
+      :class="tabsFixed ? 'sticky z-90' : ''"
+      :style="tabsStickyStyleStr"
+    >
+      <wd-tabs
+        v-model="currentTabIndex"
+        :items="tabs"
+        :sticky="false"
+        @change="handleTabChange"
+      />
+    </view>
+
+    <!-- Radio Group 区域 - 支持水平滚动 -->
+    <view
+      v-if="showRadioGroup"
+      class="border-b border-gray-100 bg-white"
+      :class="(tabsFixed || radioGroupSticky) ? 'sticky z-80' : ''"
+      :style="radioGroupStickyStyleStr"
+    >
+      <view class="px-4 py-3">
+        <!-- 水平滚动容器 -->
+        <scroll-view
+          :scroll-x="shouldRadioScroll"
+          scroll-with-animation
+          :scroll-left="radioScrollLeft"
+          :show-scrollbar="false"
+          class="radio-scroll-container"
+        >
+          <view class="radio-scroll-content">
+            <wd-radio-group
+              v-model="currentRadioValue"
+              inline
+              shape="button"
+              size="small"
+              :options="getCurrentRadioGroupConfig?.options ?? []"
+              item-width="auto"
+              @change="handleRadioChange"
+            />
+          </view>
+        </scroll-view>
+      </view>
+    </view>
+
+    <!-- 搜索区域 -->
+    <view
+      v-if="showSearch"
+      class="border-b border-gray-100 bg-white"
+      :class="searchSticky ? 'sticky z-70' : ''"
+      :style="searchStickyStyleStr"
+    >
+      <wd-search
+        v-model="searchValue"
+        :placeholder="searchPlaceholder"
+        clearable
+        :hide-cancel="!showTotal"
+        @search="handleSearch"
+        @change="handleSearchChange"
+        @clear="handleSearchClear"
+      >
+        <template v-if="showTotal && currentPageData.total > 0" #suffix>
+          <view class="bg-white px-4 text-xs text-gray-600">
+            共{{ currentPageData.total }}条记录
+          </view>
+        </template>
+      </wd-search>
+    </view>
+
+    <!-- 列表内容区域 -->
+    <view class="w-full">
+      <!-- 统一的flex布局容器 - 无论是否有数据都使用同一个布局 -->
+      <view class="w-full flex flex-wrap" style="flex-direction: row;">
+        <!-- 数据项容器 - 只有当有数据时才渲染 -->
+        <template v-if="currentPageData.records.length > 0">
+          <template v-for="(item, itemIndex) in displayRecords" :key="item.id ?? itemIndex">
+            <slot
+              name="item"
+              :item="item"
+              :index="itemIndex"
+              :current-tab="currentTabIndex"
+              :current-tab-data="currentTabData"
+              :current-radio-value="currentRadioValue"
+              :current-radio-data="currentRadioData"
+            >
+              <view class="w-full">
+                <view class="rounded-lg bg-white p-4 shadow-sm">
+                  <text>{{ JSON.stringify(item) }}</text>
+                </view>
+              </view>
+            </slot>
+          </template>
+        </template>
+
+        <!-- 数据项后的插槽 - 在所有情况下都显示，包括空状态 -->
+        <slot
+          name="after-items"
+          :current-tab="currentTabIndex"
+          :current-tab-data="currentTabData"
+          :current-radio-value="currentRadioValue"
+          :current-radio-data="currentRadioData"
+          :current-page-data="currentPageData"
+          :display-records="displayRecords"
+        />
+      </view>
+
+      <!-- 空数据状态提示 - 只在没有数据且不在加载中时显示 -->
+      <view
+        v-if="currentPageData.records.length === 0 && !loading && !firstLoading"
+        class="flex items-center justify-center"
+        :style="`min-height: ${emptyMinHeight};`"
+      >
+        <slot
+          name="empty"
+          :current-tab="currentTabIndex"
+          :current-tab-data="currentTabData"
+          :current-radio-value="currentRadioValue"
+          :current-radio-data="currentRadioData"
+        >
+          <wd-status-tip :image="emptyImage" :tip="emptyText" />
+        </slot>
+      </view>
+
+      <!-- 加载提示 -->
+      <view
+        v-if="currentPageData.records.length > 0"
+        class="flex items-center justify-center pb-6 pt-2 text-sm"
+      >
+        <wd-loading v-if="loading" :text="loadingText" size="16px" />
+        <text v-else-if="isReachEnd" class="text-gray-400">
+          {{ finishedText }}
+        </text>
+        <text v-else-if="!disabledAutoLoad" class="text-gray-500">
+          {{ loadMoreText }}
+        </text>
+        <text v-else class="text-gray-400">
+          {{ maxRecordsReachedText }}
+        </text>
+      </view>
+
+      <!-- 加载更多触发器 - 只有在启用自动加载且未到达限制时才显示 -->
+      <view v-if="shouldShowLoadMoreTrigger" class="load-more-trigger h-1 w-full" />
+
+      <!-- 手动加载更多按钮 - 当禁用自动加载但还有更多数据时显示 -->
+      <view v-if="shouldShowManualLoadButton" class="flex items-center justify-center py-4">
+        <wd-button
+          size="small"
+          type="primary"
+          plain
+          :loading="loading"
+          :disabled="loading"
+          @click="loadMore"
+        >
+          {{ loading ? loadingText : manualLoadMoreText }}
+        </wd-button>
+      </view>
+
+      <!-- 底部安全距离 -->
+      <view
+        v-if="currentPageData.records.length > 0"
+        :style="`height: ${bottomSafeArea};`"
+        class="w-full"
+      />
+
+      <!-- 首次加载 -->
+      <view
+        v-if="firstLoading"
+        class="flex items-center justify-center"
+        :style="`min-height: ${loadingMinHeight};`"
+      >
+        <wd-loading :text="loadingText" />
+      </view>
+    </view>
+
+    <!-- 回到顶部 scroll-top>top才会显示 页面大于1则显示 -->
+    <wd-backtop
+      v-if="showBackTop && currentPageData.current > 1"
+      :scroll-top="scrollTop"
+      :top="600"
+      @click="handleBacktopClick"
+    />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, ref, watch, onMounted, onUnmounted, getCurrentInstance } from 'vue'
+import { addUnit, isArray } from '../common/util'
+
+/** Tabs配置 */
+export type PagingTabItem = {
+  /** 标签名称，作为唯一标识 */
+  name ?: string | number
+  /** 标题 */
+  title : string
+  /** 是否禁用 */
+  disabled ?: boolean
+  /** 徽标属性，参考 Badge 组件 */
+  badgeProps ?: UTSJSONObject
+  /** 自定义数据，会传递给查询参数 */
+  data ?: UTSJSONObject
+  /** 单选框选项配置 */
+  radioGroupConfig ?: PagingRadioGroupConfig
+}
+
+/** Radio选项 */
+export type RadioOption = {
+  value : string | number | boolean
+  label : string
+  disabled ?: boolean
+}
+
+/** RadioGroup配置 */
+export type PagingRadioGroupConfig = {
+  /** 查询字段名，将作为查询参数的key */
+  field : string
+  /** 默认选中的值 */
+  defaultValue ?: string | number | boolean
+  /** 选项列表 */
+  options : RadioOption[]
+  /** 是否启用水平滚动，当选项超过此数量时启用，默认为3 */
+  scrollThreshold ?: number
+}
+
+/** 分页查询参数 */
+export type PageQuery = {
+  pageNum : number
+  pageSize : number
+  searchValue ?: string
+  [key : string] : any | null
+}
+
+/** 分页结果 */
+export type PageResult = {
+  records : any[]
+  total : number
+  pages : number
+  current : number
+  size : number
+  last : boolean
+}
+
+/** API结果包装 */
+export type Result<T> = [Error | null, T | null]
+
+/** Tab变化事件 */
+export type TabChangeEvent = {
+  index : number
+  name : string | number
+  tab : PagingTabItem | null
+}
+
+/** Radio变化事件 */
+export type RadioChangeEvent = {
+  value : string | number | boolean
+  option : RadioOption | null
+  field : string
+  tabIndex : number
+}
+
+/** 手动加载更多事件 */
+export type ManualLoadMoreEvent = {
+  currentRecords : number
+  maxRecords : number
+}
+
+/** 搜索事件参数 */
+export type SearchEvent = {
+  value : string
+}
+
+// ==================== Props & Emits ====================
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+
+  /** API请求函数，接收PageQuery参数，返回PageResult */
+  fetch : (query : PageQuery) => Promise<Result<PageResult>>
+  /** 查询参数，会合并到PageQuery中 */
+  params ?: UTSJSONObject
+  /** 是否自动加载 */
+  auto ?: boolean
+  /** 每页大小 */
+  pageSize ?: number
+
+  /** 页面滚动距离（从外部传入，用于控制回到顶部按钮显示） */
+  scrollTop ?: number
+
+  /** 是否禁用自动分页加载 */
+  disabledAutoLoad ?: boolean
+  /** 最大记录数限制，0表示无限制 */
+  maxRecords ?: number
+  /** 是否显示手动加载更多按钮（当禁用自动加载时） */
+  showManualLoadButton ?: boolean
+
+  /** 是否显示搜索 */
+  showSearch ?: boolean
+  /** 搜索占位符 */
+  searchPlaceholder ?: string
+  /** 搜索框是否粘性定位 */
+  searchSticky ?: boolean
+
+  /** Tabs 配置 */
+  tabs ?: PagingTabItem[]
+  /** 默认选中的 Tab */
+  defaultTab ?: number | string
+  /** 是否固定Tab */
+  tabsFixed ?: boolean
+
+  /** 全局RadioGroup 配置，作为默认配置，tab内的radioGroupConfig优先级更高 */
+  radioGroupConfig ?: PagingRadioGroupConfig
+  /** RadioGroup 是否粘性定位（独立于 tabsFixed） */
+  radioGroupSticky ?: boolean
+
+  /** 是否显示总数 */
+  showTotal ?: boolean
+  /** 是否显示回顶部 */
+  showBackTop ?: boolean
+
+  /** 背景色 */
+  background ?: string
+  /** 底部安全距离 */
+  bottomSafeArea ?: string
+  /** 空数据区域最小高度 */
+  emptyMinHeight ?: string
+  /** 加载区域最小高度 */
+  loadingMinHeight ?: string
+
+  /** 加载文本 */
+  loadingText ?: string
+  /** 加载更多文本 */
+  loadMoreText ?: string
+  /** 手动加载更多文本 */
+  manualLoadMoreText ?: string
+  /** 完成文本 */
+  finishedText ?: string
+  /** 达到最大记录数限制文本 */
+  maxRecordsReachedText ?: string
+  /** 空数据文本 */
+  emptyText ?: string
+  /** 空数据图片类型 */
+  emptyImage ?: string
+
+  /** 导航栏高度（px），用于粘性定位的偏移量 */
+  navbarHeight ?: number
+  /** Tabs 高度（px），用于计算其他元素的粘性定位偏移量 */
+  tabsHeight ?: number
+  /** RadioGroup 高度（px），用于计算搜索框的粘性定位偏移量 */
+  radioGroupHeight ?: number
+}>(), {
+  customStyle: '',
+  customClass: '',
+  params: () : UTSJSONObject => { return {} },
+  auto: true,
+  pageSize: 10,
+
+  scrollTop: 0,
+
+  disabledAutoLoad: false,
+  maxRecords: 0,
+  showManualLoadButton: false,
+
+  showSearch: false,
+  searchPlaceholder: '请输入搜索关键词',
+  searchSticky: false,
+
+  tabs: () : PagingTabItem[] => { return [] },
+  defaultTab: 0,
+  tabsFixed: false,
+
+  radioGroupConfig: () : PagingRadioGroupConfig | null => { return null },
+
+  showTotal: false,
+  showBackTop: true,
+
+  background: '',
+  bottomSafeArea: '72rpx',
+  emptyMinHeight: '600rpx',
+  loadingMinHeight: '600rpx',
+
+  loadingText: '加载中...',
+  loadMoreText: '上拉加载更多',
+  manualLoadMoreText: '点击加载更多',
+  finishedText: '没有更多了',
+  maxRecordsReachedText: '已显示全部数据',
+  emptyText: '暂无数据',
+  emptyImage: 'content',
+
+  navbarHeight: 0,
+  tabsHeight: 48,
+  radioGroupHeight: 60,
+})
+
+const emit = defineEmits<{
+  load: [data : PageResult, tabIndex : number | null]
+  search: [keyword : string]
+  'tab-change': [event : TabChangeEvent]
+  'radio-change': [event : RadioChangeEvent]
+  error: [error : Error]
+  'manual-load-more': [event : ManualLoadMoreEvent]
+  'scroll-to-top': []
+}>()
+
+// ==================== 响应式数据 ====================
+/** 分页数据映射 - 每个 tab+radio组合 独立维护数据 */
+const tabDataMap = ref<Map<string, PageResult>>(new Map())
+
+/** 无 tabs 时的分页数据 */
+const pageData = ref<PageResult>({
+  records: [],
+  total: 0,
+  pages: 0,
+  current: 1,
+  size: props.pageSize,
+  last: false,
+})
+
+/** 加载状态 */
+const loading = ref(false)
+const firstLoading = ref(false)
+
+/** 搜索相关 */
+const searchValue = ref('')
+
+/** 当前选中的tab索引 */
+const currentTabIndex = ref(0)
+
+/** 当前选中的radio值 - 每个tab独立维护 */
+const tabRadioValues = ref<Map<string | number, string | number | boolean>>(new Map())
+
+/** 交叉观察器 */
+let intersectionObserver : IntersectionObserver | null = null
+
+/** Radio 滚动相关 */
+const radioScrollLeft = ref(0)
+
+// ==================== 计算属性 ====================
+const showTabs = computed(() : boolean => {
+  return props.tabs != null && props.tabs.length > 0
+})
+
+/** 当前tab数据 */
+const currentTabData = computed(() : PagingTabItem | null => {
+  if (!showTabs.value) return null
+
+  const currentValue = currentTabIndex.value
+
+  let tabIndex = 0
+
+  // 如果是字符串，查找对应的索引
+  if (typeof currentValue === 'string') {
+    tabIndex = props.tabs.findIndex((tab : PagingTabItem) : boolean => {
+      return tab.name === currentValue
+    })
+
+    // 如果找不到，默认为0
+    if (tabIndex === -1) {
+      tabIndex = 0
+    }
+  } else {
+    // 如果是数字，直接使用
+    tabIndex = currentValue as number
+  }
+
+  // 确保索引在有效范围内
+  tabIndex = Math.max(0, Math.min(tabIndex, props.tabs.length - 1))
+
+  return props.tabs[tabIndex] ?? null
+})
+
+/**
+ * 获取当前tab的radio配置
+ * 优先使用tab内的radioGroupConfig，其次使用全局radioGroupConfig
+ */
+const getCurrentRadioGroupConfig = computed(() : PagingRadioGroupConfig | null => {
+  // 优先使用当前tab的radioGroupConfig
+  if (currentTabData.value?.radioGroupConfig != null) {
+    return currentTabData.value.radioGroupConfig!
+  }
+
+  // 其次使用全局radioGroupConfig
+  if (props.radioGroupConfig != null) {
+    return props.radioGroupConfig
+  }
+
+  return null
+})
+
+const showRadioGroup = computed(() : boolean => {
+  const radioGroupConfig = getCurrentRadioGroupConfig.value
+  return radioGroupConfig != null && radioGroupConfig.options != null && radioGroupConfig.options.length > 0
+})
+
+/**
+ * 判断是否需要启用 Radio 水平滚动
+ */
+const shouldRadioScroll = computed(() : boolean => {
+  const radioGroupConfig = getCurrentRadioGroupConfig.value
+  if (radioGroupConfig == null) return false
+
+  const threshold = radioGroupConfig.scrollThreshold ?? 3
+  return radioGroupConfig.options.length > threshold
+})
+
+/** 当前选中的radio值 */
+const currentRadioValue = computed(() : string | number | boolean => {
+  if (!showRadioGroup.value) return ''
+
+  let key : string | number = ''
+
+  if (showTabs.value) {
+    const tab = currentTabData.value
+    key = tab?.name ?? currentTabIndex.value
+
+    // 如果当前tab有独立的radio配置，使用tab的key
+    if (tab?.radioGroupConfig != null) {
+      return tabRadioValues.value.get(key) ?? ''
+    }
+  }
+
+  // 如果当前tab没有独立配置，但有全局配置，使用全局key
+  if (props.radioGroupConfig != null) {
+    return tabRadioValues.value.get('global') ?? ''
+  }
+
+  return ''
+})
+
+/** 当前radio数据 */
+const currentRadioData = computed(() : RadioOption | null => {
+  if (!showRadioGroup.value) return null
+
+  const radioGroupConfig = getCurrentRadioGroupConfig.value
+  if (radioGroupConfig == null) return null
+
+  const found = radioGroupConfig.options.find((option : RadioOption) : boolean => {
+    return option.value === currentRadioValue.value
+  })
+  return found ?? null
+})
+
+/**
+ * Tabs粘性定位样式
+ */
+const tabsStickyStyleStr = computed(() : string => {
+  if (!props.tabsFixed) return ''
+
+  const top = addUnit(props.navbarHeight)
+  return `top: ${top}; background-color: #fff; z-index: 90;`
+})
+
+/**
+ * RadioGroup粘性定位样式
+ */
+const radioGroupStickyStyleStr = computed(() : string => {
+  // 如果既不是tabs固定模式也不是独立的radio固定模式，则不需要粘性定位
+  if (!props.tabsFixed && !props.radioGroupSticky) return ''
+
+  let topOffset = props.navbarHeight
+
+  // 如果有固定的tabs，需要加上tabs的高度
+  if (props.tabsFixed && showTabs.value) {
+    topOffset += props.tabsHeight
+  }
+
+  const top = addUnit(topOffset)
+  return `top: ${top}; background-color: #fff; z-index: 80;`
+})
+
+/**
+ * 搜索框粘性定位样式
+ */
+const searchStickyStyleStr = computed(() : string => {
+  if (!props.searchSticky) return ''
+
+  let topOffset = props.navbarHeight
+
+  // 如果有固定的tabs，需要加上tabs的高度
+  if (props.tabsFixed && showTabs.value) {
+    topOffset += props.tabsHeight
+  }
+
+  // 如果有固定的radio group，需要加上radio group的高度
+  if ((props.tabsFixed || props.radioGroupSticky) && showRadioGroup.value) {
+    topOffset += props.radioGroupHeight
+  }
+
+  const top = addUnit(topOffset)
+  return `top: ${top}; background-color: #fff; z-index: 70;`
+})
+
+/**
+ * 生成数据缓存的唯一key
+ * 格式：tab-{tabIndex}-radio-{radioValue}
+ */
+const getDataKey = (tabIndex : number | null, radioValue : string | number | boolean | null) : string => {
+  const tab = tabIndex != null ? tabIndex : currentTabIndex.value
+  const radio = radioValue != null ? radioValue : currentRadioValue.value
+
+  let key = ''
+
+  if (showTabs.value) {
+    const tabData = props.tabs[tab]
+    const tabKey = tabData?.name ?? tab
+    key += `tab-${tabKey}`
+  } else {
+    key += 'no-tab'
+  }
+
+  // 检查是否有radio配置（tab内的或全局的）
+  const tabData = showTabs.value ? props.tabs[tab] : null
+  const hasRadio = tabData?.radioGroupConfig != null || props.radioGroupConfig != null
+  if (hasRadio) {
+    key += `-radio-${radio}`
+  }
+
+  return key
+}
+
+/**
+ * 获取指定条件的数据
+ */
+const getTabData = (tabIndex : number | null, radioValue : string | number | boolean | null) : PageResult => {
+  const tab = tabIndex != null ? tabIndex : currentTabIndex.value
+  const tabData = showTabs.value ? props.tabs[tab] : null
+
+  // 检查是否有radio配置（tab内的或全局的）
+  const hasRadio = tabData?.radioGroupConfig != null || props.radioGroupConfig != null
+
+  // 如果没有tabs且没有radio配置，使用原来的单一数据
+  if (!showTabs.value && !hasRadio) return pageData.value
+
+  const key = getDataKey(tabIndex, radioValue)
+
+  if (!tabDataMap.value.has(key)) {
+    tabDataMap.value.set(key, {
+      records: [],
+      total: 0,
+      pages: 0,
+      current: 1,
+      size: props.pageSize,
+      last: false,
+    })
+  }
+
+  return tabDataMap.value.get(key)!
+}
+
+const currentPageData = computed(() : PageResult => {
+  const tab = currentTabIndex.value
+  const tabData = showTabs.value ? props.tabs[tab] : null
+
+  // 检查是否有radio配置（tab内的或全局的）
+  const hasRadio = tabData?.radioGroupConfig != null || props.radioGroupConfig != null
+
+  if (!showTabs.value && !hasRadio) return pageData.value
+  return getTabData(null, null)
+})
+
+/**
+ * 实际显示的记录（受maxRecords限制）
+ */
+const displayRecords = computed(() : any[] => {
+  const records = currentPageData.value.records
+  if (props.maxRecords <= 0) return records
+  return records.slice(0, props.maxRecords)
+})
+
+/**
+ * 是否到达结束状态（所有数据已加载完毕或达到最大记录数限制）
+ */
+const isReachEnd = computed(() : boolean => {
+  // 后端数据已经全部加载完毕
+  if (currentPageData.value.last) return true
+
+  // 或者达到了最大记录数限制
+  if (props.maxRecords > 0 && currentPageData.value.records.length >= props.maxRecords) return true
+
+  return false
+})
+
+/**
+ * 是否应该显示加载更多触发器
+ */
+const shouldShowLoadMoreTrigger = computed(() : boolean => {
+  // 没有数据时不显示
+  if (currentPageData.value.records.length === 0) return false
+
+  // 禁用自动加载时不显示
+  if (props.disabledAutoLoad) return false
+
+  // 已到达结束状态时不显示
+  if (isReachEnd.value) return false
+
+  return true
+})
+
+/**
+ * 是否应该显示手动加载更多按钮
+ */
+const shouldShowManualLoadButton = computed(() : boolean => {
+  // 没有开启手动加载按钮功能
+  if (!props.showManualLoadButton) return false
+
+  // 没有数据时不显示
+  if (currentPageData.value.records.length === 0) return false
+
+  // 未禁用自动加载时不显示
+  if (!props.disabledAutoLoad) return false
+
+  // 已到达结束状态时不显示
+  if (isReachEnd.value) return false
+
+  return true
+})
+
+// ==================== 核心方法 ====================
+
+/**
+ * 初始化默认选中的 Tab
+ */
+const initDefaultTab = () : void => {
+  if (!showTabs.value) return
+
+  if (typeof props.defaultTab === 'string') {
+    const index = props.tabs.findIndex((tab : PagingTabItem) : boolean => {
+      return tab.name === props.defaultTab
+    })
+    currentTabIndex.value = index >= 0 ? index : 0
+  } else {
+    currentTabIndex.value = Math.min(props.defaultTab as number, props.tabs.length - 1)
+  }
+}
+
+/**
+ * 初始化默认选中的 Radio
+ */
+const initDefaultRadio = () : void => {
+  // 如果有全局radio配置，先设置全局默认值
+  if (props.radioGroupConfig != null) {
+    const globalKey = 'global'
+    let defaultValue : string | number | boolean = ''
+    if (props.radioGroupConfig.defaultValue !== undefined) {
+      defaultValue = props.radioGroupConfig.defaultValue!
+    } else if (props.radioGroupConfig.options.length > 0) {
+      defaultValue = props.radioGroupConfig.options[0].value
+    }
+    tabRadioValues.value.set(globalKey, defaultValue)
+  }
+
+  // 如果有tabs，为每个有radio配置的tab初始化默认值
+  if (showTabs.value) {
+    for (let index = 0; index < props.tabs.length; index++) {
+      const tab = props.tabs[index]
+      if (tab.radioGroupConfig != null) {
+        const key = tab.name ?? index
+
+        let defaultValue : string | number | boolean = ''
+        if (tab.radioGroupConfig.defaultValue !== undefined) {
+          defaultValue = tab.radioGroupConfig.defaultValue!
+        } else if (tab.radioGroupConfig.options.length > 0) {
+          defaultValue = tab.radioGroupConfig.options[0].value
+        }
+
+        tabRadioValues.value.set(key, defaultValue)
+      }
+    }
+  }
+}
+
+/**
+ * 销毁交叉观察器
+ */
+const destroyIntersectionObserver = () : void => {
+  if (intersectionObserver != null) {
+    try {
+      intersectionObserver!.disconnect()
+    } catch (error) {
+      console.error('WdPaging: 销毁交叉观察器失败', error)
+    }
+    intersectionObserver = null
+  }
+}
+
+/**
+ * 清空所有数据，重置到初始状态
+ * 这会清空所有tab+radio组合的缓存数据，让组件回到未访问过的状态
+ */
+const clearAllData = () : void => {
+  // 清空所有tab数据映射
+  tabDataMap.value.clear()
+
+  // 重置单一数据
+  pageData.value = {
+    records: [],
+    total: 0,
+    pages: 0,
+    current: 1,
+    size: props.pageSize,
+    last: false,
+  }
+
+  // 重置加载状态
+  loading.value = false
+  firstLoading.value = false
+
+  // 销毁交叉观察器
+  destroyIntersectionObserver()
+}
+
+/**
+ * 清空指定tab的数据
+ * @param tabIndex 要清空的tab索引，不传则清空当前tab
+ */
+const clearTabData = (tabIndex : number | null) : void => {
+  const tab = tabIndex != null ? tabIndex : currentTabIndex.value
+  const tabData = showTabs.value ? props.tabs[tab] : null
+
+  // 如果没有tabs且没有radio配置，清空单一数据
+  if (!showTabs.value && props.radioGroupConfig == null) {
+    pageData.value = {
+      records: [],
+      total: 0,
+      pages: 0,
+      current: 1,
+      size: props.pageSize,
+      last: false,
+    }
+    return
+  }
+
+  // 清空该tab相关的所有radio组合数据
+  if (showTabs.value) {
+    const tabName = tabData?.name ?? tab
+    const keysToDelete : string[] = []
+
+    // 找出所有包含该tab的key
+    tabDataMap.value.forEach((_value : PageResult, key : string) => {
+      if (key.startsWith(`tab-${tabName}`)) {
+        keysToDelete.push(key)
+      }
+    })
+
+    // 删除相关数据
+    for (let i = 0; i < keysToDelete.length; i++) {
+      tabDataMap.value.delete(keysToDelete[i])
+    }
+  } else {
+    // 没有tabs，但有全局radio配置时，清空所有radio组合
+    tabDataMap.value.clear()
+  }
+}
+
+/**
+ * 清空指定tab+radio组合的数据
+ * @param tabIndex tab索引
+ * @param radioValue radio值
+ */
+const clearTabRadioData = (tabIndex : number | null, radioValue : string | number | boolean | null) : void => {
+  const key = getDataKey(tabIndex, radioValue)
+  tabDataMap.value.delete(key)
+}
+
+/**
+ * 滚动到选中的 Radio 选项，确保其完全可见
+ */
+const scrollRadioIntoView = async () : Promise<void> => {
+  if (!shouldRadioScroll.value || !showRadioGroup.value) return
+
+  try {
+    // 延迟执行，确保DOM更新完成
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    const radioGroupConfig = getCurrentRadioGroupConfig.value
+    if (radioGroupConfig == null) return
+
+    // 查找当前选中的radio选项索引
+    const currentIndex = radioGroupConfig.options.findIndex(
+      (option : RadioOption) : boolean => {
+        return option.value === currentRadioValue.value
+      },
+    )
+
+    if (currentIndex === -1) return
+
+    // 简化滚动逻辑：直接滚动到选中项
+    const scrollOffset = currentIndex * 100 // 假设每个选项宽度约100rpx
+    radioScrollLeft.value = Math.max(0, scrollOffset - 100)
+  } catch (error) {
+    console.error('WdPaging: Radio scrollIntoView failed', error)
+  }
+}
+
+/**
+ * 构建查询参数
+ */
+const buildQuery = (pageNum : number) : PageQuery => {
+  const query : PageQuery = {
+    ...props.params,
+    pageNum: pageNum,
+    pageSize: props.pageSize,
+  }
+
+  if (searchValue.value != '') {
+    query['searchValue'] = searchValue.value
+  }
+
+  // 添加当前选中的 tab 数据
+  if (currentTabData.value?.data != null) {
+    const tabDataKeys = Object.keys(currentTabData.value.data!)
+    for (let i = 0; i < tabDataKeys.length; i++) {
+      const key = tabDataKeys[i]
+      query[key] = currentTabData.value.data![key]
+    }
+  }
+
+  // 添加当前选中的 radio 数据
+  if (
+    showRadioGroup.value &&
+    currentRadioValue.value !== undefined &&
+    currentRadioValue.value !== ''
+  ) {
+    const radioGroupConfig = getCurrentRadioGroupConfig.value
+    if (radioGroupConfig != null) {
+      query[radioGroupConfig.field] = currentRadioValue.value
+    }
+  }
+
+  return query
+}
+
+const scrollToTop = () : void => {
+  // 发送 scroll-to-top 事件，由外部处理实际滚动
+  emit('scroll-to-top')
+}
+
+/**
+ * 处理回到顶部按钮点击
+ */
+const handleBacktopClick = () : void => {
+  emit('scroll-to-top')
+}
+
+/**
+ * 检查是否应该创建观察器
+ */
+const shouldCreateObserver = () : boolean => {
+  // 如果禁用了自动加载，不需要观察器
+  if (props.disabledAutoLoad) {
+    return false
+  }
+
+  // 如果没有数据，不需要观察器
+  if (currentPageData.value.records.length === 0) {
+    return false
+  }
+
+  // 如果已到达结束状态，不需要观察器
+  if (isReachEnd.value) {
+    return false
+  }
+
+  // 如果正在加载中，不需要观察器
+  if (loading.value) {
+    return false
+  }
+
+  return true
+}
+
+/**
+ * 创建交叉观察器
+ */
+const createObserver = () : void => {
+  try {
+    const instance = getCurrentInstance()
+    if (instance == null) return
+    intersectionObserver = uni
+      .createIntersectionObserver(instance)
+      .relativeToViewport({ bottom: 100 })
+    intersectionObserver!.observe('.load-more-trigger', (res : ObserveResult) => {
+      // 当加载触发器进入视口时，且不在加载中，且还有更多数据，且未禁用自动加载
+      if (
+        res.intersectionRatio > 0 &&
+        !loading.value &&
+        !isReachEnd.value &&
+        !props.disabledAutoLoad
+      ) {
+        loadMore()
+      }
+    })
+  } catch (error) {
+    console.error('WdPaging: 创建交叉观察器失败', error)
+  }
+}
+
+/**
+ * 初始化加载更多的交叉观察器
+ */
+const initIntersectionObserver = async () : Promise<void> => {
+  // 销毁之前的观察器
+  destroyIntersectionObserver()
+
+  // 检查是否需要创建观察器
+  if (!shouldCreateObserver()) {
+    return
+  }
+
+  // 延迟一下确保DOM渲染完成
+  setTimeout(() => {
+    // 再次检查是否需要创建观察器
+    if (!shouldCreateObserver()) {
+      return
+    }
+    createObserver()
+  }, 100)
+}
+
+/**
+ * 检查是否可以继续加载
+ */
+const canLoadMore = () : boolean => {
+  // 如果正在加载中，不能加载
+  if (loading.value) return false
+
+  // 如果后端数据已经全部加载完毕，不能加载
+  if (currentPageData.value.last) return false
+
+  // 如果设置了最大记录数限制且已达到限制，不能加载
+  if (props.maxRecords > 0 && currentPageData.value.records.length >= props.maxRecords) return false
+
+  return true
+}
+
+/** 休眠 */
+const sleep = (ms : number) : Promise<boolean> => {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(true)
+    }, ms)
+  })
+}
+
+/**
+ * 获取数据
+ */
+const fetchData = async (pageNum : number, isLoadMore : boolean) : Promise<void> => {
+  if (loading.value) return
+
+  try {
+    loading.value = true
+    // 休眠100毫秒，防止调用了旧的参数和fetch函数
+    await sleep(100)
+    if (pageNum === 1 && !isLoadMore) {
+      firstLoading.value = true
+    }
+    const query = buildQuery(pageNum)
+    const result = await props.fetch(query)
+    const [error, data] = result
+
+    if (error != null) {
+      throw error
+    }
+
+    if (data == null) {
+      throw new Error('接口返回数据为空')
+    }
+
+    if (isLoadMore) {
+      // 加载更多：拼接数据
+      const existingRecords = currentPageData.value.records
+      let newRecords = [...existingRecords, ...data.records]
+
+      // 如果设置了最大记录数限制，截取数据
+      if (props.maxRecords > 0 && newRecords.length > props.maxRecords) {
+        newRecords = newRecords.slice(0, props.maxRecords)
+      }
+
+      const newData : PageResult = {
+        ...data,
+        records: newRecords,
+      }
+
+      const tab = currentTabIndex.value
+      const tabData = showTabs.value ? props.tabs[tab] : null
+      const hasRadio = tabData?.radioGroupConfig != null || props.radioGroupConfig != null
+
+      if (showTabs.value || hasRadio) {
+        const key = getDataKey(null, null)
+        tabDataMap.value.set(key, newData)
+      } else {
+        pageData.value = newData
+      }
+    } else {
+      // 首次/刷新：替换数据
+      let newRecords = data.records
+
+      // 如果设置了最大记录数限制，截取数据
+      if (props.maxRecords > 0 && newRecords.length > props.maxRecords) {
+        newRecords = newRecords.slice(0, props.maxRecords)
+      }
+
+      const newData : PageResult = {
+        ...data,
+        records: newRecords,
+      }
+
+      const tab = currentTabIndex.value
+      const tabData = showTabs.value ? props.tabs[tab] : null
+      const hasRadio = tabData?.radioGroupConfig != null || props.radioGroupConfig != null
+
+      if (showTabs.value || hasRadio) {
+        const key = getDataKey(null, null)
+        tabDataMap.value.set(key, newData)
+      } else {
+        pageData.value = newData
+      }
+
+      // 数据加载完成后回到顶部
+      if (pageNum === 1) {
+        scrollToTop()
+      }
+    }
+
+    emit('load', data, showTabs.value ? currentTabIndex.value : null)
+
+    // 数据加载完成后，重新初始化观察器
+    if (pageNum === 1) {
+      setTimeout(() => {
+        // 延迟初始化，确保DOM渲染完成
+        setTimeout(() => {
+          initIntersectionObserver()
+        }, 1000)
+      }, 0)
+    }
+  } catch (error) {
+    console.error('WdPaging: 数据加载失败', error)
+    emit('error', error as Error)
+  } finally {
+    loading.value = false
+    firstLoading.value = false
+  }
+}
+
+/**
+ * 刷新数据
+ */
+const refresh = async () : Promise<void> => {
+  await fetchData(1, false)
+}
+
+/**
+ * 加载更多
+ */
+const loadMore = async () : Promise<void> => {
+  if (!canLoadMore()) return
+
+  const nextPage = currentPageData.value.current + 1
+
+  // 发送手动加载更多事件
+  if (props.disabledAutoLoad) {
+    emit('manual-load-more', {
+      currentRecords: currentPageData.value.records.length,
+      maxRecords: props.maxRecords,
+    })
+  }
+
+  await fetchData(nextPage, true)
+}
+
+// ==================== Tabs 方法 ====================
+/**
+ * Tab 变化处理
+ */
+const handleTabChange = async (event : UTSJSONObject) : Promise<void> => {
+  const index = event['index'] as number
+  const name = event['name'] as string | number
+
+  currentTabIndex.value = index
+  const tab = props.tabs[index]
+  const changeEvent : TabChangeEvent = {
+    index: index,
+    name: name,
+    tab: tab,
+  }
+
+  emit('tab-change', changeEvent)
+
+  // Tab切换后，需要重新滚动到选中的radio选项
+  setTimeout(() => {
+    scrollRadioIntoView()
+  }, 200)
+
+  // tab切换后，检查当前tab+radio组合是否有数据
+  const currentData = getTabData(null, null)
+  if (currentData.records.length === 0 && !loading.value) {
+    // 没有数据时先加载数据，数据加载完成后会在fetchData中重新初始化观察器
+    fetchData(1, false)
+  } else {
+    // 如果已有数据，延迟重新初始化观察器，确保DOM更新完成
+    setTimeout(() => {
+      // 再次延迟，确保切换动画完成
+      setTimeout(() => {
+        initIntersectionObserver()
+      }, 1000)
+    }, 0)
+  }
+}
+
+const switchTab = (nameOrIndex : string | number) : void => {
+  if (typeof nameOrIndex === 'string') {
+    const index = props.tabs.findIndex((tab : PagingTabItem) : boolean => {
+      return tab.name === nameOrIndex
+    })
+    currentTabIndex.value = index >= 0 ? index : 0
+  } else {
+    currentTabIndex.value = Math.min(nameOrIndex as number, props.tabs.length - 1)
+  }
+}
+
+// ==================== Radio 方法 ====================
+/**
+ * Radio 变化处理
+ */
+const handleRadioChange = async (value : string | number | boolean) : Promise<void> => {
+  let key : string | number = ''
+
+  if (showTabs.value) {
+    const tab = currentTabData.value
+    key = tab?.name ?? currentTabIndex.value
+
+    // 如果当前tab有独立的radio配置，使用tab的key
+    if (tab?.radioGroupConfig != null) {
+      tabRadioValues.value.set(key, value)
+    } else if (props.radioGroupConfig != null) {
+      // 如果当前tab没有独立配置，但有全局配置，使用全局key
+      tabRadioValues.value.set('global', value)
+    }
+  } else {
+    // 没有tabs，使用全局配置
+    tabRadioValues.value.set('global', value)
+  }
+
+  const radioGroupConfig = getCurrentRadioGroupConfig.value
+  const option = radioGroupConfig?.options.find((opt : RadioOption) : boolean => {
+    return opt.value === value
+  })
+  const event : RadioChangeEvent = {
+    value: value,
+    option: option ?? null,
+    field: radioGroupConfig?.field ?? '',
+    tabIndex: currentTabIndex.value,
+  }
+
+  emit('radio-change', event)
+
+  // Radio选择后，滚动到可视区域
+  setTimeout(() => {
+    scrollRadioIntoView()
+  }, 150)
+
+  // radio切换后，检查当前tab+radio组合是否有数据
+  const currentData = getTabData(null, null)
+  if (currentData.records.length === 0 && !loading.value) {
+    // 没有数据时先加载数据
+    fetchData(1, false)
+  } else {
+    // 如果已有数据，重新加载第一页数据
+    fetchData(1, false)
+  }
+}
+
+const switchRadio = (value : string | number | boolean) : void => {
+  let key : string | number = ''
+
+  if (showTabs.value) {
+    const tab = currentTabData.value
+    key = tab?.name ?? currentTabIndex.value
+
+    if (tab?.radioGroupConfig != null) {
+      tabRadioValues.value.set(key, value)
+    } else if (props.radioGroupConfig != null) {
+      tabRadioValues.value.set('global', value)
+    }
+  } else {
+    tabRadioValues.value.set('global', value)
+  }
+
+  handleRadioChange(value)
+}
+
+// ==================== 搜索方法 ====================
+const handleSearch = (event : SearchEvent) : void => {
+  searchValue.value = event.value
+  emit('search', event.value)
+  refresh()
+}
+
+const handleSearchChange = (event : SearchEvent) : void => {
+  searchValue.value = event.value
+}
+
+const handleSearchClear = () : void => {
+  searchValue.value = ''
+  refresh()
+}
+
+// ==================== 监听器 ====================
+watch(() => props.params, () => {
+  refresh()
+}, { deep: true })
+
+watch(() => props.defaultTab, () => {
+  initDefaultTab()
+})
+
+watch(() => [props.tabs, props.radioGroupConfig], () => {
+  initDefaultRadio()
+}, { deep: true })
+
+// 监听radio值变化，自动滚动到可视区域
+watch(
+  () => currentRadioValue.value,
+  () => {
+    // 延迟执行，确保DOM渲染完成
+    setTimeout(() => {
+      scrollRadioIntoView()
+    }, 150)
+  },
+)
+
+// 监听禁用自动加载状态变化，重新初始化观察器
+watch(
+  () => props.disabledAutoLoad,
+  () => {
+    setTimeout(() => {
+      setTimeout(() => {
+        initIntersectionObserver()
+      }, 300)
+    }, 0)
+  },
+)
+
+// 监听最大记录数变化，重新初始化观察器
+watch(
+  () => props.maxRecords,
+  () => {
+    setTimeout(() => {
+      setTimeout(() => {
+        initIntersectionObserver()
+      }, 300)
+    }, 0)
+  },
+)
+
+// ==================== 生命周期 ====================
+onMounted(async () => {
+  // 初始化默认tab
+  initDefaultTab()
+
+  // 初始化默认radio
+  initDefaultRadio()
+
+  // 自动加载数据
+  if (props.auto) {
+    await fetchData(1, false)
+  }
+
+  // 初始化后滚动到选中的radio
+  setTimeout(() => {
+    scrollRadioIntoView()
+  }, 300)
+})
+
+onUnmounted(() => {
+  // 销毁交叉观察器
+  destroyIntersectionObserver()
+})
+
+// ==================== 暴露方法 ====================
+defineExpose({
+  refresh,
+  loadMore,
+  scrollToTop,
+  switchTab,
+  switchRadio,
+  scrollRadioIntoView,
+  clearAllData,
+  clearTabData,
+  clearTabRadioData,
+  pageData: currentPageData,
+  loading,
+  currentTabIndex,
+  currentTabData,
+  currentRadioValue,
+  currentRadioData,
+  canLoadMore,
+  isReachEnd,
+  displayRecords,
+})
+</script>
+
+<style scoped>
+/* 确保粘性定位正常工作 */
+.sticky {
+  position: sticky;
+  position: -webkit-sticky; /* Safari 兼容 */
+}
+
+/* 为粘性元素添加阴影效果，增强视觉层次 */
+.sticky {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Radio 水平滚动样式 */
+.radio-scroll-container {
+  width: 100%;
+  white-space: nowrap;
+}
+
+.radio-scroll-content {
+  display: flex;
+  align-items: center;
+  min-width: 100%;
+  padding-right: 20rpx; /* 右侧留出余量 */
+}
+
+/* 覆盖 radio-group 的换行样式 */
+.radio-scroll-content .wd-radio-group {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  white-space: nowrap;
+  gap: 20rpx; /* 使用gap控制间距，更精确 */
+}
+
+/* 确保 radio 选项不换行，调整间距 */
+.radio-scroll-content .wd-radio {
+  flex-shrink: 0;
+  white-space: nowrap;
+  margin-right: 0; /* 清除默认margin，使用gap控制 */
+}
+
+/* 按钮模式下的特殊处理 */
+.radio-scroll-content .wd-radio.is-button {
+  margin-right: 0; /* 清除按钮模式默认的20rpx间距 */
+  display: inline-block; /* 改为inline-block避免flex影响 */
+}
+
+/* 按钮模式下确保shape完全不占用空间 */
+.radio-scroll-content .wd-radio.is-button .wd-radio__shape {
+  display: none;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  visibility: hidden;
+}
+
+/* 按钮模式下的label样式优化 */
+.radio-scroll-content .wd-radio.is-button .wd-radio__label {
+  min-width: auto;
+  padding: 10rpx 20rpx; /* 减少左右padding */
+  margin: 0; /* 确保没有额外margin */
+  display: block;
+  width: 100%;
+}
+
+/* 小尺寸按钮的调整 */
+.radio-scroll-content .wd-radio.is-button.is-small .wd-radio__label {
+  padding: 4rpx 12rpx; /* 小尺寸减少padding */
+}
+
+/* 大尺寸按钮的调整 */
+.radio-scroll-content .wd-radio.is-button.is-large .wd-radio__label {
+  padding: 14rpx 30rpx;
+}
+
+/* 最后一个选项的样式 */
+.radio-scroll-content .wd-radio:last-child {
+  margin-right: 0;
+}
+
+/* 隐藏滚动条 */
+.radio-scroll-container ::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+  color: transparent;
+}
+</style>

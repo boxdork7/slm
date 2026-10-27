@@ -1,0 +1,398 @@
+<!--
+Checkbox 复选框 在一组备选项中进行多选。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- useParent(CHECKBOX_GROUP_KEY) → inject(CHECKBOX_GROUP_KEY)
+- import type from .vue → import from .uts key file
+- CSSProperties → string 拼接
+- string | number | boolean → string
+- ::before → view 元素替代
+- transition → 移除
+- border-radius: 50% → 100px
+- ComponentPublicInstance export → 移除
+- edeep() → 直接类选择器
+-->
+<template>
+  <view
+    :class="rootClass"
+    :style="rootStyle"
+    @click="handleClick"
+  >
+    <!-- 图标区域 -->
+    <view :class="checkClass">
+      <!-- circle 形状 -->
+      <view v-if="currentShape == 'circle'" class="wd-checkbox__circle" :style="circleStyle">
+        <wd-icon
+          v-if="isChecked"
+          name="check-bold"
+          :size="iconSize"
+          color="#fff"
+          custom-class="wd-checkbox__icon"
+        />
+      </view>
+      <!-- square 形状 -->
+      <view v-else-if="currentShape == 'square'" class="wd-checkbox__square" :style="squareStyle">
+        <wd-icon
+          v-if="isChecked"
+          name="check-bold"
+          :size="iconSize"
+          color="#fff"
+          custom-class="wd-checkbox__icon"
+        />
+      </view>
+      <!-- button 形状 - 不需要单独的图标 -->
+    </view>
+
+    <!-- 标签内容 -->
+    <view class="wd-checkbox__label">
+      <slot />
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, inject, onMounted, onUnmounted } from 'vue'
+import { genChildUid } from '../../composables/useChildren'
+import { CHECKBOX_GROUP_KEY, type CheckboxGroupProvide } from '../wd-checkbox-group/wd-checkbox-group-key'
+
+/**
+ * Checkbox 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 复选框的值 */
+  value ?: string
+  /** 是否禁用 */
+  disabled ?: boolean
+  /** 独立使用时的 v-model 值 */
+  modelValue ?: boolean
+  /** 选中时的值（独立使用） */
+  trueValue ?: string
+  /** 未选中时的值（独立使用） */
+  falseValue ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  value: '',
+  disabled: false,
+  modelValue: false,
+  trueValue: '',
+  falseValue: '',
+})
+
+const emit = defineEmits(['update:modelValue', 'change'])
+
+/* 获取父组件 CheckboxGroup 的 provide 数据 */
+const checkboxGroup = inject<CheckboxGroupProvide | null>(CHECKBOX_GROUP_KEY, null)
+
+/* 生成唯一 ID 并注册到父组件 */
+const uid = genChildUid()
+onMounted(() => {
+  if (checkboxGroup != null) checkboxGroup!.addChild(uid)
+})
+onUnmounted(() => {
+  if (checkboxGroup != null) checkboxGroup!.removeChild(uid)
+})
+
+/**
+ * 是否在组内使用
+ */
+const isInGroup = computed(() : boolean => {
+  return checkboxGroup != null
+})
+
+/**
+ * 是否选中
+ */
+const isChecked = computed(() : boolean => {
+  if (isInGroup.value) {
+    return checkboxGroup!.getArrayValue().indexOf(props.value) > -1
+  }
+  return props.modelValue
+})
+
+/**
+ * 当前形状（从父组件获取）
+ */
+const currentShape = computed(() : string => {
+  if (isInGroup.value) return checkboxGroup!.shape
+  return 'circle'
+})
+
+/**
+ * 当前选中颜色
+ */
+const currentCheckedColor = computed(() : string => {
+  if (isInGroup.value) return checkboxGroup!.checkedColor
+  return ''
+})
+
+/**
+ * 是否禁用
+ */
+const isDisabled = computed(() : boolean => {
+  if (props.disabled) return true
+  if (isInGroup.value) {
+    if (checkboxGroup!.disabled) return true
+    /* 检查 max/min 限制 */
+    const values = checkboxGroup!.getArrayValue()
+    if (!isChecked.value && checkboxGroup!.max > 0 && values.length >= checkboxGroup!.max) {
+      return true
+    }
+    if (isChecked.value && checkboxGroup!.min > 0 && values.length <= checkboxGroup!.min) {
+      return true
+    }
+  }
+  return false
+})
+
+/**
+ * cell 模式
+ */
+const isCell = computed(() : boolean => {
+  if (isInGroup.value) return checkboxGroup!.cell
+  return false
+})
+
+/**
+ * 同行展示
+ */
+const isInline = computed(() : boolean => {
+  if (isInGroup.value) return checkboxGroup!.inline
+  return false
+})
+
+/**
+ * 尺寸
+ */
+const currentSize = computed(() : string => {
+  if (isInGroup.value) return checkboxGroup!.size
+  return ''
+})
+
+/**
+ * 图标大小
+ */
+const iconSize = computed(() : string => {
+  if (currentSize.value == 'large') return '28rpx'
+  return '24rpx'
+})
+
+/**
+ * 根样式类
+ */
+const rootClass = computed(() : string => {
+  const classes : string[] = ['wd-checkbox']
+  if (isChecked.value) classes.push('is-checked')
+  if (isDisabled.value) classes.push('is-disabled')
+  if (isCell.value) classes.push('is-cell')
+  if (isInline.value) classes.push('is-inline')
+  if (currentShape.value == 'button') classes.push('is-button')
+  if (currentSize.value == 'large') classes.push('is-large')
+  if (props.customClass != '') classes.push(props.customClass)
+  return classes.join(' ')
+})
+
+/**
+ * 根样式
+ */
+const rootStyle = computed(() : string => {
+  return props.customStyle
+})
+
+/**
+ * 图标区域样式类
+ */
+const checkClass = computed(() : string => {
+  const classes : string[] = ['wd-checkbox__check']
+  if (isChecked.value) classes.push('is-checked')
+  if (currentShape.value == 'button') classes.push('is-hidden')
+  return classes.join(' ')
+})
+
+/**
+ * circle 形状样式
+ */
+const circleStyle = computed(() : string => {
+  if (isChecked.value && currentCheckedColor.value != '') {
+    return `background-color: ${currentCheckedColor.value}; border-color: ${currentCheckedColor.value};`
+  }
+  return ''
+})
+
+/**
+ * square 形状样式
+ */
+const squareStyle = computed(() : string => {
+  if (isChecked.value && currentCheckedColor.value != '') {
+    return `background-color: ${currentCheckedColor.value}; border-color: ${currentCheckedColor.value};`
+  }
+  return ''
+})
+
+/**
+ * 点击处理
+ */
+const handleClick = () => {
+  if (isDisabled.value) return
+
+  if (isInGroup.value) {
+    checkboxGroup!.changeSelectState(props.value)
+  } else {
+    /* 独立使用 */
+    emit('update:modelValue', !props.modelValue)
+    emit('change', { value: !props.modelValue })
+  }
+}
+
+/* 暴露 toggle 方法 */
+defineExpose({
+  toggle: () => {
+    handleClick()
+  },
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(checkbox) {
+    @include e(label) {
+      color: $-dark-color;
+    }
+  }
+}
+
+/* 复选框样式 */
+@include b(checkbox) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 16rpx 0;
+
+  /* 标签 */
+  @include e(label) {
+    flex: 1;
+    font-size: 28rpx;
+    color: $-cell-title-color;
+    margin-left: 16rpx;
+  }
+
+  /* 图标区域 */
+  @include e(check) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .wd-checkbox__check.is-hidden {
+    display: none;
+  }
+
+  .wd-checkbox__icon {
+    display: flex;
+  }
+
+  /* circle 形状 */
+  @include e(circle) {
+    width: 36rpx;
+    height: 36rpx;
+    border-radius: 100px;
+    border: 2rpx solid #c5c5c5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: transparent;
+  }
+
+  /* square 形状 */
+  @include e(square) {
+    width: 36rpx;
+    height: 36rpx;
+    border-radius: 6rpx;
+    border: 2rpx solid #c5c5c5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: transparent;
+  }
+
+  /* 选中状态 */
+  @include when(checked) {
+    .wd-checkbox__circle {
+      background-color: $-checkbox-checked-color;
+      border-color: $-checkbox-checked-color;
+    }
+
+    .wd-checkbox__square {
+      background-color: $-checkbox-checked-color;
+      border-color: $-checkbox-checked-color;
+    }
+  }
+
+  /* 禁用状态 */
+  @include when(disabled) {
+    opacity: 0.5;
+  }
+
+  /* cell 模式 */
+  @include when(cell) {
+    padding: 24rpx 32rpx;
+    border-bottom: 1rpx solid $-color-border-light;
+  }
+
+  /* 同行展示 */
+  @include when(inline) {
+    display: flex;
+    flex-direction: row;
+    margin-right: 32rpx;
+  }
+
+  /* button 形状 */
+  @include when(button) {
+    padding: 12rpx 24rpx;
+    border: 1rpx solid #dcdfe6;
+    border-radius: 8rpx;
+    margin: 8rpx;
+
+    .wd-checkbox__label {
+      margin-left: 0;
+      text-align: center;
+    }
+  }
+
+  &.is-button.is-checked {
+    border-color: $-checkbox-checked-color;
+    background-color: rgba(74, 128, 240, 0.08);
+
+    .wd-checkbox__label {
+      color: $-checkbox-checked-color;
+    }
+  }
+
+  /* 大尺寸 */
+  @include when(large) {
+    @include e(label) {
+      font-size: 32rpx;
+    }
+
+    @include e(circle) {
+      width: 40rpx;
+      height: 40rpx;
+    }
+
+    @include e(square) {
+      width: 40rpx;
+      height: 40rpx;
+    }
+  }
+}
+</style>

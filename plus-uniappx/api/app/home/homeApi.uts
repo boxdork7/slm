@@ -1,0 +1,35 @@
+import { http } from '@/composables/useHttp'
+import { AsyncResult } from '@/utils/to'
+import { withHeaders } from '@/utils/function'
+import { AdQuery, AdVo, GoodsQuery, GoodsVo } from './homeTypes'
+
+/**
+ * 根据appid获取租户id
+ * @param appid appid
+ * @returns 租户id
+ */
+export const getTenantIdByAppid = (appid?: string): Promise<AsyncResult> => {
+  return http.get(
+    `/app/home/getTenantIdByAppid?appid=${appid}`,
+    {} as UTSJSONObject,
+    withHeaders({ auth: false }, { skipWait: true }),
+  )
+}
+
+/**
+ * 查询广告配置列表
+ * @param query 查询参数
+ * @returns {AdVo[]} 结果
+ */
+export const listAds = (query?: AdQuery): Promise<AsyncResult> => {
+  return http.get('/app/home/listAds', query as UTSJSONObject)
+}
+
+/**
+ * 查询商品列表
+ * @param query 查询参数
+ * @returns {PageResult<GoodsVo>} 结果
+ */
+export const pageGoods = (query?: GoodsQuery): Promise<AsyncResult> => {
+  return http.get('/app/home/pageGoods', query as UTSJSONObject)
+}

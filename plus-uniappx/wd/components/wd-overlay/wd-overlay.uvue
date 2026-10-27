@@ -1,0 +1,84 @@
+<!--
+Overlay 遮罩层 创建一个遮罩层，用于强调特定的页面元素，并阻止用户进行其他操作。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 interface WdOverlayProps / WdOverlayEmits
+- 移除手动 wdTransition 导入（easycom 自动注册）
+- 移除 useLockScroll（H5 only，UniApp X 不需要）
+- Record<string, number> | number | boolean → number
+- @touchmove.stop.prevent 保留
+-->
+<template>
+  <wd-transition
+    :show="show"
+    name="fade"
+    custom-class="wd-overlay"
+    :duration="duration"
+    :custom-style="`z-index: ${zIndex}; ${customStyle}`"
+    @click="handleClick"
+    @touchmove.stop.prevent="noop"
+  >
+    <slot />
+  </wd-transition>
+</template>
+
+<script lang="uts" setup>
+/**
+ * 遮罩层组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 是否展示遮罩层 */
+  show ?: boolean
+  /** 动画时长，单位毫秒 */
+  duration ?: number
+  /** 是否锁定滚动 */
+  lockScroll ?: boolean
+  /** 层级，默认 100（高于 tabbar 的 99） */
+  zIndex ?: number
+}>(), {
+  customStyle: '',
+  customClass: '',
+  show: false,
+  duration: 300,
+  lockScroll: true,
+  zIndex: 100,
+})
+
+/** 组件事件 */
+const emit = defineEmits(['click'])
+
+/** 处理点击事件 */
+const handleClick = () => {
+  emit('click')
+}
+
+/** 空函数，用于阻止默认行为 */
+const noop = () => {}
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(overlay) {
+    background: $-overlay-bg-dark;
+  }
+}
+
+/* 遮罩层主体样式 */
+@include b(overlay) {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: $-overlay-bg;
+}
+</style>

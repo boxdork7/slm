@@ -1,0 +1,239 @@
+<!--
+Skeleton 骨架屏 在需要等待加载内容的位置设置一个骨架屏。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type/interface
+- CSSProperties → 手动拼接 style 字符串
+- Record<SkeletonTheme, ...> → 函数形式
+- [key: string]: any → 显式字段定义
+- ::after 渐变动画简化（UniApp X 不支持复杂伪元素动画）
+- 联合类型 → string
+-->
+<template>
+  <view :class="`wd-skeleton ${customClass}`" :style="customStyle">
+    <!-- 加载中：骨架 -->
+    <view v-if="loading" class="wd-skeleton__content">
+      <!-- 头像占位 -->
+      <view
+        v-if="avatar"
+        :class="`wd-skeleton__avatar ${avatarShape == 'round' ? 'is-round' : ''} ${animate ? 'is-animate' : ''}`"
+        :style="avatarStyle"
+      />
+
+      <!-- 内容占位 -->
+      <view class="wd-skeleton__rows">
+        <!-- 标题 -->
+        <view
+          v-if="title"
+          :class="`wd-skeleton__row wd-skeleton__title ${animate ? 'is-animate' : ''}`"
+          :style="titleStyle"
+        />
+
+        <!-- 段落行 -->
+        <view
+          v-for="(_, index) in rowArr"
+          :key="index"
+          :class="`wd-skeleton__row ${animate ? 'is-animate' : ''}`"
+          :style="getRowStyle(index)"
+        />
+      </view>
+    </view>
+
+    <!-- 加载完成：默认插槽 -->
+    <slot v-else />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed } from 'vue'
+import { addUnit } from '../common/util'
+
+/**
+ * 骨架屏组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 是否展示骨架组件 */
+  loading ?: boolean
+  /** 是否开启动画 */
+  animate ?: boolean
+  /** 是否显示头像占位 */
+  avatar ?: boolean
+  /** 头像形状，可选值：round / square */
+  avatarShape ?: string
+  /** 头像大小 */
+  avatarSize ?: string | number
+  /** 是否显示标题占位 */
+  title ?: boolean
+  /** 标题宽度 */
+  titleWidth ?: string | number
+  /** 段落行数 */
+  row ?: number
+  /** 段落行宽度 */
+  rowWidth ?: string | number
+  /** 段落最后一行宽度 */
+  lastRowWidth ?: string | number
+  /** 行高 */
+  rowHeight ?: string | number
+  /** 预设主题，可选值：text / avatar / paragraph / image */
+  theme ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  loading: true,
+  animate: true,
+  avatar: false,
+  avatarShape: 'round',
+  avatarSize: '',
+  title: false,
+  titleWidth: '40%',
+  row: 0,
+  rowWidth: '100%',
+  lastRowWidth: '60%',
+  rowHeight: '',
+  theme: '',
+})
+
+/**
+ * 头像样式
+ */
+const avatarStyle = computed(() : string => {
+  if (props.avatarSize == '') return ''
+  const size = addUnit(props.avatarSize)
+  return `width: ${size}; height: ${size};`
+})
+
+/**
+ * 标题样式
+ */
+const titleStyle = computed(() : string => {
+  return `width: ${addUnit(props.titleWidth)};`
+})
+
+/**
+ * 计算实际行数（考虑主题预设）
+ */
+const actualRow = computed(() : number => {
+  if (props.theme == 'text') return 3
+  if (props.theme == 'avatar') return 3
+  if (props.theme == 'paragraph') return 4
+  if (props.theme == 'image') return 3
+  return props.row
+})
+
+/** 生成行数组 */
+const rowArr = computed(() : number[] => {
+  const arr : number[] = []
+  for (let i = 0; i < actualRow.value; i++) {
+    arr.push(i)
+  }
+  return arr
+})
+
+/**
+ * 获取行样式
+ */
+const getRowStyle = (index : number) : string => {
+  const isLast = index === actualRow.value - 1
+  let style = ''
+
+  /* 宽度 */
+  if (isLast) {
+    style += `width: ${addUnit(props.lastRowWidth)};`
+  } else {
+    style += `width: ${addUnit(props.rowWidth)};`
+  }
+
+  /* 行高 */
+  if (props.rowHeight != '') {
+    const h = addUnit(props.rowHeight)
+    style += `height: ${h};`
+  }
+
+  return style
+}
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+.wot-theme-dark {
+  @include b(skeleton) {
+    @include e(avatar) {
+      background-color: $-dark-background4;
+    }
+
+    @include e(row) {
+      background-color: $-dark-background4;
+    }
+  }
+}
+
+@include b(skeleton) {
+  width: 100%;
+  box-sizing: border-box;
+
+  @include e(content) {
+    display: flex;
+    padding: 24rpx;
+  }
+
+  @include e(avatar) {
+    flex-shrink: 0;
+    width: 64rpx;
+    height: 64rpx;
+    margin-right: 24rpx;
+    background-color: $-skeleton-bg;
+    border-radius: 8rpx;
+
+    @include when(round) {
+      border-radius: 50%;
+    }
+
+    @include when(animate) {
+      animation: wd-skeleton-blink 1.2s ease-in-out infinite;
+    }
+  }
+
+  @include e(rows) {
+    flex: 1;
+  }
+
+  @include e(row) {
+    height: 32rpx;
+    background-color: $-skeleton-bg;
+    border-radius: 4rpx;
+    margin-top: 20rpx;
+
+    &:first-child {
+      margin-top: 0;
+    }
+
+    @include when(animate) {
+      animation: wd-skeleton-blink 1.2s ease-in-out infinite;
+    }
+  }
+
+  @include e(title) {
+    height: 40rpx;
+    margin-bottom: 24rpx;
+  }
+}
+
+@keyframes wd-skeleton-blink {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+</style>

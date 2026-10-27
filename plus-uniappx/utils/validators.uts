@@ -1,0 +1,413 @@
+/**
+ * 通用验证工具函数集合 (UniApp X 版本)
+ *
+ * 保持与 plus-app/utils/validators.ts 核心功能一致
+ *
+ * 包含以下功能：
+ * - URL验证 (isPathMatch, isHttp, isExternal, isValidURL, isDomain)
+ * - 字符串验证 (isEmail, isLowerCase, isUpperCase, isAlphabets)
+ * - 类型检查 (isString, isValidJSON)
+ * - 数值验证 (isNumber, isInteger, isPositiveNumber, isInRange)
+ * - 日期验证 (isValidDate, isDateFormat, isBeforeDate, isAfterDate)
+ * - 中国特定验证 (isChineseIdCard, isChinesePhoneNumber, isPostalCode)
+ * - 表单验证 (isPassword, isRequired, hasMinLength, hasMaxLength, isName)
+ * - 网络标识验证 (isIPAddress, isMACAddress, isPort)
+ * - 金融验证 (isBankCardNumber, isCreditCardNumber)
+ *
+ * UTS 适配说明：
+ * - 移除依赖 File 类型的函数 (isBlob, isAllowedFileType, isImageFile, isWithinFileSize)
+ *   因为 UniApp X 原生端没有 Web File API
+ * - any 参数改为具体类型
+ * - Record<string, RegExp> → 具体实现
+ */
+
+/* ==================== URL和路径验证 ==================== */
+
+/**
+ * 判断路径是否匹配特定模式
+ */
+export const isPathMatch = (pattern : string, path : string) : boolean => {
+	const regexPattern = pattern
+		.replace(/\//g, '\\/')
+		.replace(/\*\*/g, '__DOUBLE_STAR__')
+		.replace(/\*/g, '[^\\/]*')
+		.replace(/__DOUBLE_STAR__/g, '.*')
+	const regex = new RegExp(`^${regexPattern}$`)
+	return regex.test(path)
+}
+
+/**
+ * 判断URL是否是HTTP或HTTPS协议
+ */
+export const isHttp = (url : string) : boolean => {
+	return url.includes('http://') || url.includes('https://')
+}
+
+/**
+ * 判断路径是否为外部链接
+ */
+export const isExternal = (path : string) : boolean => {
+	return /^(?:https?:|mailto:|tel:)/.test(path)
+}
+
+/**
+ * 验证URL是否符合标准格式
+ */
+export const isValidURL = (url : string) : boolean => {
+	const reg = /^(?:https?|ftp):\/\/(?:[a-zA-Z0-9.-]+(?::[a-zA-Z0-9.&%$-]+)*@)*(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d?)(?:\.(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}|(?:[a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+\.(?:com|edu|gov|int|mil|net|org|biz|arpa|info|name|pro|aero|coop|museum|[a-zA-Z]{2}))(?::\d+)*(?:\/(?:$|[\w.,?'\\+&%$#=~-]+))*$/
+	return reg.test(url)
+}
+
+/**
+ * 验证域名是否有效
+ */
+export const isDomain = (domain : string) : boolean => {
+	const reg = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i
+	return reg.test(domain)
+}
+
+/* ==================== 字符串验证 ==================== */
+
+/**
+ * 验证字符串是否是合法的电子邮件地址
+ */
+export const isEmail = (email : string) : boolean => {
+	const reg = /^(?:[^<>()\]\\.,;:\s@"]+(?:\.[^<>()\]\\.,;:\s@"]+)*|".+")@(?:\[\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\]|(?:[a-z-0-9]+\.)+[a-z]{2,})$/i
+	return reg.test(email)
+}
+
+/**
+ * 验证字符串是否全为小写字母
+ */
+export const isLowerCase = (str : string) : boolean => {
+	return /^[a-z]+$/.test(str)
+}
+
+/**
+ * 验证字符串是否全为大写字母
+ */
+export const isUpperCase = (str : string) : boolean => {
+	return /^[A-Z]+$/.test(str)
+}
+
+/**
+ * 验证字符串是否全为字母
+ */
+export const isAlphabets = (str : string) : boolean => {
+	return /^[A-Za-z]+$/.test(str)
+}
+
+/* ==================== 类型检查 ==================== */
+
+/**
+ * 验证值是否为字符串类型
+ */
+export const isString = (value : any) : boolean => {
+	return typeof value == 'string'
+}
+
+/**
+ * 验证字符串是否为有效的JSON格式
+ */
+export const isValidJSON = (str : string) : boolean => {
+	if (str.length == 0) return false
+	try {
+		JSON.parse(str)
+		return true
+	} catch (_e) {
+		return false
+	}
+}
+
+/* ==================== 数值验证 ==================== */
+
+/**
+ * 验证值是否为有效数字
+ */
+export const isNumber = (value : number) : boolean => {
+	return !isNaN(value) && isFinite(value)
+}
+
+/**
+ * 验证值是否为整数
+ */
+export const isInteger = (value : number) : boolean => {
+	return isNumber(value) && Math.floor(value) == value
+}
+
+/**
+ * 验证值是否为正数
+ */
+export const isPositiveNumber = (value : number) : boolean => {
+	return isNumber(value) && value > 0
+}
+
+/**
+ * 验证数值是否在指定范围内
+ */
+export const isInRange = (value : number, min : number, max : number) : boolean => {
+	return isNumber(value) && value >= min && value <= max
+}
+
+/* ==================== 日期验证 ==================== */
+
+/**
+ * 验证日期对象是否有效
+ */
+export const isValidDate = (date : Date) : boolean => {
+	return !isNaN(date.getTime())
+}
+
+/**
+ * 验证字符串是否符合指定的日期格式
+ */
+export const isDateFormat = (dateStr : string, format : string) : boolean => {
+	if (dateStr.length == 0) return false
+
+	let regex : RegExp | null = null
+	const upperFormat = format.toUpperCase()
+
+	if (upperFormat == 'YYYY-MM-DD') {
+		regex = /^\d{4}-\d{2}-\d{2}$/
+	} else if (upperFormat == 'MM/DD/YYYY') {
+		regex = /^\d{2}\/\d{2}\/\d{4}$/
+	} else if (upperFormat == 'DD/MM/YYYY') {
+		regex = /^\d{2}\/\d{2}\/\d{4}$/
+	} else {
+		return false
+	}
+
+	if (!regex!.test(dateStr)) return false
+
+	/* 验证日期是否有效 */
+	const parts = dateStr.split(/[-\/]/)
+	let year : number
+	let month : number
+	let day : number
+
+	if (upperFormat == 'YYYY-MM-DD') {
+		year = parseInt(parts[0])
+		month = parseInt(parts[1]) - 1
+		day = parseInt(parts[2])
+	} else if (upperFormat == 'MM/DD/YYYY') {
+		month = parseInt(parts[0]) - 1
+		day = parseInt(parts[1])
+		year = parseInt(parts[2])
+	} else {
+		day = parseInt(parts[0])
+		month = parseInt(parts[1]) - 1
+		year = parseInt(parts[2])
+	}
+
+	const date = new Date(year, month, day)
+	return date.getFullYear() == year && date.getMonth() == month && date.getDate() == day
+}
+
+/**
+ * 验证日期是否在某个日期之前
+ */
+export const isBeforeDate = (date : Date, beforeDate : Date) : boolean => {
+	return isValidDate(date) && isValidDate(beforeDate) && date.getTime() < beforeDate.getTime()
+}
+
+/**
+ * 验证日期是否在某个日期之后
+ */
+export const isAfterDate = (date : Date, afterDate : Date) : boolean => {
+	return isValidDate(date) && isValidDate(afterDate) && date.getTime() > afterDate.getTime()
+}
+
+/* ==================== 中国特定验证 ==================== */
+
+/**
+ * 验证是否为有效的中国身份证号码
+ */
+export const isChineseIdCard = (id : string) : boolean => {
+	const reg = /^\d{15}$|^\d{18}$|^\d{17}[\dX]$/i
+	if (!reg.test(id)) return false
+
+	if (id.length == 18) {
+		const factor = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
+		const parity = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2']
+		let sum = 0
+		for (let i = 0; i < 17; i++) {
+			sum += parseInt(id.charAt(i)) * factor[i]
+		}
+		const index = sum % 11
+		return parity[index].toLowerCase() == id.charAt(17).toLowerCase()
+	}
+
+	return true
+}
+
+/**
+ * 验证是否为有效的中国手机号码
+ */
+export const isChinesePhoneNumber = (phone : string) : boolean => {
+	return /^1[3-9]\d{9}$/.test(phone)
+}
+
+/**
+ * 验证是否为有效的中国邮政编码
+ */
+export const isPostalCode = (code : string) : boolean => {
+	return /^[1-9]\d{5}$/.test(code)
+}
+
+/* ==================== 表单验证 ==================== */
+
+/**
+ * 密码验证选项
+ */
+export type PasswordOptions = {
+	minLength : number
+	requireLowercase : boolean
+	requireUppercase : boolean
+	requireNumbers : boolean
+	requireSpecialChars : boolean
+}
+
+/**
+ * 验证密码强度
+ */
+export const isPassword = (password : string, options ?: PasswordOptions) : boolean => {
+	const minLength = options != null ? options!.minLength : 8
+	const requireLowercase = options != null ? options!.requireLowercase : true
+	const requireUppercase = options != null ? options!.requireUppercase : true
+	const requireNumbers = options != null ? options!.requireNumbers : true
+	const requireSpecialChars = options != null ? options!.requireSpecialChars : true
+
+	if (password.length < minLength) return false
+	if (requireLowercase && !/[a-z]/.test(password)) return false
+	if (requireUppercase && !/[A-Z]/.test(password)) return false
+	if (requireNumbers && !/\d/.test(password)) return false
+	if (requireSpecialChars && !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) return false
+
+	return true
+}
+
+/**
+ * 验证值是否非空
+ */
+export const isRequired = (value : string | null) : boolean => {
+	if (value == null) return false
+	return (value as string).trim().length > 0
+}
+
+/**
+ * 验证字符串是否满足最小长度要求
+ */
+export const hasMinLength = (str : string, length : number) : boolean => {
+	return str.length >= length
+}
+
+/**
+ * 验证字符串是否不超过最大长度
+ */
+export const hasMaxLength = (str : string, length : number) : boolean => {
+	return str.length <= length
+}
+
+/**
+ * 验证姓名格式是否有效（不含特殊字符）
+ */
+export const isName = (name : string) : boolean => {
+	return /^[a-z\u4E00-\u9FA5\s]+$/i.test(name)
+}
+
+/* ==================== 网络标识验证 ==================== */
+
+/**
+ * 验证是否为有效的IPv4地址
+ */
+export const isIPAddress = (ip : string) : boolean => {
+	return /^(?:(?:25[0-5]|2[0-4]\d|[01]?\d{1,2})\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d{1,2})$/.test(ip)
+}
+
+/**
+ * 验证是否为有效的MAC地址
+ */
+export const isMACAddress = (mac : string) : boolean => {
+	return /^(?:[0-9A-F]{2}[:-]){5}[0-9A-F]{2}$/i.test(mac)
+}
+
+/**
+ * 验证是否为有效的端口号
+ */
+export const isPort = (port : number) : boolean => {
+	return isInteger(port) && port >= 0 && port <= 65535
+}
+
+/**
+ * 验证是否为UUID格式
+ */
+export const isUUID = (uuid : string) : boolean => {
+	return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uuid)
+}
+
+/* ==================== 其他通用验证 ==================== */
+
+/**
+ * 验证两个字符串是否相等
+ */
+export const isEqual = (value1 : string, value2 : string) : boolean => {
+	return value1 == value2
+}
+
+/**
+ * 验证字符串是否包含特定子串
+ */
+export const containsSubstring = (str : string, substring : string, caseSensitive : boolean = true) : boolean => {
+	if (caseSensitive) {
+		return str.includes(substring)
+	} else {
+		return str.toLowerCase().includes(substring.toLowerCase())
+	}
+}
+
+/**
+ * 验证字符串是否为有效的颜色十六进制代码
+ */
+export const isHexColor = (color : string) : boolean => {
+	return /^#(?:[0-9A-F]{3}){1,2}$/i.test(color)
+}
+
+/**
+ * 验证是否为有效的文件名
+ */
+export const isValidFilename = (filename : string) : boolean => {
+	return filename.length > 0 && !/[/:*?"<>|]/.test(filename)
+}
+
+/* ==================== 金融验证 ==================== */
+
+/**
+ * 验证是否为银行卡号
+ */
+export const isBankCardNumber = (cardNumber : string) : boolean => {
+	return /^\d{13,19}$/.test(cardNumber)
+}
+
+/**
+ * 验证是否为有效的信用卡号（使用Luhn算法）
+ */
+export const isCreditCardNumber = (cardNumber : string) : boolean => {
+	if (!/^\d+$/.test(cardNumber)) return false
+
+	let sum = 0
+	let shouldDouble = false
+
+	for (let i = cardNumber.length - 1; i >= 0; i--) {
+		let digit = parseInt(cardNumber.charAt(i))
+
+		if (shouldDouble) {
+			digit *= 2
+			if (digit > 9) digit -= 9
+		}
+
+		sum += digit
+		shouldDouble = !shouldDouble
+	}
+
+	return sum % 10 == 0
+}

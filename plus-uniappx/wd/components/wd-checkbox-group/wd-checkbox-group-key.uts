@@ -1,0 +1,62 @@
+/**
+ * 复选框组提供的数据接口 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 InjectionKey 泛型（UTS 不支持 Symbol/InjectionKey）
+ * - 改用字符串 key + type 定义
+ * - 类型定义在此文件统一管理（不从 .uvue export）
+ * - provide 数据扁平化（不嵌套 props 对象）
+ * - value 类型统一为 string（UTS 不支持 string | number | boolean 联合）
+ * - modelValue 为 string[]（不支持 Array<string | number | boolean> | string 联合）
+ */
+
+/**
+ * 复选框选项
+ */
+export type CheckboxOption = {
+  /** 选项标签 */
+  label : string
+  /** 选项值 */
+  value : string
+  /** 是否禁用 */
+  disabled ?: boolean
+}
+
+/**
+ * 复选框组 Provide 接口（扁平化）
+ */
+export type CheckboxGroupProvide = {
+  /** 绑定值（标准化为数组） */
+  modelValue : string[]
+  /** 表单模式 */
+  cell : boolean
+  /** 复选框形状：circle / square / button */
+  shape : string
+  /** 选中的颜色 */
+  checkedColor : string
+  /** 禁用 */
+  disabled : boolean
+  /** 最小选中的数量 */
+  min : number
+  /** 最大选中的数量，0 为无限数量 */
+  max : number
+  /** 同行展示 */
+  inline : boolean
+  /** 设置大小：large / 空字符串 */
+  size : string
+  /** 子组件 UID 列表 */
+  childUids : number[]
+  /** 注册子组件 */
+  addChild : (uid : number) => void
+  /** 注销子组件 */
+  removeChild : (uid : number) => void
+  /** 改变选中状态回调函数 */
+  changeSelectState : (value : string) => void
+  /** 获取标准化的数组值 */
+  getArrayValue : () => string[]
+}
+
+/**
+ * 复选框组注入键（字符串 key）
+ */
+export const CHECKBOX_GROUP_KEY = 'wd-checkbox-group'

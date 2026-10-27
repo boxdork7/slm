@@ -1,0 +1,73 @@
+/**
+ * WD UI 组件库导出入口
+ *
+ * UniApp X 版本
+ * - 组件通过 easycom 自动注册，无需手动 import
+ * - 此文件导出 composables、locale、工具函数
+ *
+ * 使用方式：
+ * import { useToast, useMessage } from '@/wd'
+ */
+
+export const WD_VERSION = '1.0.0-uniappx'
+
+/* ========== Locale 国际化 ========== */
+export { Locale, useCurrentLang } from './locale/index'
+
+/* ========== Composables ========== */
+
+/* 父子组件通信 */
+export { genChildUid, createChildManager } from './composables/useChildren'
+
+/* 触摸手势 */
+export { useTouch } from './composables/useTouch'
+
+/* 动画帧管理 */
+export { useRaf } from './composables/useRaf'
+
+/* 倒计时 */
+export { useCountDown } from './composables/useCountDown'
+
+/* 队列管理 */
+export { useQueue, QUEUE_KEY } from './composables/useQueue'
+
+/* 国际化翻译 */
+export { useTranslate } from './composables/useTranslate'
+
+/* Cell 组件 */
+export { useCell, CELL_GROUP_KEY } from './composables/useCell'
+
+/* 页面滚动锁定 */
+export { useLockScroll, isScrollLocked } from './composables/useLockScroll'
+
+/* 弹出层定位 */
+export { usePopover } from './composables/usePopover'
+
+/* 文件上传 */
+export { useUpload, UPLOAD_STATUS_PENDING, UPLOAD_STATUS_LOADING, UPLOAD_STATUS_SUCCESS, UPLOAD_STATUS_FAIL } from './composables/useUpload'
+
+/* ========== 公共工具 ========== */
+export {
+  isDef, isObj, isArray, isString, isNumber, isBoolean,
+  camelCase, kebabCase, getPropByPath,
+  addUnit,
+  getRect,
+} from './components/common/util'
+
+/* 点击外部关闭 */
+export { pushToQueue, removeFromQueue, closeOther, closeOutside } from './components/common/clickoutside'
+
+/* Canvas 辅助 */
+export { drawRoundRect, drawCircle } from './components/common/canvasHelper'
+
+/* Toast 轻提示 */
+export { useToast } from './components/wd-toast/useToast'
+export type { ToastOptions, Toast } from './components/wd-toast/useToast'
+
+/* MessageBox 消息弹窗 */
+export { useMessage, useMessageInternal } from './components/wd-message-box/useMessage'
+export type { MessageOptions, MessageResult, MessageBeforeConfirmOption } from './components/wd-message-box/useMessage'
+
+/* Notify 消息通知 */
+export { useNotify } from './components/wd-notify/useNotify'
+export type { NotifyOptions } from './components/wd-notify/useNotify'

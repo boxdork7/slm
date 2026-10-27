@@ -1,0 +1,459 @@
+<!--
+DropMenu 下拉菜单 向下或向上弹出的菜单列表。
+
+UniApp X 版本改动说明：
+- 移除 defineOptions（UTS 不支持）
+- 移除手动组件导入（easycom 自动注册）
+- DropDirction 类型移到 wd-drop-menu-key.uts
+- useChildren(DROP_MENU_KEY) → createChildManager() + provide 模式
+- ComponentPublicInstance → 移除（UTS 不支持）
+- getCurrentInstance() → 使用 uni API 直接获取系统信息
+- InjectionKey<Queue> → string key
+- 'up' | 'down' → string（UTS 联合类型保持）
+- ::after 伪元素 → 真实 <view> 元素(item-title-underline)
+- :deep() → 直接使用类选择器
+- any → UTSJSONObject
+- 子组件通信：使用 reactive Map 存储子组件状态，子组件通过 getCurrentInstance 访问父组件方法注册信息
+-->
+<template>
+  <view
+    :id="dropMenuId"
+    :style="customStyle"
+    :class="`wd-drop-menu ${customClass}`"
+    @click.stop.prevent="noop"
+  >
+    <wd-overlay
+      v-if="modal"
+      :show="overlayVisible"
+      :duration="duration"
+      :z-index="12"
+      :custom-style="modalStyle"
+      @click="handleClickOverlay"
+      @touchmove="noop"
+    />
+
+    <view class="wd-drop-menu__list">
+      <view
+        v-for="uid in childUids"
+        :key="uid"
+        :class="`wd-drop-menu__item ${getChildInfo(uid).disabled ? 'is-disabled' : ''} ${getChildInfo(uid).showPop ? 'is-active' : ''}`"
+        @click="toggle(uid)"
+      >
+        <view class="wd-drop-menu__item-title">
+          <view class="wd-drop-menu__item-title-text">{{ getDisplayTitle(uid) }}</view>
+          <view class="wd-drop-menu__item-title-underline" />
+          <wd-icon :name="getChildInfo(uid).icon" :size="getChildInfo(uid).iconSize" custom-class="wd-drop-menu__arrow" />
+        </view>
+      </view>
+    </view>
+    <slot />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, inject, onBeforeMount, ref, watch, provide, reactive } from 'vue'
+import { addUnit, getRect, pxToRpx, uuid } from '../common/util'
+import { createChildManager } from '../../composables/useChildren'
+import { DROP_MENU_KEY, type DropMenuProvide, type DropMenuItemInfo } from './wd-drop-menu-key'
+
+/**
+ * 下拉菜单组件属性接口
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 弹框层级 */
+  zIndex ?: number
+  /** 菜单展开方向，可选值为up或down */
+  direction ?: string
+  /** 是否展示蒙层 */
+  modal ?: boolean
+  /** 是否点击蒙层时关闭 */
+  closeOnClickModal ?: boolean
+  /** 菜单展开收起动画时间，单位ms */
+  duration ?: number
+}>(), {
+  customStyle: '',
+  customClass: '',
+  zIndex: 12,
+  direction: 'down',
+  modal: true,
+  closeOnClickModal: true,
+  duration: 200,
+})
+
+/* 注入队列管理器（可选，如果项目未使用队列功能可忽略） */
+const queue = inject<UTSJSONObject | null>('wd-queue', null)
+
+/* 响应式数据 */
+const dropMenuId = ref<string>(`dropMenuId${uuid()}`)
+const offset = ref<number>(0)
+const windowHeight = ref<number>(0)
+const overlayVisible = ref<boolean>(false)
+
+/* 延迟关闭遮罩层定时器 */
+let overlayTimer : number | null = null
+
+/* 子组件管理器 */
+const manager = createChildManager()
+
+/* 子组件信息映射表（子组件通过父组件暴露的方法注册自己的信息） */
+const childInfoMap = reactive<Map<number, DropMenuItemInfo>>(new Map<number, DropMenuItemInfo>())
+
+/**
+ * 注册子组件信息（子组件调用）
+ */
+const registerChildInfo = (info : DropMenuItemInfo) : void => {
+	childInfoMap.set(info.uid, info)
+}
+
+/**
+ * 更新子组件信息（子组件调用）
+ */
+const updateChildInfo = (info : DropMenuItemInfo) : void => {
+	childInfoMap.set(info.uid, info)
+}
+
+/**
+ * 注销子组件信息（子组件调用）
+ */
+const unregisterChildInfo = (uid : number) : void => {
+	childInfoMap.delete(uid)
+}
+
+/**
+ * 获取子组件信息（模板中使用）
+ */
+const getChildInfo = (uid : number) : DropMenuItemInfo => {
+	const info = childInfoMap.get(uid)
+	if (info != null) {
+		return info!
+	}
+	/* 返回默认值 */
+	return {
+		uid: uid,
+		disabled: false,
+		showPop: false,
+		title: '',
+		modelValue: null,
+		options: [],
+		valueKey: 'value',
+		labelKey: 'label',
+		icon: 'arrow-down',
+		iconSize: '',
+		toggle: null,
+		close: null,
+	} as DropMenuItemInfo
+}
+
+/* 获取已注册的子组件 UID 列表 */
+const childUids = computed(() : number[] => {
+	return manager.childUids
+})
+
+/**
+ * 计算模态层样式
+ * 根据展开方向计算位置样式
+ */
+const modalStyle = computed(() : string => {
+	return props.direction == 'down'
+		? `top: ${addUnit(offset.value)}; bottom: 0;`
+		: `top: 0; bottom: ${addUnit(offset.value)}`
+})
+
+/**
+ * 计算是否需要显示遮罩层
+ * 当有子菜单项打开时显示遮罩层
+ */
+const showOverlay = computed(() : boolean => {
+	for (let i = 0; i < childUids.value.length; i++) {
+		const uid = childUids.value[i]
+		const info = childInfoMap.get(uid)
+		if (info != null && info!.showPop) {
+			return true
+		}
+	}
+	return false
+})
+
+/**
+ * 空操作函数
+ * 用于阻止事件冒泡
+ */
+const noop = () : void => {}
+
+/**
+ * 获取显示标题
+ * 优先显示设置的title，否则根据选中值在options中查找对应的标题
+ * @param uid 子组件 UID
+ * @returns 显示的标题文本
+ */
+const getDisplayTitle = (uid : number) : string => {
+	const info = childInfoMap.get(uid)
+	if (info == null) return ''
+
+	const { title, modelValue, options, valueKey, labelKey } = info!
+
+	if (title != '' && title != null) {
+		return title
+	}
+
+	for (let i = 0; i < options.length; i++) {
+		const option = options[i]
+		if (modelValue == option[valueKey]) {
+			return option[labelKey] as string
+		}
+	}
+
+	console.log('[wot-design] warning(wd-drop-menu-item): no value is matched in the options option.')
+	return ''
+}
+
+/**
+ * 控制菜单内容是否展开
+ * 计算下拉菜单的偏移位置并切换显示状态
+ * @param uid 子组件 UID
+ */
+const fold = (uid : number) : void => {
+	getRect(`#${dropMenuId.value}`, false, null).then((rect : any) => {
+		if (rect == null) return
+		const top = rect.top
+		const bottom = rect.bottom
+		if (props.direction == 'down') {
+			/* 将 px 转换为 rpx，因为样式中使用 rpx 单位 */
+			offset.value = pxToRpx(Number(bottom))
+		} else {
+			/* 向上弹出时也需要转换单位 */
+			offset.value = pxToRpx(windowHeight.value - Number(top))
+		}
+		/* 通知子组件切换 */
+		const info = childInfoMap.get(uid)
+		if (info != null && info!.toggle != null) {
+			info!.toggle()
+		}
+	})
+}
+
+/**
+ * 切换子菜单显示状态
+ * 点击菜单项时关闭其他菜单项并切换当前菜单项
+ * @param uid 子组件 UID
+ */
+const toggle = (uid : number) : void => {
+	const info = childInfoMap.get(uid)
+	if (info != null && !info!.disabled) {
+		/* 关闭其他菜单项 */
+		if (queue != null && queue['closeOther'] != null) {
+			/* 队列模式 */
+			const closeOther = queue['closeOther'] as ((child : UTSJSONObject) => void)
+			closeOther(info as UTSJSONObject)
+		} else {
+			/* 直接关闭其他子组件 */
+			for (let i = 0; i < childUids.value.length; i++) {
+				const otherUid = childUids.value[i]
+				if (otherUid != uid) {
+					const otherInfo = childInfoMap.get(otherUid)
+					if (otherInfo != null && otherInfo!.close != null) {
+						otherInfo!.close()
+					}
+				}
+			}
+		}
+		fold(uid)
+	}
+}
+
+/**
+ * 处理点击遮罩层事件
+ * 根据配置决定是否关闭所有菜单项
+ */
+const handleClickOverlay = () : void => {
+	if (props.closeOnClickModal) {
+		/* 关闭所有打开的菜单项 */
+		for (let i = 0; i < childUids.value.length; i++) {
+			const uid = childUids.value[i]
+			const info = childInfoMap.get(uid)
+			if (info != null && info!.close != null) {
+				info!.close()
+			}
+		}
+	}
+}
+
+/**
+ * 监听方向属性变化
+ * 验证direction属性的有效性
+ */
+watch(
+	() : string => props.direction,
+	(newValue : string) => {
+		if (newValue != 'up' && newValue != 'down') {
+			console.error('warning(wd-drop-menu): direction must be \'up\' or \'down\'')
+		}
+	},
+	{ deep: true, immediate: true },
+)
+
+/**
+ * 监听遮罩层显示状态
+ * 延迟关闭遮罩层，避免闪烁
+ */
+watch(() : boolean => showOverlay.value, (newVal : boolean) => {
+	if (overlayTimer != null) {
+		clearTimeout(overlayTimer!)
+		overlayTimer = null
+	}
+	if (newVal) {
+		overlayVisible.value = true
+	} else {
+		overlayTimer = setTimeout(() => {
+			overlayVisible.value = false
+			overlayTimer = null
+		}, 16)
+	}
+})
+
+/**
+ * 组件挂载前的处理
+ * 获取窗口高度
+ */
+onBeforeMount(() => {
+	windowHeight.value = uni.getSystemInfoSync().windowHeight
+})
+
+/* Provide 数据给子组件 */
+const dropMenuProvide : DropMenuProvide = {
+	props: {
+		zIndex: props.zIndex,
+		direction: props.direction,
+		modal: props.modal,
+		closeOnClickModal: props.closeOnClickModal,
+		duration: props.duration,
+		customStyle: props.customStyle,
+		customClass: props.customClass,
+	},
+	fold: fold,
+	offset: offset.value,
+	childUids: manager.childUids,
+	addChild: manager.addChild,
+	removeChild: manager.removeChild,
+}
+
+provide(DROP_MENU_KEY, dropMenuProvide)
+
+/* 暴露组件方法 */
+defineExpose({
+	registerChildInfo,
+	updateChildInfo,
+	unregisterChildInfo,
+})
+</script>
+
+<style lang="scss">
+/* 引入外部样式文件 */
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(drop-menu) {
+    color: $-dark-color;
+
+    @include e(list) {
+      background-color: $-dark-background2;
+    }
+
+    @include e(item) {
+      @include when(disabled) {
+        color: $-dark-color-gray;
+      }
+    }
+  }
+}
+
+/* 下拉菜单主体样式 */
+@include b(drop-menu) {
+  box-sizing: border-box;
+  color: $-drop-menu-color;
+  font-size: $-drop-menu-fs;
+  position: relative;
+
+  /* 菜单列表样式 */
+  @include e(list) {
+    display: flex;
+    text-align: center;
+    background-color: #fff;
+  }
+
+  /* 菜单项样式 */
+  @include e(item) {
+    flex: 1;
+    min-width: 0;
+    height: $-drop-menu-height;
+    line-height: $-drop-menu-height;
+    text-align: center;
+
+    /* 激活状态样式 */
+    @include when(active) {
+      font-weight: $-fw-medium;
+
+      .wd-drop-menu__item-title-underline {
+        opacity: 1;
+      }
+
+      .wd-drop-menu__arrow {
+        transform: scale(0.6) rotate(-180deg);
+        transform-origin: center center;
+      }
+    }
+
+    /* 禁用状态样式 */
+    @include when(disabled) {
+      color: $-drop-menu-disabled-color;
+    }
+  }
+
+  /* 菜单项标题样式 */
+  @include e(item-title) {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    padding: 0 $-drop-menu-side-padding;
+    box-sizing: border-box;
+  }
+
+  /* 菜单项标题下划线（原 ::after 伪元素改为真实元素） */
+  @include e(item-title-underline) {
+    position: absolute;
+    content: '';
+    width: 19px;
+    height: $-drop-menu-line-height;
+    bottom: 6px;
+    left: 50%;
+    transform: translate(-50%, 0);
+    background: $-drop-menu-line-color;
+    border-radius: $-drop-menu-line-height;
+    transition: opacity 0.15s;
+    opacity: 0;
+  }
+
+  /* 菜单项标题文本样式 */
+  @include e(item-title-text) {
+    position: relative;
+    @include lineEllipsis;
+  }
+
+  /* 箭头图标样式（移除 :deep()，直接使用类选择器） */
+  .wd-drop-menu__arrow {
+    position: absolute;
+    display: inline-block;
+    top: 0;
+    right: -4px;
+    transition: transform 0.3s;
+    transform: scale(0.6);
+    font-size: $-drop-menu-arrow-fs;
+  }
+}
+</style>

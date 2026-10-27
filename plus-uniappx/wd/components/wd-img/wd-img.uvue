@@ -1,0 +1,317 @@
+<!--
+Img 图片 增强版的 img 标签，支持单张图片和多张图片展示
+
+UniApp X 版本
+- CSSProperties 改为手动拼接 style 字符串
+- Record<number, ImageStatus> 改为 Map<number, string>
+- 移除 defineOptions
+- 移除 export type/interface
+- ImageMode/ImageStatus/ImageSrc 类型改为 string
+-->
+<template>
+  <view
+    :class="`wd-img ${customClass} ${displayImageList.length > 1 ? 'is-multi' : ''}`"
+    :style="customStyle"
+    @click="handleClick"
+  >
+    <!-- 单张图片显示或多张图片只显示第一张 -->
+    <template v-if="displayImageList.length === 1">
+      <image
+        :class="`wd-img__image ${customImage} ${round ? 'is-round' : ''}`"
+        :style="`${status !== 'success' ? 'width: 0;height: 0;' : ''}${getImageStyle()}`"
+        :src="displayImageList[0]"
+        :mode="mode"
+        :show-menu-by-longpress="showMenuByLongpress"
+        :lazy-load="lazyLoad"
+        @load="handleLoad"
+        @error="handleError"
+      />
+      <slot v-if="status === 'loading'" name="loading" />
+      <slot v-if="status === 'error'" name="error" />
+
+      <!-- 多张图片但只显示第一张时的角标提示 -->
+      <view v-if="singleMode && imageList.length > 1" class="wd-img__count-badge">
+        <text class="wd-img__count-text">
+          {{ imageList.length }}
+        </text>
+      </view>
+    </template>
+
+    <!-- 多张图片显示 -->
+    <template v-else-if="displayImageList.length > 1">
+      <view class="wd-img__multi-container">
+        <view
+          v-for="(imgSrc, index) in displayImageList"
+          :key="index"
+          class="wd-img__multi-item"
+          @click.stop="handleImageClick(index)"
+        >
+          <image
+            :class="`wd-img__image ${customImage} ${round ? 'is-round' : ''}`"
+            :style="getImageStyle()"
+            :src="imgSrc"
+            :mode="mode"
+            :show-menu-by-longpress="showMenuByLongpress"
+            :lazy-load="lazyLoad"
+            @load="handleMultiLoad(index)"
+            @error="handleMultiError(index)"
+          />
+          <!-- 显示更多图片的遮罩 -->
+          <view
+            v-if="index === displayImageList.length - 1 && hasMoreImages"
+            class="wd-img__more-overlay"
+          >
+            <text class="wd-img__more-text">+{{ imageList.length - displayImageList.length }}</text>
+          </view>
+        </view>
+      </view>
+    </template>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, ref } from 'vue'
+import { addUnit, isDef } from '../common/util'
+
+/**
+ * 图片组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 自定义图片样式类 */
+  customImage ?: string
+  /** 图片链接，支持单张或多张逗号分隔 */
+  src ?: string
+  /** 预览图片链接 */
+  previewSrc ?: string
+  /** 是否显示为圆形 */
+  round ?: boolean
+  /** 图片填充模式 */
+  mode ?: string
+  /** 是否懒加载 */
+  lazyLoad ?: boolean
+  /** 宽度 */
+  width ?: string | number
+  /** 高度 */
+  height ?: string | number
+  /** 圆角大小 */
+  radius ?: string | number
+  /** 是否允许预览 */
+  enablePreview ?: boolean
+  /** 开启长按图片显示识别小程序码菜单 */
+  showMenuByLongpress ?: boolean
+  /** 多图片时最大显示数量 */
+  maxDisplay ?: number
+  /** 多张图片时是否启用单图模式 */
+  singleMode ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  customImage: '',
+  src: '',
+  previewSrc: '',
+  round: false,
+  mode: 'scaleToFill',
+  lazyLoad: false,
+  width: 200,
+  height: 200,
+  enablePreview: false,
+  showMenuByLongpress: false,
+  maxDisplay: 9,
+  singleMode: false,
+})
+
+const emit = defineEmits(['error', 'click', 'load'])
+
+/** 图片加载状态 */
+const status = ref<string>('loading')
+
+/**
+ * 图片列表
+ */
+const imageList = computed(() : string[] => {
+  if (props.src == '') return [] as string[]
+
+  /* 判断是否为 base64 图片 */
+  if (props.src.indexOf('data:image/') === 0) {
+    return [props.src]
+  }
+
+  /* 普通 URL 按逗号分割 */
+  return props.src
+    .split(',')
+    .map((url : string) : string => url.trim())
+    .filter((url : string) : boolean => url != '')
+})
+
+/**
+ * 实际显示的图片列表
+ */
+const displayImageList = computed(() : string[] => {
+  if (props.singleMode && imageList.value.length > 1) {
+    return [imageList.value[0]]
+  }
+  return imageList.value.slice(0, props.maxDisplay)
+})
+
+/**
+ * 是否有更多图片
+ */
+const hasMoreImages = computed(() : boolean => {
+  return imageList.value.length > props.maxDisplay
+})
+
+/**
+ * 获取图片样式
+ */
+const getImageStyle = () : string => {
+  const parts : string[] = []
+
+  parts.push(`width: ${addUnit(props.width)};`)
+  parts.push(`height: ${addUnit(props.height)};`)
+
+  if (!props.round && isDef(props.radius)) {
+    parts.push(`border-radius: ${addUnit(props.radius)};`)
+  }
+
+  return parts.join(' ')
+}
+
+/**
+ * 处理图片加载失败
+ */
+const handleError = (event : any) => {
+  status.value = 'error'
+  emit('error', event)
+}
+
+/**
+ * 处理多图片加载失败
+ */
+const handleMultiError = (index : number) => {
+  emit('error', index)
+}
+
+/**
+ * 处理图片点击
+ */
+const handleImageClick = (index : number) => {
+  if (props.enablePreview && imageList.value.length > 0) {
+    uni.previewImage({
+      urls: props.previewSrc != '' ? [props.previewSrc] : imageList.value,
+      current: imageList.value[index],
+    })
+  }
+  emit('click', index)
+}
+
+/**
+ * 处理点击事件
+ */
+const handleClick = (event : any) => {
+  if (displayImageList.value.length === 1) {
+    handleImageClick(0)
+  } else {
+    emit('click', event)
+  }
+}
+
+/**
+ * 处理图片加载成功
+ */
+const handleLoad = (event : any) => {
+  status.value = 'success'
+  emit('load', event)
+}
+
+/**
+ * 处理多图片加载成功
+ */
+const handleMultiLoad = (index : number) => {
+  emit('load', index)
+}
+</script>
+
+<style lang="scss">
+@import './../common/abstracts/_mixin.scss';
+@import './../common/abstracts/variable.scss';
+
+@include b(img) {
+  position: relative;
+  /* UniApp X: inline-flex 不支持，使用 align-self: flex-start 模拟 inline 收缩 */
+  align-self: flex-start;
+
+  @include e(image) {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+
+    @include when(round) {
+      border-radius: 50%;
+      overflow: hidden;
+    }
+  }
+
+  @include e(multi-container) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8rpx;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    overflow: hidden;
+  }
+
+  @include e(multi-item) {
+    position: relative;
+    overflow: hidden;
+    border-radius: 8rpx;
+    flex-shrink: 0;
+  }
+
+  @include e(more-overlay) {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 60rpx;
+    height: 60rpx;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 4rpx 8rpx 8rpx 4rpx;
+    box-sizing: border-box;
+  }
+
+  @include e(more-text) {
+    color: white;
+    font-size: 32rpx;
+    font-weight: bold;
+  }
+
+  @include e(count-badge) {
+    position: absolute;
+    top: 12rpx;
+    right: 12rpx;
+    background-color: rgba(0, 0, 0, 0.6);
+    border-radius: 20rpx;
+    min-width: 40rpx;
+    height: 40rpx;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 12rpx;
+  }
+
+  @include e(count-text) {
+    color: white;
+    font-size: 24rpx;
+    font-weight: bold;
+    line-height: 1;
+  }
+}
+</style>

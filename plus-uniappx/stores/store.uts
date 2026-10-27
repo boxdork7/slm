@@ -1,0 +1,13 @@
+/**
+ * 状态管理入口
+ *
+ * UniApp X 版本
+ * - 不使用 Pinia（UTS 不支持），采用模块级 reactive 模式
+ * - 各 store 通过 Vue 的 ref/reactive/computed 管理状态
+ * - 状态为模块级单例，通过 useXxxStore() 函数访问
+ */
+
+export { useUserStore } from './modules/user'
+export { useDictStore } from './modules/dict'
+export { useFeatureStore } from './modules/feature'
+export { useTabbarStore } from './modules/tabbar'

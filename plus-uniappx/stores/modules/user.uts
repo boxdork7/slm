@@ -1,0 +1,351 @@
+/**
+ * APP 用户认证管理 (useUserStore) - UniApp X 版本
+ *
+ * 保持与 plus-app/stores/modules/user.ts 相同的导出接口
+ *
+ * 基于模块级 reactive 的用户认证与权限管理模块，专门为 APP 环境设计。
+ * 支持密码登录、手机号登录和基本的用户信息管理。
+ *
+ * UTS 适配说明：
+ * - 不使用 Pinia（UTS 不支持），采用模块级 ref/computed + 导出函数模式
+ * - any → 具体类型
+ * - AuthType、LoginRequest 等类型在本地定义（API 层阶段 4 迁移后替换）
+ * - webSocket 依赖暂时注释（阶段 3 迁移后替换）
+ * - useToken() 依赖暂时用内联 cache 实现（阶段 3 迁移后替换）
+ * - Omit<T, K> 不支持，改为独立类型
+ * - isDef 内联实现
+ */
+import { ref, computed } from 'vue'
+import { cache } from '@/utils/cache'
+
+/* ==================== 本地类型定义 ==================== */
+
+/**
+ * 认证类型
+ */
+export type AuthType = 'password' | 'sms'
+
+/**
+ * 密码登录请求体
+ */
+export type PasswordLoginBody = {
+	authType : string
+	userName : string
+	password : string
+	code ?: string
+	uuid ?: string
+}
+
+/**
+ * 短信登录请求体
+ */
+export type SmsLoginBody = {
+	authType : string
+	phone : string
+	smsCode : string
+}
+
+/**
+ * 认证令牌响应
+ */
+export type AuthTokenVo = {
+	access_token : string
+}
+
+/**
+ * 用户信息
+ */
+export type SysUserVo = {
+	userId : number
+	userName : string
+	nickName : string
+	avatar : string
+	phone : string
+	email : string
+}
+
+/**
+ * 用户信息响应
+ */
+export type UserInfoVo = {
+	user : SysUserVo
+	roles : string[]
+	permissions : string[]
+}
+
+/* ==================== Token 管理 ==================== */
+
+const TOKEN_KEY = 'token'
+
+const getToken = () : string => {
+	return cache.getString(TOKEN_KEY) ?? ''
+}
+
+const setToken = (tokenValue : string) => {
+	cache.set(TOKEN_KEY, tokenValue, 0)
+}
+
+const removeToken = () => {
+	cache.remove(TOKEN_KEY)
+}
+
+/* ==================== 支持的登录方式 ==================== */
+
+const SUPPORTED_AUTH_TYPES : string[] = ['password', 'sms']
+
+/* ==================== 模块级状态（单例） ==================== */
+
+/**
+ * 用户令牌
+ */
+const token = ref(getToken())
+
+/**
+ * 当前用户登录状态
+ */
+const isLoggedIn = computed(() : boolean => {
+	return token.value != null && token.value.length > 0
+})
+
+/**
+ * 用户基本信息
+ */
+const userInfo = ref<SysUserVo | null>(null)
+
+/**
+ * 用户是否已完善信息
+ */
+const hasUserAuth = computed(() : boolean => {
+	if (userInfo.value == null) return false
+	const info = userInfo.value!
+	return info.avatar.length > 0 && info.nickName.length > 0
+})
+
+/**
+ * 用户角色编码集合
+ */
+const roles = ref<string[]>([])
+
+/**
+ * 用户权限编码集合
+ */
+const permissions = ref<string[]>([])
+
+/* 用户授权弹窗状态 */
+const authModalVisible = ref(false)
+
+/* ==================== 工具方法 ==================== */
+
+/**
+ * 获取当前平台支持的登录方式
+ */
+const getSupportedLoginMethods = () : string[] => {
+	return SUPPORTED_AUTH_TYPES
+}
+
+/**
+ * 检查当前平台是否支持指定登录方式
+ */
+const isSupportedLoginMethod = (method : string) : boolean => {
+	return SUPPORTED_AUTH_TYPES.indexOf(method) > -1
+}
+
+/* ==================== 核心登录方法 ==================== */
+
+/**
+ * 执行用户登录
+ * TODO: 阶段 4 迁移 API 后替换为实际 API 调用
+ */
+const loginUser = async (loginData : UTSJSONObject) : Promise<UTSJSONObject> => {
+	/* 占位：API 层迁移后替换 */
+	/* const [err, data] = await userLogin(loginData) */
+	/* if (err) return { err: err, data: null } */
+
+	/* 模拟成功响应 */
+	console.log('[UserStore] loginUser called with:', JSON.stringify(loginData))
+	return { err: null, data: null } as UTSJSONObject
+}
+
+/**
+ * 统一登录方法
+ */
+const login = async (authType : string, params : UTSJSONObject) : Promise<UTSJSONObject> => {
+	try {
+		const loginData = {} as UTSJSONObject
+		loginData['authType'] = authType
+
+		if (authType == 'password') {
+			loginData['userName'] = params['userName'] ?? ''
+			loginData['password'] = params['password'] ?? ''
+			loginData['code'] = params['code'] ?? ''
+			loginData['uuid'] = params['uuid'] ?? ''
+		} else if (authType == 'sms') {
+			loginData['phone'] = params['phone'] ?? ''
+			loginData['smsCode'] = params['smsCode'] ?? ''
+		} else {
+			return { err: new Error(`不支持的认证类型: ${authType}`), data: null } as UTSJSONObject
+		}
+
+		console.log(`准备 ${authType} 登录数据:`, JSON.stringify(loginData))
+		return await loginUser(loginData)
+	} catch (error) {
+		console.error(`${authType} 登录失败:`, error)
+		const err = error instanceof Error ? error as Error : new Error(`${error}`)
+		return { err: err, data: null } as UTSJSONObject
+	}
+}
+
+/* ==================== 具体登录方法 ==================== */
+
+/**
+ * 密码登录
+ */
+const loginWithPassword = async (loginBody : UTSJSONObject) : Promise<UTSJSONObject> => {
+	return await login('password', loginBody)
+}
+
+/**
+ * 手机号短信登录
+ */
+const loginWithSms = async (loginBody : UTSJSONObject) : Promise<UTSJSONObject> => {
+	if (!isSupportedLoginMethod('sms')) {
+		return { err: new Error('当前平台不支持手机号登录'), data: null } as UTSJSONObject
+	}
+	return await login('sms', loginBody)
+}
+
+/* ==================== 用户信息管理 ==================== */
+
+/**
+ * 获取用户信息
+ * TODO: 阶段 4 迁移 API 后替换为实际 API 调用
+ */
+const fetchUserInfo = async () : Promise<UTSJSONObject> => {
+	/* 占位：API 层迁移后替换 */
+	/* const [err, data] = await getUserInfo() */
+	/* if (err) return { err: err, data: null } */
+	/* userInfo.value = data.user */
+	/* roles.value = data.roles || [] */
+	/* permissions.value = data.permissions || [] */
+
+	console.log('[UserStore] fetchUserInfo called')
+	return { err: null, data: null } as UTSJSONObject
+}
+
+/**
+ * 用户注销
+ */
+const logoutUser = async () : Promise<UTSJSONObject> => {
+	/* TODO: 阶段 3 迁移后断开 WebSocket */
+	/* webSocket.disconnect() */
+
+	/* TODO: 阶段 4 迁移 API 后调用注销接口 */
+	/* const [err, data] = await userLogout() */
+
+	/* 清除状态 */
+	token.value = ''
+	userInfo.value = null
+	roles.value = []
+	permissions.value = []
+
+	/* 移除 localStorage 中的 token */
+	removeToken()
+
+	console.log('[用户登出] 用户状态已清除')
+	return { err: null, data: null } as UTSJSONObject
+}
+
+/**
+ * 更新用户昵称
+ */
+const updateNickName = (nickName : string) : void => {
+	if (userInfo.value != null) {
+		userInfo.value!.nickName = nickName
+	}
+}
+
+/**
+ * 更新用户头像
+ */
+const updateAvatar = (avatarUrl : string) : void => {
+	if (userInfo.value != null) {
+		userInfo.value!.avatar = avatarUrl
+	}
+}
+
+/* ==================== 导航和授权检查 ==================== */
+
+/**
+ * 检查用户信息并跳转
+ */
+const navigateWithUserCheck = (
+	url ?: string,
+	mode : string = 'modal',
+	authPagePath : string = '/pages/auth/auth',
+) => {
+	if (url != null && url!.length > 0) {
+		if (hasUserAuth.value) {
+			/* 有用户信息，直接跳转 */
+			uni.navigateTo({ url: url! })
+		} else {
+			if (mode == 'modal') {
+				authModalVisible.value = true
+			} else {
+				const authUrl = `${authPagePath}?redirect=${url!}`
+				uni.navigateTo({ url: authUrl })
+			}
+		}
+	} else {
+		if (mode == 'modal') {
+			authModalVisible.value = true
+		} else {
+			/* 获取当前页面路由 */
+			const pages = getCurrentPages()
+			let currentRoute = ''
+			if (pages.length > 0) {
+				currentRoute = pages[pages.length - 1].route ?? ''
+			}
+			const authUrl = `${authPagePath}?redirect=/${currentRoute}`
+			uni.navigateTo({ url: authUrl })
+		}
+	}
+}
+
+/* ==================== Store 导出 ==================== */
+
+/**
+ * 获取用户 Store 实例
+ */
+export function useUserStore() {
+	return {
+		/* 状态 */
+		token,
+		isLoggedIn,
+		userInfo,
+		hasUserAuth,
+		roles,
+		permissions,
+
+		/* 登录方法 */
+		login,
+		loginWithPassword,
+		loginWithSms,
+
+		/* 工具方法 */
+		getSupportedLoginMethods,
+		isSupportedLoginMethod,
+
+		/* 用户信息管理 */
+		fetchUserInfo,
+		updateNickName,
+		updateAvatar,
+
+		/* 登录/退出 */
+		loginUser,
+		logoutUser,
+
+		/* 用户信息检查与跳转 */
+		authModalVisible,
+		navigateWithUserCheck,
+	}
+}

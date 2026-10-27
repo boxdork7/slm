@@ -1,0 +1,57 @@
+/**
+ * 动画帧管理组合式函数 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 H5 分支（isH5 固定 false）
+ * - 移除 cancelAnimationFrame/requestAnimationFrame（UniApp X 不支持）
+ * - 统一使用 setTimeout 模拟，30fps
+ * - onUnmounted 改为 onBeforeUnmount（UniApp X 中两者等效）
+ */
+import { ref, onBeforeUnmount } from 'vue'
+
+/** 回调函数类型 */
+export type RafCallback = (time : number) => void
+
+/**
+ * useRaf 返回值类型
+ */
+export type UseRafReturn = {
+  start : () => void
+  cancel : () => void
+}
+
+/**
+ * 动画帧管理
+ * UniApp X 版本统一使用 setTimeout 模拟（30fps）
+ */
+export const useRaf = (callback : RafCallback) : UseRafReturn => {
+  const requestRef = ref<number | null>(null)
+
+  /**
+   * 取消动画帧
+   */
+  const cancel = () => {
+    if (requestRef.value != null) {
+      clearTimeout(requestRef.value!)
+      requestRef.value = null
+    }
+  }
+
+  /**
+   * 启动动画帧
+   */
+  const start = () => {
+    requestRef.value = setTimeout(() => {
+      callback(Date.now())
+    }, 33) as number
+  }
+
+  onBeforeUnmount(() => {
+    cancel()
+  })
+
+  return {
+    start,
+    cancel,
+  }
+}

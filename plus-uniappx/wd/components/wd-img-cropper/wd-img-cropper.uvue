@@ -1,0 +1,630 @@
+<!-- ImgCropper ͼƬ�ü� ͼƬ�������������ͼƬ�ü���֧����ק�����š���ת�Ȳ����� -->
+<!-- TODO: ����Canvas���ơ���������ʶ��ͼƬ�ü��㷨 -->
+<template>
+  <view
+    v-if="modelValue"
+    :class="`wd-img-cropper ${customClass}`"
+    :style="customStyle"
+    @touchmove="preventTouchMove"
+  >
+    <!-- չʾ���û���ǰ�Ĳü��� -->
+    <view class="wd-img-cropper__wrapper">
+      <!-- �����ü��� -->
+      <view class="wd-img-cropper__cut">
+        <!-- �Ϸ���Ӱ�� -->
+        <view
+          :class="`wd-img-cropper__cut--top ${IS_TOUCH_END ? '' : 'is-hightlight'}`"
+          :style="`height: ${addUnit(cutTop)};`"
+        ></view>
+        <view class="wd-img-cropper__cut--middle" :style="`height: ${addUnit(cutHeight)};`">
+          <!-- �����Ӱ�� -->
+          <view
+            :class="`wd-img-cropper__cut--left ${IS_TOUCH_END ? '' : 'is-hightlight'}`"
+            :style="`width: ${addUnit(cutLeft)}; height: ${addUnit(cutHeight)};`"
+          ></view>
+          <!-- �ü��� -->
+          <view
+            class="wd-img-cropper__cut--body"
+            :style="`width: ${addUnit(cutWidth)}; height: ${addUnit(cutHeight)};`"
+          >
+            <!-- �ڲ������� -->
+            <view class="is-gridlines-x"></view>
+            <view class="is-gridlines-y"></view>
+            <!-- �ü������ĸ��Խ� -->
+            <view class="is-left-top"></view>
+            <view class="is-left-bottom"></view>
+            <view class="is-right-top"></view>
+            <view class="is-right-bottom"></view>
+          </view>
+          <!-- �Ҳ���Ӱ�� -->
+          <view :class="`wd-img-cropper__cut--right ${IS_TOUCH_END ? '' : 'is-hightlight'}`"></view>
+        </view>
+        <!-- �ײ���Ӱ�� -->
+        <view :class="`wd-img-cropper__cut--bottom ${IS_TOUCH_END ? '' : 'is-hightlight'}`"></view>
+      </view>
+      <!-- չʾ�Ĵ�������ͼƬ: ����ͼƬ����ת�Ƕ�(rotate)�����ų̶�(imgScale)���ƶ�λ��(translate) -->
+      <image
+        class="wd-img-cropper__img"
+        :src="imgSrc"
+        :style="imageStyle"
+        :lazy-load="false"
+        @touchstart="handleImgTouchStart"
+        @touchmove="handleImgTouchMove"
+        @touchend="handleImgTouchEnd"
+        @error="handleImgLoadError"
+        @load="handleImgLoaded"
+      />
+    </view>
+    <!-- ���Ƶ�ͼƬcanvas -->
+    <canvas
+      :id="canvasId"
+      :canvas-id="canvasId"
+      class="wd-img-cropper__canvas"
+      :disable-scroll="true"
+      :style="`width: ${addUnit(Number(canvasWidth) * canvasScale)}; height: ${addUnit(Number(canvasHeight) * canvasScale)};`"
+    />
+    <!-- �·���ť -->
+    <view class="wd-img-cropper__footer">
+      <wd-icon
+        v-if="!disabledRotate"
+        custom-class="wd-img-cropper__rotate"
+        name="rotate"
+        @click="handleRotate"
+      />
+      <view class="wd-img-cropper__footer--button">
+        <view class="is-cancel" @click="handleCancel">
+          {{ cancelButtonText || 'ȡ��' }}
+        </view>
+        <wd-button size="small" :custom-style="buttonStyle" @click="handleConfirm">
+          {{ confirmButtonText || 'ȷ��' }}
+        </wd-button>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, getCurrentInstance, ref, watch } from 'vue'
+import { addUnit, objToStyle, pxToRpx, rpxToPx, uuid } from '../common/util'
+
+/**
+ * ͼƬ�ü�������Խӿ�
+ */
+interface WdImgCropperProps {
+  /** �Զ�����ڵ���ʽ */
+  customStyle?: string
+  /** �Զ�����ڵ���ʽ�� */
+  customClass?: string
+
+  /** ��ͼƬ�ü���� */
+  modelValue?: boolean
+  /** ȡ����ť�İ� */
+  cancelButtonText?: string
+  /** ȷ�ϰ�ť�İ� */
+  confirmButtonText?: string
+  /** �Ƿ������ת */
+  disabledRotate?: boolean
+  /** Ŀ���ļ������ͣ�wx.canvasToTempFilePath���Խ��� */
+  fileType?: string
+  /** ���ɵ�ͼƬ���� wx.canvasToTempFilePath���Խ��� */
+  quality?: number
+  /** ���õ���ͼƬ�ߴ� */
+  exportScale?: number
+  /** ͼƬԴ·�� */
+  imgSrc?: string
+  /** ͼƬ����rpx�� */
+  imgWidth?: string | number
+  /** ͼƬ�ߣ�rpx�� */
+  imgHeight?: string | number
+  /** ������� */
+  maxScale?: number
+  /** �ü�����߱ȣ���ʽΪ width:height */
+  aspectRatio?: string
+}
+
+/**
+ * �ü�����ӿ�
+ */
+interface CropResult {
+  tempFilePath: string
+  width: number
+  height: number
+}
+
+/**
+ * ͼƬ�ü�����¼��ӿ�
+ */
+interface WdImgCropperEmits {
+  /** ͼƬ�������ʱ���� */
+  imgloaded: [res: any]
+  /** ͼƬ����ʧ��ʱ���� */
+  imgloaderror: [err: any]
+  /** ȡ���ü�ʱ���� */
+  cancel: []
+  /** ȷ�ϲü�ʱ���� */
+  confirm: [result: CropResult]
+  /** ����modelValue */
+  'update:modelValue': [value: boolean]
+}
+
+/**
+ * ͼƬ�ü������¶�����ӿ�
+ */
+interface WdImgCropperExpose {
+  /** ��ʼ��ͼƬ�Ĵ�С�ͽǶ��Լ����� */
+  resetImg: () => void
+  /** ������ת�Ƕ� */
+  setRoate: (angle: number) => void
+}
+
+// ʹ�� withDefaults ����������Ժ�Ĭ��ֵ
+const props = withDefaults(defineProps<WdImgCropperProps>(), {
+  customStyle: '',
+  customClass: '',
+  modelValue: false,
+  disabledRotate: false,
+  fileType: 'png',
+  quality: 1,
+  exportScale: 2,
+  imgSrc: '',
+  imgWidth: '',
+  imgHeight: '',
+  maxScale: 3,
+  aspectRatio: '1:1',
+})
+
+// ��������¼�
+const emit = defineEmits<WdImgCropperEmits>()
+
+// ��ȡ��ǰ���ʵ��
+const { proxy } = getCurrentInstance()!
+
+// ��Ӧʽ����
+const canvasId = ref<string>(`cropper${uuid()}`) // canvas �����Ψһ��ʶ��
+const imgAngle = ref<number>(0) // ��ת�Ƕ�
+const isAnimation = ref<boolean>(false) // �Ƿ�������
+
+// �ü���Ŀ��ߣ�rpx��
+const picWidth = ref<number>(0)
+const picHeight = ref<number>(0)
+const cutWidth = ref<number>(0)
+const cutHeight = ref<number>(0)
+const offset = ref<number>(40)
+
+// �ü���ľඥ����
+const cutLeft = ref<number>(0)
+const cutTop = ref<number>(0)
+
+// canvas���ճ�����ߣ�rpx��
+const canvasWidth = ref<string | number>('')
+const canvasHeight = ref<string | number>('')
+const canvasScale = ref<number>(2)
+
+// ��ǰ���Ŵ�С
+const imgScale = ref<number>(1)
+
+// �����ü���ռ��
+const TOP_PERCENT = 0.85
+// ͼƬ����������ľ��루rpx��
+const imgLeft = ref<number>(pxToRpx(uni.getSystemInfoSync().windowWidth / 2))
+const imgTop = ref<number>(pxToRpx((uni.getSystemInfoSync().windowHeight / 2) * TOP_PERCENT))
+
+// �Ƿ��ƶ������� ͬʱ���Ʊ�����ɫ�Ƿ����
+const IS_TOUCH_END = ref<boolean>(true)
+
+/**
+ * ���㰴ť��ʽ
+ */
+const buttonStyle = computed<string>(() => {
+  const style: UTSJSONObject = {
+    position: 'absolute',
+    right: 0,
+    width: addUnit(112), // 56px = 112rpx
+    'border-radius': addUnit(32), // 16px = 32rpx
+    'font-size': addUnit(32), // 16px = 32rpx
+  }
+  return objToStyle(style)
+})
+
+/**
+ * ����ͼƬ��ʽ
+ */
+const imageStyle = computed<string>(() => {
+  const style: UTSJSONObject = {
+    width: picWidth.value ? addUnit(picWidth.value) : 'auto',
+    height: picHeight.value ? addUnit(picHeight.value) : 'auto',
+    transform: `translate(${addUnit(imgLeft.value - picWidth.value / 2)}, ${addUnit(imgTop.value - picHeight.value / 2)}) scale(${
+      imgScale.value
+    }) rotate(${imgAngle.value}deg)`,
+    'transition-duration': `${isAnimation.value ? 0.4 : 0}s`,
+  }
+  return objToStyle(style)
+})
+
+/**
+ * ��ʼ��ͼƬ�Ĵ�С�ͽǶ��Լ�����
+ */
+const resetImg = () => {
+  const { windowHeight, windowWidth } = uni.getSystemInfoSync()
+  imgScale.value = 1
+  imgAngle.value = 0
+  imgLeft.value = pxToRpx(windowWidth / 2)
+  imgTop.value = pxToRpx((windowHeight / 2) * TOP_PERCENT)
+}
+
+/**
+ * ������ת�Ƕ�
+ * @param angle �Ƕ�
+ */
+const setRoate = (angle: number) => {
+  if (!angle || props.disabledRotate) return
+  imgAngle.value = angle
+  // TODO: ���¼������ű���
+  console.log('[ImgCropper] TODO: ������ת������ű���')
+}
+
+/**
+ * {ͼƬ��} ��ʼ�϶�
+ * @param event �����¼�
+ */
+const handleImgTouchStart = (event: any) => {
+  IS_TOUCH_END.value = false
+  // TODO: ʵ�ִ�����ʼ�߼�
+  console.log('[ImgCropper] TODO: ����������ʼ')
+}
+
+/**
+ * {ͼƬ��} �϶���
+ * @param event �����¼�
+ */
+const handleImgTouchMove = (event: any) => {
+  if (IS_TOUCH_END.value) return
+  // TODO: ʵ���϶��������߼�
+  console.log('[ImgCropper] TODO: ���������ƶ�')
+}
+
+/**
+ * {ͼƬ��} �϶�����
+ */
+const handleImgTouchEnd = () => {
+  IS_TOUCH_END.value = true
+}
+
+/**
+ * ͼƬ�Ѽ������
+ * @param res ���ؽ��
+ */
+const handleImgLoaded = (res: any) => {
+  emit('imgloaded', res)
+  // TODO: ����ͼƬ��Ϣ����ʼ���ü���
+  console.log('[ImgCropper] TODO: ����ͼƬ�������')
+}
+
+/**
+ * ͼƬ����ʧ��
+ * @param err ������Ϣ
+ */
+const handleImgLoadError = (err: any) => {
+  emit('imgloaderror', err)
+}
+
+/**
+ * ��תͼƬ
+ */
+const handleRotate = () => {
+  setRoate(imgAngle.value - 90)
+}
+
+/**
+ * ȡ���ü�ͼƬ
+ */
+const handleCancel = () => {
+  emit('cancel')
+  emit('update:modelValue', false)
+}
+
+/**
+ * ��ɲü�
+ */
+const handleConfirm = () => {
+  // TODO: ʵ��Canvas���ƺ͵���
+  console.log('[ImgCropper] TODO: �����ü����ͼƬ')
+
+  const result: CropResult = {
+    tempFilePath: '',
+    width: 0,
+    height: 0,
+  }
+  emit('confirm', result)
+  emit('update:modelValue', false)
+}
+
+/**
+ * ��ֹ�����ƶ��¼�ð��
+ */
+const preventTouchMove = () => {}
+
+/**
+ * ����modelValue�仯
+ */
+watch(
+  () => props.modelValue,
+  (newValue: boolean) => {
+    if (newValue) {
+      const info = uni.getSystemInfoSync()
+
+      // ����aspectRatio����ü���ߴ磨rpx��
+      const [widthRatio, heightRatio] = props.aspectRatio.split(':').map(Number)
+      const tempCutWidth = pxToRpx(info.windowWidth) - offset.value * 2
+      const tempCutHeight = (tempCutWidth * heightRatio) / widthRatio
+
+      cutWidth.value = tempCutWidth
+      cutHeight.value = tempCutHeight
+      cutTop.value = (pxToRpx(info.windowHeight) * TOP_PERCENT - tempCutHeight) / 2
+      cutLeft.value = offset.value
+
+      canvasScale.value = props.exportScale
+      canvasHeight.value = tempCutHeight
+      canvasWidth.value = tempCutWidth
+
+      // TODO: ��ʼ��canvas�ͼ���ͼƬ
+      console.log('[ImgCropper] TODO: ��ʼ��Canvas�ͼ���ͼƬ')
+    } else {
+      resetImg()
+    }
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+/**
+ * ����imgAngle�仯
+ */
+watch(
+  () => imgAngle.value,
+  (newValue: number) => {
+    if (newValue % 90) {
+      imgAngle.value = Math.round(newValue / 90) * 90
+    }
+  },
+  {
+    deep: true,
+    immediate: true,
+  },
+)
+
+// ��¶�������
+defineExpose<WdImgCropperExpose>({
+  setRoate,
+  resetImg,
+})
+</script>
+
+<style lang="scss">
+// �����ⲿ��ʽ�ļ�
+@import './../common/abstracts/_mixin.scss';
+@import './../common/abstracts/variable.scss';
+
+// ͼƬ�ü������ʽ
+@include b(img-cropper) {
+  background: rgba(0, 0, 0, 1);
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 100;
+
+  // �ü��������
+  @include e(wrapper) {
+    position: relative;
+    background: rgba(0, 0, 0, 0.45);
+  }
+
+  @include e(cut) {
+    z-index: 9;
+    position: absolute;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    pointer-events: none;
+
+    .wd-img-cropper__cut--top,
+    .wd-img-cropper__cut--bottom,
+    .wd-img-cropper__cut--left,
+    .wd-img-cropper__cut--right {
+      // �϶��б����ɲ�Ϊ0 �϶�����Ϊ0.85
+      background-color: rgba(0, 0, 0, 0.85);
+      transition: background 0.2s;
+
+      @include when(hightlight) {
+        background-color: rgba(0, 0, 0, 0);
+      }
+    }
+
+    .wd-img-cropper__cut--bottom,
+    .wd-img-cropper__cut--right {
+      flex: auto;
+    }
+
+    @include m(middle) {
+      display: flex;
+    }
+
+    @include m(body) {
+      // ����Ҫ�仯�����С��֧�ֿ��ƴ���Ĵ�С�������·����ж�Ӧ��չʾ
+      background-color: transparent;
+      position: relative;
+
+      // ��ѡ��Ĵ������ⲿ��Ե�� - ʹ����ʵԪ�����::before
+      .is-border {
+        border: 1px solid #fff;
+        width: calc(200% - 1px);
+        height: calc(200% - 1px);
+        position: absolute;
+        transform: scale(0.5) translate(-1px, -1px);
+        top: -50%;
+        left: -50%;
+      }
+
+      // �����Խǳߴ�
+      $border-size: 4rpx;
+
+      // ��ѡ����ĸ��� - ʹ����ʵԪ�����::before��::after
+      .is-left-top,
+      .is-left-bottom,
+      .is-right-top,
+      .is-right-bottom {
+        position: relative;
+
+        .corner-v {
+          position: absolute;
+          width: $border-size;
+          height: 40rpx;
+          background-color: #fff;
+        }
+
+        .corner-h {
+          position: absolute;
+          width: 40rpx;
+          height: $border-size;
+          background-color: #fff;
+        }
+      }
+
+      .is-left-top {
+        .corner-v,
+        .corner-h {
+          left: -$border-size;
+          top: -$border-size;
+        }
+      }
+
+      .is-left-bottom {
+        .corner-v,
+        .corner-h {
+          left: -$border-size;
+          bottom: -$border-size;
+        }
+      }
+
+      .is-right-top {
+        .corner-v,
+        .corner-h {
+          right: -$border-size;
+          top: -$border-size;
+        }
+      }
+
+      .is-right-bottom {
+        .corner-v,
+        .corner-h {
+          right: -$border-size;
+          bottom: -$border-size;
+        }
+      }
+
+      // �ڲ�������
+      .is-gridlines-x,
+      .is-gridlines-y {
+        width: 100%;
+        height: 100%;
+        position: absolute;
+        left: 0;
+        top: 0;
+        display: flex;
+      }
+
+      .is-gridlines-x {
+        justify-content: center;
+
+        .grid-line-v {
+          display: flex;
+          width: 66.66%;
+          height: 200%;
+          border: 1px solid #fff;
+          border-top: none;
+          border-bottom: none;
+          transform: scale(0.5) translate(0, -50%);
+        }
+      }
+
+      // �ڲ������� - y��
+      .is-gridlines-y {
+        align-items: center;
+
+        .grid-line-h {
+          flex-shrink: 0;
+          display: flex;
+          width: 200%;
+          height: 66.66%;
+          border: 1px solid #fff;
+          border-left: none;
+          border-right: none;
+          transform: scale(0.5) translate(-50%, 0);
+        }
+      }
+    }
+  }
+
+  @include e(img) {
+    z-index: 2;
+    top: 0;
+    left: 0;
+    position: absolute;
+    border: none;
+    width: 100%;
+    backface-visibility: hidden;
+    transform-origin: center;
+  }
+
+  @include e(canvas) {
+    position: fixed;
+    background: white;
+    width: 300rpx;
+    height: 300rpx;
+    z-index: 10;
+    top: -200%;
+    pointer-events: none;
+  }
+
+  @include e(footer) {
+    position: fixed;
+    z-index: 10;
+    bottom: 20rpx;
+    width: 100%;
+    height: 15vh;
+    text-align: center;
+
+    @include m(button) {
+      position: relative;
+      text-align: left;
+      margin: 0 40rpx;
+      padding-top: 4vh;
+      box-sizing: border-box;
+
+      .is-cancel {
+        display: flex;
+        color: #fff;
+        font-size: 32rpx;
+      }
+
+      .is-confirm {
+        position: absolute;
+        right: 0;
+        width: 112rpx;
+        border-radius: 32rpx;
+        font-size: 32rpx;
+      }
+    }
+  }
+
+  .wd-img-cropper__rotate {
+    font-size: $-img-cropper-icon-size;
+    color: $-img-cropper-icon-color;
+  }
+}
+</style>

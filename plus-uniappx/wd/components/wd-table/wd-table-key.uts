@@ -1,0 +1,114 @@
+/**
+ * 表格容器提供的数据接口 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异:
+ * - 移除 InjectionKey 泛型(UTS 不支持 Symbol/InjectionKey)
+ * - 改用字符串 key + type 定义
+ * - TableColumn/AlignType/SortDirection 在此文件统一定义(不从 .uvue export)
+ * - 子组件管理通过 ChildManager 模式实现
+ */
+
+/**
+ * 对齐方式类型
+ */
+export type AlignType = string
+
+/**
+ * 排序方向类型
+ * 0: 不排序, 1: 升序, -1: 降序
+ */
+export type SortDirection = number
+
+/**
+ * 表格列配置接口
+ */
+export type TableColumn = {
+  /** 列对应字段 */
+  prop : string
+  /** 列对应字段标题 */
+  label : string
+  /** 列宽度 */
+  width ?: string | number
+  /** 是否开启列排序 */
+  sortable ?: boolean
+  /** 列的对齐方式 */
+  align ?: string
+  /** 列的排序方向 */
+  sortDirection ?: number
+  /** 是否固定列 */
+  fixed ?: boolean
+  /** 自定义渲染函数 */
+  render ?: ((row : UTSJSONObject, index : number) => string) | null
+  /** 自定义插槽名称 */
+  slotName ?: string
+  /** 是否使用插槽 */
+  useSlot ?: boolean
+}
+
+/**
+ * 表格列子组件信息(用于子组件模式)
+ */
+export type TableColChild = {
+  /** 列对应字段 */
+  prop : string
+  /** 列对应字段标题 */
+  label : string
+  /** 列宽度 */
+  width : string | number
+  /** 是否开启列排序 */
+  sortable : boolean
+  /** 是否固定本列 */
+  fixed : boolean
+  /** 列的对齐方式 */
+  align : string
+  /** 排序方向 */
+  sortDirection : number
+  /** 子组件 UID */
+  uid : number
+}
+
+/**
+ * 表格状态
+ */
+export type TableState = {
+  scrollLeft : number
+}
+
+/**
+ * 表格属性(业务需要的部分)
+ */
+export type TableProps = {
+  data : UTSJSONObject[]
+  border : boolean
+  stripe : boolean
+  rowHeight : string | number
+  ellipsis : boolean
+  index : boolean | UTSJSONObject
+}
+
+/**
+ * 表格容器 Provide 接口
+ */
+export type TableProvide = {
+  /** 子组件 UID 列表 */
+  childUids : number[]
+  /** 注册子组件 */
+  addChild : (uid : number, childInfo : TableColChild) => void
+  /** 注销子组件 */
+  removeChild : (uid : number) => void
+  /** 状态 */
+  state : TableState
+  /** 属性 */
+  props : TableProps
+  /** 行点击回调 */
+  rowClick : (index : number) => void
+  /** 判断是否最后一个固定元素 */
+  getIsLastFixed : (column : TableColChild) => boolean
+  /** 获取固定列样式 */
+  getFixedStyle : (columnIndex : number, style : Map<string, string>) => Map<string, string>
+}
+
+/**
+ * 表格容器注入键(字符串 key)
+ */
+export const TABLE_KEY = 'wd-table'

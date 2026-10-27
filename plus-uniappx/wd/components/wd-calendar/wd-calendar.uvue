@@ -1,0 +1,456 @@
+<!--
+Calendar 日历选择器
+UniApp X 简化版本 - 从 plus-app/wd/components/wd-calendar/wd-calendar.vue 迁移
+
+迁移说明:
+1. .vue → .uvue, <script lang="ts"> → <script lang="uts">
+2. 移除 defineOptions
+3. 移除 ComponentPublicInstance 类型
+4. 简化复杂逻辑:仅保留基础日期选择
+5. Union literal 类型 → string
+6. useCell/useParent/useTranslate → 简化或移除
+7. 移除 dayjs,使用原生 Date 格式化
+8. 移除表单集成(FORM_KEY)
+9. :deep() → 直接类选择器
+
+当前版本为简化骨架,完整功能需要:
+1. 完整的 wd-calendar-view 实现
+2. wd-action-sheet 弹窗
+3. wd-tabs 类型切换
+4. 快捷选项功能
+-->
+<template>
+  <view :class="`wd-calendar ${customClass}`">
+    <view v-if="withCell" class="wd-calendar__field" @click="open">
+      <slot v-if="$slots.default" />
+      <view v-else :class="`wd-calendar__cell ${disabled ? 'is-disabled' : ''} ${readonly ? 'is-readonly' : ''}`">
+        <view v-if="label" class="wd-calendar__label">
+          {{ label }}
+        </view>
+        <view class="wd-calendar__body">
+          <view class="wd-calendar__value-wraper">
+            <view :class="`wd-calendar__value ${showValue ? '' : 'wd-calendar__value--placeholder'}`">
+              {{ showValue || placeholder || '请选择' }}
+            </view>
+            <view v-if="!disabled && !readonly" class="wd-calendar__arrow">
+              <!-- 简化版暂无图标 -->
+              <text>→</text>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 简化版:使用普通弹窗替代 wd-action-sheet -->
+    <view v-if="pickerShow" class="wd-calendar__popup" @click.self="close">
+      <view class="wd-calendar__popup-content">
+        <view class="wd-calendar__header">
+          <view class="wd-calendar__title">{{ title || '选择日期' }}</view>
+          <view class="wd-calendar__close" @click="close">✕</view>
+        </view>
+
+        <view class="wd-calendar__view">
+          <wd-calendar-view
+            v-if="inited"
+            ref="calendarView"
+            v-model="calendarValue"
+            :type="currentType"
+            :min-date="minDate"
+            :max-date="maxDate"
+            :first-day-of-week="firstDayOfWeek"
+            :panel-height="panelHeight"
+            :max-range="maxRange"
+            :range-prompt="rangePrompt"
+            :allow-same-day="allowSameDay"
+            :default-time="defaultTime"
+            :hide-second="hideSecond"
+            :show-panel-title="true"
+            :immediate-change="immediateChange"
+            @change="handleChange"
+          />
+        </view>
+
+        <view v-if="showConfirm" class="wd-calendar__confirm">
+          <view class="wd-calendar__confirm-btn" @click="handleConfirm">
+            {{ confirmText || '确定' }}
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, ref, watch } from 'vue'
+import { deepClone } from '../common/util'
+import type { CalendarType } from '../wd-calendar-view/wd-calendar-utils'
+
+/**
+ * 日历组件属性接口
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+
+  /** 选中值,为13位时间戳或时间戳数组 */
+  modelValue : any
+  /** 日期类型 */
+  type ?: CalendarType
+  /** 最小日期,为13位时间戳 */
+  minDate ?: number
+  /** 最大日期,为13位时间戳 */
+  maxDate ?: number
+  /** 周起始天 */
+  firstDayOfWeek ?: number
+  /** type为范围选择时有效,最大日期范围 */
+  maxRange ?: number
+  /** type为范围选择时有效,选择超出最大日期范围时的错误提示文案 */
+  rangePrompt ?: string
+  /** type为范围选择时有效,是否允许选择同一天 */
+  allowSameDay ?: boolean
+  /** 选中日期所使用的当日内具体时刻 */
+  defaultTime ?: string | string[]
+  /** type为'datetime'或'datetimerange'时有效,是否不展示秒修改 */
+  hideSecond ?: boolean
+
+  /** 选择器左侧文案 */
+  label ?: string
+  /** 禁用 */
+  disabled ?: boolean
+  /** 只读 */
+  readonly ?: boolean
+  /** 选择器占位符 */
+  placeholder ?: string
+  /** 弹出层标题 */
+  title ?: string
+
+  /** 弹框层级 */
+  zIndex ?: number
+  /** 是否显示确定按钮 */
+  showConfirm ?: boolean
+  /** 确定按钮文字 */
+  confirmText ?: string
+  /** 是否在手指松开时立即触发picker-view的change事件 */
+  immediateChange ?: boolean
+  /** 是否使用内置单元格,默认为true */
+  withCell ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  type: 'date',
+  minDate: () : number => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth() - 6, now.getDate()).getTime()
+  },
+  maxDate: () : number => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth() + 6, now.getDate(), 23, 59, 59).getTime()
+  },
+  firstDayOfWeek: 0,
+  allowSameDay: false,
+  hideSecond: false,
+  disabled: false,
+  readonly: false,
+  zIndex: 100,
+  showConfirm: true,
+  immediateChange: false,
+  withCell: true,
+})
+
+/**
+ * 日历组件事件接口
+ */
+const emit = defineEmits<{
+  (e : 'cancel') : void
+  (e : 'change', payload : { value : any }) : void
+  (e : 'update:modelValue', value : any) : void
+  (e : 'confirm', payload : { value : any; type : CalendarType }) : void
+  (e : 'open') : void
+}>()
+
+/**
+ * 日历组件暴露的方法接口
+ */
+export interface WdCalendarExpose {
+  /** 关闭时间选择器弹窗 */
+  close : () => void
+  /** 打开时间选择器弹窗 */
+  open : () => void
+}
+
+// 响应式数据
+const pickerShow = ref<boolean>(false)
+const calendarValue = ref<any>(null)
+const lastCalendarValue = ref<any>(null)
+const panelHeight = ref<number>(676)
+const currentType = ref<CalendarType>('date')
+const inited = ref<boolean>(false)
+
+// 模板引用
+const calendarView = ref()
+
+/**
+ * 默认显示格式化函数
+ */
+const defaultDisplayFormat = (value : any, type : CalendarType) : string => {
+  if (value == null) return ''
+
+  const formatDate = (timestamp : number) : string => {
+    const d = new Date(timestamp)
+    const year = d.getFullYear()
+    const month = d.getMonth() + 1
+    const day = d.getDate()
+    return `${year}-${month < 10 ? '0' + month : month}-${day < 10 ? '0' + day : day}`
+  }
+
+  if (type === 'date') {
+    return formatDate(value as number)
+  } else if (type === 'daterange') {
+    if (Array.isArray(value)) {
+      const arr = value as any[]
+      const start = arr[0] != null ? formatDate(arr[0]) : '开始日期'
+      const end = arr[1] != null ? formatDate(arr[1]) : '结束日期'
+      return `${start} 至 ${end}`
+    }
+  }
+
+  return String(value)
+}
+
+/**
+ * 计算显示值
+ */
+const showValue = computed(() : string => {
+  if (props.modelValue != null) {
+    if (Array.isArray(props.modelValue) && (props.modelValue as any[]).length > 0) {
+      return defaultDisplayFormat(props.modelValue, currentType.value)
+    } else if (!Array.isArray(props.modelValue)) {
+      return defaultDisplayFormat(props.modelValue, currentType.value)
+    }
+  }
+  return ''
+})
+
+/**
+ * 监听modelValue变化
+ */
+watch(
+  () => props.modelValue,
+  (val : any) => {
+    calendarValue.value = deepClone(val)
+  },
+  { immediate: true }
+)
+
+/**
+ * 监听type属性变化
+ */
+watch(
+  () => props.type,
+  (newValue : CalendarType) => {
+    panelHeight.value = props.showConfirm ? 676 : 800
+    currentType.value = newValue
+  },
+  { deep: true, immediate: true }
+)
+
+/**
+ * 监听showConfirm属性变化
+ */
+watch(
+  () => props.showConfirm,
+  (val : boolean) => {
+    panelHeight.value = val ? 676 : 800
+  },
+  { deep: true, immediate: true }
+)
+
+/**
+ * 打开日历选择器
+ */
+const open = () => {
+  if (props.disabled || props.readonly) return
+
+  inited.value = true
+  pickerShow.value = true
+  lastCalendarValue.value = deepClone(calendarValue.value)
+  emit('open')
+}
+
+/**
+ * 关闭日历选择器
+ */
+const close = () => {
+  pickerShow.value = false
+  setTimeout(() => {
+    calendarValue.value = deepClone(lastCalendarValue.value)
+  }, 250)
+  emit('cancel')
+}
+
+/**
+ * 执行确认操作
+ */
+const onConfirm = () => {
+  pickerShow.value = false
+  emit('update:modelValue', calendarValue.value)
+  emit('confirm', {
+    value: calendarValue.value,
+    type: currentType.value,
+  })
+}
+
+/**
+ * 处理确认操作
+ */
+const handleConfirm = () => {
+  onConfirm()
+}
+
+/**
+ * 处理日历值变化
+ */
+const handleChange = (payload : { value : any }) => {
+  calendarValue.value = deepClone(payload.value)
+  emit('change', { value: payload.value })
+
+  if (!props.showConfirm) {
+    handleConfirm()
+  }
+}
+
+// 暴露组件方法
+defineExpose<WdCalendarExpose>({
+  close,
+  open,
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+// 日历组件样式
+@include b(calendar) {
+  @include e(cell) {
+    position: relative;
+    display: flex;
+    padding: 20rpx 30rpx;
+    align-items: flex-start;
+    background-color: $-color-white;
+
+    @include when(disabled) {
+      .wd-calendar__value {
+        color: $-color-gray;
+      }
+    }
+
+    @include when(readonly) {
+      .wd-calendar__arrow {
+        display: none;
+      }
+    }
+  }
+
+  @include e(label) {
+    position: relative;
+    width: 200rpx;
+    margin-right: 24rpx;
+    color: $-color-black;
+  }
+
+  @include e(value-wraper) {
+    display: flex;
+    align-items: center;
+  }
+
+  @include e(value) {
+    flex: 1;
+    margin-right: 20rpx;
+    color: $-color-black;
+
+    @include m(placeholder) {
+      color: $-color-gray;
+    }
+  }
+
+  @include e(body) {
+    flex: 1;
+  }
+
+  @include e(arrow) {
+    display: flex;
+    font-size: 28rpx;
+    color: $-color-gray;
+  }
+
+  // 弹窗样式(简化版)
+  @include e(popup) {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+  }
+
+  @include e(popup-content) {
+    background: $-color-white;
+    border-radius: 32rpx 32rpx 0 0;
+    max-height: 80%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  @include e(header) {
+    position: relative;
+    overflow: hidden;
+    padding: 32rpx 0;
+  }
+
+  @include e(title) {
+    color: $-color-black;
+    text-align: center;
+    font-size: 32rpx;
+    font-weight: bold;
+  }
+
+  @include e(close) {
+    position: absolute;
+    top: 32rpx;
+    right: 32rpx;
+    font-size: 40rpx;
+    color: $-color-gray;
+    width: 48rpx;
+    height: 48rpx;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  @include e(view) {
+    flex: 1;
+    overflow: hidden;
+  }
+
+  @include e(confirm) {
+    padding: 24rpx 50rpx 28rpx;
+  }
+
+  @include e(confirm-btn) {
+    height: 88rpx;
+    line-height: 88rpx;
+    text-align: center;
+    background: $-color-theme;
+    color: $-color-white;
+    border-radius: 8rpx;
+    font-size: 32rpx;
+  }
+}
+</style>

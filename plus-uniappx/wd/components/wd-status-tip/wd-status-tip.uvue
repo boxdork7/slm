@@ -1,0 +1,126 @@
+<!--
+StatusTip 缺省提示 一般用于兜底占位展示。
+
+UniApp X 版本
+- CSSProperties 改为手动拼接 style 字符串
+- edeep mixin 改为普通 e（UniApp X 无 :deep()）
+- 移除 wdImg 手动导入（easycom 自动注册）
+- 移除 defineOptions
+-->
+<template>
+  <view :class="`wd-status-tip ${customClass}`" :style="customStyle">
+    <slot v-if="$slots.image" name="image" />
+    <wd-img
+      v-else-if="imgUrl != ''"
+      :mode="imageMode"
+      :src="imgUrl"
+      custom-class="wd-status-tip__image"
+      :custom-style="imgStyle"
+    />
+    <view v-if="tip != ''" class="wd-status-tip__text">
+      {{ tip }}
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed } from 'vue'
+import { addUnit, isDef, isObj } from '../common/util'
+
+/**
+ * 状态提示组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 缺省图片类型，支持传入图片 URL */
+  image ?: string
+  /** 图片大小 */
+  imageSize ?: string | number
+  /** 提示文案 */
+  tip ?: string
+  /** 图片裁剪、缩放的模式 */
+  imageMode ?: string
+  /** 图片路径前缀 */
+  urlPrefix ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  image: 'network',
+  imageSize: '',
+  tip: '',
+  imageMode: 'aspectFill',
+  urlPrefix: 'https://registry.npmmirror.com/wot-design-uni-assets/*/files/',
+})
+
+/**
+ * 计算图片地址
+ */
+const imgUrl = computed(() : string => {
+  const presetImages = ['search', 'network', 'content', 'collect', 'comment', 'halo', 'message']
+
+  if (presetImages.indexOf(props.image) !== -1) {
+    return `${props.urlPrefix}${props.image}.png`
+  } else {
+    return props.image
+  }
+})
+
+/**
+ * 计算图片样式
+ */
+const imgStyle = computed(() : string => {
+  if (props.imageSize == '') return ''
+
+  const size = addUnit(props.imageSize)
+  return `height: ${size}; width: ${size};`
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+.wot-theme-dark {
+  background-color: $-dark-background2;
+
+  @include b(status-tip) {
+    @include e(text) {
+      color: $-dark-color3;
+    }
+  }
+}
+
+@include b(status-tip) {
+  padding: $-statustip-padding;
+  width: 100%;
+  margin: 0 auto;
+  color: $-statustip-color;
+  font-size: $-statustip-fs;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  /* edeep → e（UniApp X 无 :deep()，组件内部样式直接应用） */
+  @include e(image) {
+    margin: 0 auto;
+    width: 320rpx;
+    height: 320rpx;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  @include e(text) {
+    margin: 40rpx auto 0;
+    font-size: $-statustip-fs;
+    line-height: $-statustip-line-height;
+    color: $-statustip-color;
+    text-align: center;
+    overflow-wrap: break-word;
+  }
+}
+</style>

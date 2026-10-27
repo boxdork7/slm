@@ -1,0 +1,376 @@
+/** 支付方式常量 */
+export const PAYMENT_WECHAT = 'wechat'
+export const PAYMENT_ALIPAY = 'alipay'
+export const PAYMENT_BALANCE = 'balance'
+
+/** 支付状态常量 */
+export const PAYMENT_STATUS_IDLE = 'idle'
+export const PAYMENT_STATUS_LOADING = 'loading'
+export const PAYMENT_STATUS_SUCCESS = 'success'
+export const PAYMENT_STATUS_FAILED = 'failed'
+export const PAYMENT_STATUS_CANCELLED = 'cancelled'
+
+/** 交易类型常量 */
+export const TRADE_TYPE_JSAPI = 'JSAPI'
+export const TRADE_TYPE_NATIVE = 'NATIVE'
+export const TRADE_TYPE_APP = 'APP'
+export const TRADE_TYPE_H5 = 'H5'
+export const TRADE_TYPE_WAP = 'WAP'
+export const TRADE_TYPE_PAGE = 'PAGE'
+
+/** 订单查询类型 */
+export type OrderQuery = {
+	/** 订单ID */
+	id?: string | number
+
+	/** 订单编号 */
+	orderNo?: string
+
+	/** 用户ID */
+	userId?: string | number
+
+	/** 商品ID */
+	goodsId?: string | number
+
+	/** 商品名称 */
+	goodsName?: string
+
+	/** 商品图片 */
+	goodsImg?: string
+
+	/** 商品价格 */
+	price?: string
+
+	/** 购买数量 */
+	quantity?: number
+
+	/** 订单总金额 */
+	totalAmount?: string
+
+	/** 实付金额 */
+	actualAmount?: string
+
+	/** 订单状态 */
+	orderStatus?: string
+
+	/** 支付方式 */
+	paymentMethod?: string
+
+	/** 支付时间 */
+	paymentTime?: string
+
+	/** 交易流水号 */
+	transactionId?: string | number
+
+	/** 买家备注 */
+	buyerRemark?: string
+
+	/** 订单扩展信息 */
+	orderExtInfo?: string
+
+	/** 收货信息 */
+	receiverInfo?: string
+
+	/** 物流信息 */
+	shippingInfo?: string
+
+	/** 创建时间 */
+	createTime?: string
+
+	/** 分页：当前页码 */
+	pageNum?: number
+
+	/** 分页：每页数量 */
+	pageSize?: number
+
+	/** 分页：排序列 */
+	orderByColumn?: string
+
+	/** 分页：是否升序 */
+	isAsc?: string
+}
+
+/** 订单表单类型 */
+export type OrderBo = {
+	/** 订单ID */
+	id?: string | number
+
+	/** 订单编号 */
+	orderNo?: string
+
+	/** 用户ID */
+	userId?: string | number
+
+	/** 商品ID */
+	goodsId?: string | number
+
+	/** 商品名称 */
+	goodsName?: string
+
+	/** 商品图片 */
+	goodsImg?: string
+
+	/** 商品价格 */
+	price?: string
+
+	/** 购买数量 */
+	quantity?: number
+
+	/** 订单总金额 */
+	totalAmount?: string
+
+	/** 实付金额 */
+	actualAmount?: string
+
+	/** 订单状态 */
+	orderStatus?: string
+
+	/** 支付方式 */
+	paymentMethod?: string
+
+	/** 支付时间 */
+	paymentTime?: string
+
+	/** 交易流水号 */
+	transactionId?: string | number
+
+	/** 买家备注 */
+	buyerRemark?: string
+
+	/** 订单扩展信息 */
+	orderExtInfo?: string
+
+	/** 收货信息 */
+	receiverInfo?: string
+
+	/** 物流信息 */
+	shippingInfo?: string
+
+	/** 备注 */
+	remark?: string
+}
+
+/** 订单视图类型 */
+export type OrderVo = {
+	/** 订单ID */
+	id: string | number
+
+	/** 订单编号 */
+	orderNo: string
+
+	/** 用户ID */
+	userId: string | number
+
+	/** 商品ID */
+	goodsId: string | number
+
+	/** 商品名称 */
+	goodsName: string
+
+	/** 商品图片 */
+	goodsImg: string
+
+	/** 商品价格 */
+	price: string
+
+	/** 购买数量 */
+	quantity: number
+
+	/** 订单总金额 */
+	totalAmount: string
+
+	/** 实付金额 */
+	actualAmount: string
+
+	/** 订单状态 */
+	orderStatus: string
+
+	/** 支付方式 */
+	paymentMethod: string
+
+	/** 支付时间 */
+	paymentTime: string
+
+	/** 交易流水号 */
+	transactionId: string | number
+
+	/** 买家备注 */
+	buyerRemark: string
+
+	/** 订单扩展信息 */
+	orderExtInfo: string
+
+	/** 收货信息 */
+	receiverInfo: string
+
+	/** 物流信息 */
+	shippingInfo: string
+
+	/** 创建时间 */
+	createTime: string
+
+	/** 更新时间 */
+	updateTime: string
+
+	/** 备注 */
+	remark: string
+}
+
+/** 创建订单请求类型 */
+export type CreateOrderBo = {
+	/** 商品ID */
+	goodsId: string | number
+
+	/** 商品名称 */
+	goodsName?: string
+
+	/** 商品图片 */
+	goodsImg?: string
+
+	/** 商品价格 */
+	price: string | number
+
+	/** 购买数量 */
+	quantity: number
+
+	/** 买家备注 */
+	buyerRemark?: string
+
+	/** 备注 */
+	remark?: string
+}
+
+/** 创建订单响应类型 */
+export type CreateOrderVo = {
+	/** 订单ID */
+	id: string | number
+
+	/** 订单编号 */
+	orderNo: string
+
+	/** 商品ID */
+	goodsId: string | number
+
+	/** 商品名称 */
+	goodsName: string
+
+	/** 商品图片 */
+	goodsImg?: string
+
+	/** 商品价格 */
+	price: string | number
+
+	/** 购买数量 */
+	quantity: number
+
+	/** 订单总金额 */
+	totalAmount: number
+
+	/** 订单状态 */
+	orderStatus: string
+
+	/** 订单状态名称 */
+	orderStatusName: string
+
+	/** 买家备注 */
+	buyerRemark?: string
+
+	/** 创建时间 */
+	createTime: string
+}
+
+/** 订单状态查询响应 */
+export type OrderStatusVo = {
+	/** 订单编号 */
+	orderNo: string
+
+	/** 订单状态 */
+	orderStatus: string
+
+	/** 订单状态名称 */
+	orderStatusName: string
+
+	/** 支付时间 */
+	paymentTime?: string
+
+	/** 是否已支付 */
+	isPaid: boolean
+}
+
+/** 支付请求类型 */
+export type PaymentRequest = {
+	/** 订单编号 */
+	orderNo: string
+
+	/** 支付方式 */
+	paymentMethod: string
+
+	/** 应用ID */
+	appId?: string
+
+	/** 交易类型 */
+	tradeType?: string
+
+	/** 微信openId */
+	openId?: string
+
+	/** 支付密码 */
+	payPassword?: string
+
+	/** 返回地址 */
+	returnUrl?: string
+}
+
+/** 支付响应类型 */
+export type PaymentResponse = {
+	/** 是否成功 */
+	success: boolean
+
+	/** 响应消息 */
+	message: string
+
+	/** 错误码 */
+	errorCode?: string
+
+	/** 商户订单号 */
+	outTradeNo: string
+
+	/** 原始订单号 */
+	orderNo: string
+
+	/** 支付方式 */
+	paymentMethod: string
+
+	/** 支付金额 */
+	totalAmount: number
+
+	/** 第三方交易号 */
+	transactionId?: string
+
+	/** 预支付ID */
+	prepayId?: string
+
+	/** 支付参数 */
+	payInfo?: UTSJSONObject | null
+
+	/** 二维码链接 */
+	codeUrl?: string
+
+	/** 二维码Base64 */
+	qrCodeBase64?: string
+
+	/** 支付链接 */
+	payUrl?: string
+
+	/** 支付表单 */
+	payForm?: string
+
+	/** 支付状态 */
+	tradeState?: string
+
+	/** 支付时间 */
+	payTime?: string
+
+	/** 过期时间 */
+	expireTime?: string
+}

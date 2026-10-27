@@ -1,0 +1,492 @@
+<!--
+Fab 悬浮按钮 悬浮动作按钮组件，按下可显示一组动作按钮。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type
+- 移除手动 wdButton/wdIcon/wdTransition 导入（easycom 自动注册）
+- FabType → string
+- FabPosition → string
+- FabDirection → string
+- FabGap → UTSJSONObject
+- edeep → e（UniApp X mixin）
+- :deep() → 直接类选择器
+-->
+<template>
+  <view
+    :class="`wd-fab ${customClass}`"
+    @touchmove.stop.prevent="handleTouchMove"
+    @touchstart="handleTouchStart"
+    @touchend="handleTouchEnd"
+    :style="`top: ${addUnit(top * 2)}; left: ${addUnit(left * 2)}; transition: ${attractTransition ? 'all ease 0.3s' : 'none'}; ${zIndex !== undefined ? `z-index: ${zIndex};` : ''}${customStyle}`"
+    @click.stop=""
+  >
+    <view id="trigger" @click.stop="" :style="{ visibility: inited ? 'visible' : 'hidden' }">
+      <slot v-if="$slots.trigger" name="trigger" />
+      <wd-button
+        v-else
+        custom-class="wd-fab__trigger"
+        :type="type"
+        :disabled="disabled"
+        round
+        @click="handleClick"
+      >
+        <wd-icon
+          custom-class="wd-fab__icon"
+          :name="isActive ? activeIcon : inactiveIcon"
+        />
+      </wd-button>
+    </view>
+    <wd-transition
+      v-if="expandable"
+      :enter-class="`wd-fab__transition-enter--${fabDirection}`"
+      enter-active-class="wd-fab__transition-enter-active"
+      :leave-to-class="`wd-fab__transition-leave-to--${fabDirection}`"
+      leave-active-class="wd-fab__transition-leave-active"
+      :custom-class="`wd-fab__actions wd-fab__actions--${fabDirection}`"
+      :show="isActive"
+      :duration="300"
+    >
+      <slot />
+    </wd-transition>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { getCurrentInstance, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { closeOther, pushToQueue, removeFromQueue } from '../common/clickoutside'
+import { addUnit, getRect } from '../common/util'
+import { pause } from '../../composables/useRaf'
+
+/**
+ * 悬浮按钮组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 是否激活 */
+  active ?: boolean
+  /** 类型，可选值为 default primary info success warning error */
+  type ?: string
+  /** 悬浮按钮位置 */
+  position ?: string
+  /** 悬浮按钮菜单弹出方向 */
+  direction ?: string
+  /** 是否禁用 */
+  disabled ?: boolean
+  /** 悬浮按钮未展开时的图标 */
+  inactiveIcon ?: string
+  /** 悬浮按钮展开时的图标 */
+  activeIcon ?: string
+  /** 自定义悬浮按钮层级 */
+  zIndex ?: number
+  /** 是否可拖动 */
+  draggable ?: boolean
+  /** 悬浮按钮间距配置 */
+  gap ?: UTSJSONObject
+  /** 用于控制点击时是否展开菜单 */
+  expandable ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  active: false,
+  type: 'primary',
+  position: 'right-bottom',
+  direction: 'top',
+  disabled: false,
+  inactiveIcon: 'add',
+  activeIcon: 'close',
+  zIndex: 99,
+  draggable: false,
+  gap: () : UTSJSONObject => ({} as UTSJSONObject),
+  expandable: true,
+})
+
+/** 组件事件 */
+const emit = defineEmits([
+  'update:active',
+  'click',
+])
+
+/** 响应式数据 */
+const inited = ref(false)
+const isActive = ref(false)
+const instance = getCurrentInstance()!
+
+/** 位置相关状态 */
+const top = ref<number>(0)
+const left = ref<number>(0)
+const fabDirection = ref(props.direction)
+const screenWidth = ref<number>(0)
+const screenHeight = ref<number>(0)
+const fabWidth = ref<number>(56)
+const fabHeight = ref<number>(56)
+const minTop = ref<number>(0)
+const minLeft = ref<number>(0)
+const maxTop = ref<number>(0)
+const maxLeft = ref<number>(0)
+
+/** 拖拽相关状态 */
+const touchOffsetX = ref<number>(0)
+const touchOffsetY = ref<number>(0)
+const attractTransition = ref(false)
+
+/**
+ * 监听 active 属性变化
+ */
+watch(
+  () : boolean => props.active,
+  (newValue : boolean) => {
+    isActive.value = newValue
+  },
+  { immediate: true, deep: true },
+)
+
+/**
+ * 监听内部激活状态变化
+ */
+watch(
+  () : boolean => isActive.value,
+  (newValue : boolean) => {
+    if (newValue) {
+      closeOther(instance)
+    }
+  },
+)
+
+/**
+ * 监听方向属性变化
+ */
+watch(
+  () : string => props.direction,
+  (direction : string) => {
+    fabDirection.value = direction
+  },
+)
+
+/**
+ * 初始化位置
+ */
+const initPosition = () => {
+  const pos = props.position
+  const centerY = (maxTop.value + minTop.value) / 2
+  const centerX = (maxLeft.value + minLeft.value) / 2
+
+  if (pos === 'left-top') {
+    top.value = minTop.value
+    left.value = minLeft.value
+  } else if (pos === 'right-top') {
+    top.value = minTop.value
+    left.value = maxLeft.value
+  } else if (pos === 'left-bottom') {
+    top.value = maxTop.value
+    left.value = minLeft.value
+  } else if (pos === 'right-bottom') {
+    top.value = maxTop.value
+    left.value = maxLeft.value
+  } else if (pos === 'left-center') {
+    top.value = centerY
+    left.value = minLeft.value
+  } else if (pos === 'right-center') {
+    top.value = centerY
+    left.value = maxLeft.value
+  } else if (pos === 'top-center') {
+    top.value = minTop.value
+    left.value = centerX
+  } else if (pos === 'bottom-center') {
+    top.value = maxTop.value
+    left.value = centerX
+  }
+}
+
+/**
+ * 监听位置属性变化
+ */
+watch(
+  () : string => props.position,
+  () => {
+    initPosition()
+  },
+)
+
+/**
+ * 获取边界信息
+ */
+const getBounding = async () => {
+  const sysInfo = uni.getSystemInfoSync()
+
+  try {
+    const trigerInfo = await getRect('#trigger', false, instance) as UTSJSONObject | null
+    if (trigerInfo != null) {
+      fabWidth.value = (trigerInfo['width'] as number | null) ?? 56
+      fabHeight.value = (trigerInfo['height'] as number | null) ?? 56
+    }
+  } catch (error) {
+    console.log(error)
+  }
+
+  const gapTop = (props.gap['top'] as number | null) ?? 16
+  const gapLeft = (props.gap['left'] as number | null) ?? 16
+  const gapRight = (props.gap['right'] as number | null) ?? 16
+  const gapBottom = (props.gap['bottom'] as number | null) ?? 16
+
+  /** 获取顶部状态栏和导航栏高度 */
+  const statusBarHeight = sysInfo.statusBarHeight ?? 0
+  const navBarHeight = 44
+  const topSafeHeight = statusBarHeight + navBarHeight
+
+  /** 获取底部安全区域高度 */
+  const safeAreaInsets = sysInfo.safeAreaInsets
+  const bottomSafeHeight = (safeAreaInsets != null ? safeAreaInsets!.bottom : 0) ?? 0
+  const tabBarHeight = 50
+  const bottomSafeTotal = bottomSafeHeight + tabBarHeight
+
+  screenWidth.value = sysInfo.windowWidth
+  screenHeight.value = sysInfo.windowHeight
+
+  /** 计算安全区域边界 */
+  minTop.value = Math.max(topSafeHeight, gapTop)
+  minLeft.value = gapLeft
+  maxLeft.value = screenWidth.value - fabWidth.value - gapRight
+  maxTop.value = screenHeight.value - fabHeight.value - Math.max(bottomSafeTotal, gapBottom)
+}
+
+/**
+ * 处理触摸开始事件
+ */
+const handleTouchStart = (e : TouchEvent) => {
+  if (props.draggable === false) return
+
+  const touch = e.touches[0]
+  touchOffsetX.value = touch.clientX - left.value
+  touchOffsetY.value = touch.clientY - top.value
+  attractTransition.value = false
+}
+
+/**
+ * 处理触摸移动事件
+ */
+const handleTouchMove = (e : TouchEvent) => {
+  if (props.draggable === false) return
+
+  const touch = e.touches[0]
+  let x = touch.clientX - touchOffsetX.value
+  let y = touch.clientY - touchOffsetY.value
+
+  /** 限制在可移动范围内 */
+  if (x < minLeft.value) x = minLeft.value
+  else if (x > maxLeft.value) x = maxLeft.value
+
+  if (y < minTop.value) y = minTop.value
+  else if (y > maxTop.value) y = maxTop.value
+
+  top.value = y
+  left.value = x
+}
+
+/**
+ * 处理触摸结束事件
+ */
+const handleTouchEnd = () => {
+  if (props.draggable === false) return
+
+  const screenCenterX = screenWidth.value / 2
+  const fabCenterX = left.value + fabWidth.value / 2
+  attractTransition.value = true
+
+  if (fabCenterX < screenCenterX) {
+    left.value = minLeft.value
+    fabDirection.value = 'right'
+  } else {
+    left.value = maxLeft.value
+    fabDirection.value = 'left'
+  }
+}
+
+/**
+ * 处理点击事件
+ */
+const handleClick = () => {
+  if (props.disabled) {
+    return
+  }
+
+  if (!props.expandable) {
+    emit('click')
+    return
+  }
+
+  isActive.value = !isActive.value
+  emit('update:active', isActive.value)
+}
+
+/**
+ * 展开菜单
+ */
+const open = () => {
+  isActive.value = true
+  emit('update:active', true)
+}
+
+/**
+ * 收起菜单
+ */
+const close = () => {
+  isActive.value = false
+  emit('update:active', false)
+}
+
+/**
+ * 组件挂载后的处理
+ */
+onMounted(async () => {
+  pushToQueue(instance)
+  await pause()
+  await getBounding()
+  initPosition()
+  inited.value = true
+})
+
+/**
+ * 组件卸载前的清理
+ */
+onBeforeUnmount(() => {
+  removeFromQueue(instance)
+})
+
+/** 暴露组件方法 */
+defineExpose({
+  open,
+  close,
+})
+</script>
+
+<style lang="scss">
+@import '../../common/abstracts/variable';
+@import '../../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(fab) {
+  }
+}
+
+/* 悬浮按钮主体样式 */
+@include b(fab) {
+  position: fixed;
+  z-index: 99;
+
+  /* 触发器按钮样式 */
+  @include e(trigger) {
+    min-width: auto !important;
+    box-sizing: border-box;
+    width: $-fab-trigger-width !important;
+    height: $-fab-trigger-height !important;
+    border-radius: calc($-fab-trigger-height / 2) !important;
+  }
+
+  /* 动作菜单容器样式 */
+  @include e(actions) {
+    position: absolute;
+    z-index: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: $-fab-actions-padding 0;
+
+    /* 左右方向样式 */
+    @include m(left) {
+      height: 100%;
+      top: 0;
+      padding: 0 $-fab-actions-padding;
+      flex-direction: row-reverse;
+      right: 100%;
+    }
+
+    @include m(right) {
+      height: 100%;
+      top: 0;
+      padding: 0 $-fab-actions-padding;
+      flex-direction: row;
+      left: 100%;
+    }
+
+    /* 上下方向样式 */
+    @include m(top) {
+      width: 100%;
+      left: 0;
+      flex-direction: column-reverse;
+      bottom: 100%;
+    }
+
+    @include m(bottom) {
+      width: 100%;
+      left: 0;
+      flex-direction: column;
+      top: 100%;
+    }
+  }
+
+  /* 过渡动画样式 */
+  @include e(transition-enter-active) {
+    transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  @include e(transition-leave-active) {
+    transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  /* 进入动画初始状态 */
+  @include e(transition-enter) {
+    @include m(top) {
+      opacity: 0;
+      transform: translateY(40px);
+    }
+
+    @include m(bottom) {
+      opacity: 0;
+      transform: translateY(-40px);
+    }
+
+    @include m(left) {
+      opacity: 0;
+      transform: translateX(40px);
+    }
+
+    @include m(right) {
+      opacity: 0;
+      transform: translateX(-40px);
+    }
+  }
+
+  /* 离开动画结束状态 */
+  @include e(transition-leave-to) {
+    @include m(top) {
+      opacity: 0;
+      transform: translateY(40px);
+    }
+
+    @include m(bottom) {
+      opacity: 0;
+      transform: translateY(-40px);
+    }
+
+    @include m(left) {
+      opacity: 0;
+      transform: translateX(40px);
+    }
+
+    @include m(right) {
+      opacity: 0;
+      transform: translateX(-40px);
+    }
+  }
+
+  /* 图标样式 */
+  @include e(icon) {
+    font-size: $-fab-icon-fs;
+  }
+}
+</style>

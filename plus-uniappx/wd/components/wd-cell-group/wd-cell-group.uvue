@@ -1,0 +1,169 @@
+<!--
+Cell 单元格分组。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- useChildren(CELL_GROUP_KEY) → createChildManager() + provide() 模式
+- CELL_GROUP_KEY 从 wd-cell-group-key.ts 改为直接在 useCell.uts 中定义
+- halfPixelBorder('bottom', 0, $-dark-border-color) → border: 1rpx solid
+- halfPixelBorder → border: 1rpx solid
+-->
+<template>
+  <view
+    :class="`wd-cell-group ${border ? 'is-border' : ''} ${customClass}`"
+    :style="customStyle"
+  >
+    <view v-if="title || value || useSlot" class="wd-cell-group__title">
+      <!-- 左侧标题 -->
+      <view class="wd-cell-group__left">
+        <text v-if="!$slots.title">
+          {{ title }}
+        </text>
+        <slot v-else name="title" />
+      </view>
+      <!-- 右侧标题 -->
+      <view class="wd-cell-group__right">
+        <text v-if="!$slots.value">
+          {{ value }}
+        </text>
+        <slot v-else name="value" />
+      </view>
+    </view>
+    <view class="wd-cell-group__body">
+      <slot />
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { provide } from 'vue'
+import { createChildManager } from '../../composables/useChildren'
+import { CELL_GROUP_KEY, type CellGroupProvide } from '../../composables/useCell'
+
+/**
+ * Cell Group 组件属性接口
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+
+  /** 分组标题 */
+  title ?: string
+  /** 分组右侧内容 */
+  value ?: string
+  /** 分组启用插槽 */
+  useSlot ?: boolean
+  /** 是否展示边框线 */
+  border ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  useSlot: false,
+  border: false,
+})
+
+/* 创建子组件管理器 */
+const manager = createChildManager()
+
+/* 提供给子组件 */
+provide<CellGroupProvide>(CELL_GROUP_KEY, {
+  childUids: manager.childUids,
+  addChild: manager.addChild,
+  removeChild: manager.removeChild,
+  border: props.border,
+})
+</script>
+
+<style lang="scss">
+// 引入外部样式文件
+@import '../common/abstracts/variable.scss';
+@import '../common/abstracts/mixin.scss';
+
+// 暗色主题样式
+.wot-theme-dark {
+  @include b(cell-group) {
+    background-color: $-dark-background2;
+
+    @include when(border) {
+      .wd-cell-group__title {
+        /* halfPixelBorder → border: 1rpx solid */
+        position: relative;
+        &::after {
+          content: '';
+          position: absolute;
+          left: 0;
+          bottom: 0;
+          right: 0;
+          height: 1rpx;
+          background-color: $-dark-border-color;
+          transform: scaleY(0.5);
+          transform-origin: 0 100%;
+        }
+      }
+    }
+
+    @include e(title) {
+      background: $-dark-background2;
+      color: $-dark-color;
+    }
+
+    @include e(right) {
+      color: $-dark-color3;
+    }
+
+    @include e(body) {
+      background: $-dark-background2;
+    }
+  }
+}
+
+// Cell Group 主体样式
+@include b(cell-group) {
+  background-color: $-color-white;
+
+  @include when(border) {
+    .wd-cell-group__title {
+      /* halfPixelBorder → border + ::after */
+      position: relative;
+      &::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        right: 0;
+        height: 1rpx;
+        background-color: #ebedf0;
+        transform: scaleY(0.5);
+        transform-origin: 0 100%;
+      }
+    }
+  }
+
+  // 标题区域样式
+  @include e(title) {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    padding: $-cell-group-padding;
+    background: $-color-white;
+    font-size: $-cell-group-title-fs;
+    color: $-cell-group-title-color;
+    font-weight: $-fw-medium;
+    line-height: 1.43;
+  }
+
+  // 右侧内容样式
+  @include e(right) {
+    color: $-cell-group-value-color;
+    font-size: $-cell-group-value-fs;
+  }
+
+  // 主体内容样式
+  @include e(body) {
+    background: $-color-white;
+  }
+}
+</style>

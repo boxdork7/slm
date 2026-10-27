@@ -1,0 +1,345 @@
+<!--
+TabbarItem 标签栏项
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- WdTabbarItemProps 移到 wd-tabbar-key.uts
+- InjectionKey<TabbarProvide> → 字符串 key + inject
+- useParent → inject + genChildUid + onMounted/onUnmounted
+- Record<string, any> → UTSJSONObject
+- IconName → string
+- :deep() → 直接类选择器
+- export interface → 移到 wd-tabbar-key.uts
+- CSSProperties → UTSJSONObject（样式对象）
+- index.value → index（不需要 ref）
+-->
+<template>
+  <view
+    :class="`wd-tabbar-item ${customClass}`"
+    :style="customStyle"
+    @click="handleClick"
+  >
+    <wd-badge v-bind="customBadgeProps">
+      <view
+        class="wd-tabbar-item__body"
+        :style="bodyStyle"
+      >
+        <slot name="icon" :active="isActive">
+          <wd-icon
+            v-if="currentIconName != ''"
+            :name="currentIconName"
+            :color="iconColor"
+            :custom-class="`wd-tabbar-item__body-icon ${isActive ? 'is-active' : 'is-inactive'}`"
+          />
+        </slot>
+        <text
+          v-if="title != '' && title != null"
+          :style="textStyle"
+          :class="`wd-tabbar-item__body-title ${isActive ? 'is-active' : 'is-inactive'}`"
+        >
+          {{ title }}
+        </text>
+      </view>
+    </wd-badge>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, inject, onMounted, onUnmounted } from 'vue'
+import { addUnit, deepAssign, isDef, isUndefined, objToStyle, omitBy } from '../common/util'
+import { genChildUid } from '../../composables/useChildren'
+import { TABBAR_KEY, type TabbarProvide, type WdTabbarItemProps } from '../wd-tabbar/wd-tabbar-key'
+
+/**
+ * 标签项组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 标签页的标题 */
+  title ?: string
+  /** 唯一标识符 */
+  name ?: string | number
+  /** 图标名称 */
+  icon ?: string
+  /** 激活状态的图标名称 */
+  activeIcon ?: string
+  /** 徽标显示值 */
+  value ?: number | string
+  /** 是否点状徽标 */
+  isDot ?: boolean
+  /** 徽标最大值 */
+  max ?: number
+  /** 徽标属性，透传给 Badge 组件 */
+  badgeProps ?: UTSJSONObject | null
+  /** 页面是否已加载（用于懒加载） */
+  loaded ?: boolean
+  /** 图标大小 */
+  iconSize ?: string | number
+  /** 文字大小 */
+  fontSize ?: string | number
+}>(), {
+  customStyle: '',
+  customClass: '',
+  title: '',
+  name: '',
+  icon: '',
+  activeIcon: '',
+  value: null,
+  isDot: false,
+  max: null,
+  badgeProps: null,
+  loaded: false,
+  iconSize: '',
+  fontSize: '',
+})
+
+/** 组件事件 */
+const emit = defineEmits(['update:loaded'])
+
+/** 获取父组件（Tabbar）实例 */
+const tabbar = inject<TabbarProvide | null>(TABBAR_KEY, null)
+
+/** 生成唯一 UID */
+const uid = genChildUid()
+
+/** 当前组件在兄弟组件中的索引 */
+let index = 0
+
+/**
+ * 计算索引
+ * 在父组件的 childUids 数组中查找当前 UID 的位置
+ */
+const computeIndex = () : number => {
+  if (tabbar != null) {
+    const idx = tabbar.childUids.indexOf(uid)
+    return idx >= 0 ? idx : 0
+  }
+  return 0
+}
+
+/**
+ * 计算 Badge 组件属性
+ * 合并用户传入的 badgeProps 和组件内部的 badge 相关属性
+ */
+const customBadgeProps = computed(() : UTSJSONObject => {
+  const badgeProps : UTSJSONObject = deepAssign(
+    isDef(props.badgeProps) ? omitBy(props.badgeProps!, isUndefined) : {} as UTSJSONObject,
+    omitBy(
+      {
+        max: props.max,
+        isDot: props.isDot,
+        modelValue: props.value,
+      } as UTSJSONObject,
+      isUndefined,
+    ),
+  ) as UTSJSONObject
+
+  // 设置默认最大值
+  if (!isDef(badgeProps['max'])) {
+    badgeProps['max'] = 99
+  }
+
+  return badgeProps
+})
+
+/**
+ * 计算主体容器样式
+ * 设置 CSS 变量来控制图标和文字大小
+ */
+const bodyStyle = computed(() : string => {
+  const style : UTSJSONObject = {} as UTSJSONObject
+
+  // 计算图标大小：优先使用组件自身的 iconSize，其次使用父组件的 iconSize
+  let iconSize : string | number = props.iconSize
+  if ((iconSize == '' || iconSize == 0) && tabbar != null && tabbar.props.iconSize != '' && tabbar.props.iconSize != 0) {
+    iconSize = tabbar.props.iconSize
+  }
+  if (iconSize != '' && iconSize != 0) {
+    style['--custom-icon-size'] = addUnit(iconSize)
+  }
+
+  // 计算字体大小：优先使用组件自身的 fontSize，其次使用父组件的 fontSize
+  let fontSize : string | number = props.fontSize
+  if ((fontSize == '' || fontSize == 0) && tabbar != null && tabbar.props.fontSize != '' && tabbar.props.fontSize != 0) {
+    fontSize = tabbar.props.fontSize
+  }
+  if (fontSize != '' && fontSize != 0) {
+    style['--custom-font-size'] = addUnit(fontSize)
+  }
+
+  return objToStyle(style)
+})
+
+/**
+ * 计算激活状态
+ * 判断当前项是否为激活状态
+ */
+const isActive = computed(() : boolean => {
+  index = computeIndex()
+  const name = isDef(props.name) && props.name != '' ? props.name : index
+
+  if (tabbar != null) {
+    return tabbar.props.modelValue === name
+  }
+
+  return false
+})
+
+/**
+ * 计算图标颜色
+ * 根据激活状态和父组件配置设置颜色
+ */
+const iconColor = computed(() : string => {
+  if (tabbar != null) {
+    if (isActive.value && tabbar.props.activeColor != '') {
+      return tabbar.props.activeColor
+    }
+    if (!isActive.value && tabbar.props.inactiveColor != '') {
+      return tabbar.props.inactiveColor
+    }
+  }
+  return ''
+})
+
+/**
+ * 计算文字样式
+ * 根据激活状态和父组件配置设置颜色
+ */
+const textStyle = computed(() : string => {
+  const style : UTSJSONObject = {} as UTSJSONObject
+
+  if (tabbar != null) {
+    if (isActive.value && tabbar.props.activeColor != '') {
+      style['color'] = tabbar.props.activeColor
+    }
+    if (!isActive.value && tabbar.props.inactiveColor != '') {
+      style['color'] = tabbar.props.inactiveColor
+    }
+  }
+
+  return objToStyle(style)
+})
+
+/**
+ * 计算当前应该显示的图标名称
+ * 如果激活状态且设置了 activeIcon，使用 activeIcon
+ * 否则使用默认的 icon
+ */
+const currentIconName = computed(() : string => {
+  // 如果激活状态且设置了 activeIcon，使用 activeIcon
+  if (isActive.value && props.activeIcon != '') {
+    return props.activeIcon
+  }
+
+  // 否则使用默认的 icon
+  return props.icon
+})
+
+/**
+ * 处理点击事件
+ * 触发父组件的状态变更，并自动标记为已加载
+ */
+const handleClick = () => {
+  index = computeIndex()
+  const name : string | number = isDef(props.name) && props.name != '' ? props.name : index
+
+  // 如果还未加载，标记为已加载
+  if (!props.loaded) {
+    emit('update:loaded', true)
+  }
+
+  if (tabbar != null) {
+    tabbar.setChange({ name: name } as WdTabbarItemProps)
+  }
+}
+
+/** 组件挂载时注册到父组件 */
+onMounted(() => {
+  if (tabbar != null) {
+    tabbar.addChild(uid)
+  }
+})
+
+/** 组件卸载时从父组件注销 */
+onUnmounted(() => {
+  if (tabbar != null) {
+    tabbar.removeChild(uid)
+  }
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(tabbar-item) {
+    @include e(body) {
+      /* :deep() → 直接类选择器 */
+      .is-inactive {
+        color: $-dark-color-gray;
+      }
+    }
+  }
+}
+
+/* 标签项样式 */
+@include b(tabbar-item) {
+  flex: 1;
+  text-align: center;
+  text-decoration: none;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  /* UniApp X: 覆盖 wd-badge 的 align-self: flex-start，确保 badge 在 tabbar-item 内居中 */
+  .wd-badge {
+    align-self: center;
+  }
+
+  /* 主体区域样式 */
+  @include e(body) {
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    line-height: 1;
+    padding: 0;
+    position: relative;
+
+    /* 定义 CSS 变量，优先使用自定义值，否则使用默认值 */
+    --icon-size: var(--custom-icon-size, #{$-tabbar-item-icon-size});
+    --font-size: var(--custom-font-size, #{$-tabbar-item-title-font-size});
+
+    /* UniApp X: 覆盖 wd-icon 的 align-self: flex-start，确保图标在 body 内居中 */
+    .wd-icon {
+      align-self: center;
+    }
+
+    /* :deep() → 直接类选择器 */
+    .is-active {
+      color: $-tabbar-active-color;
+    }
+
+    .is-inactive {
+      color: $-tabbar-inactive-color;
+    }
+  }
+
+  /* 标题样式 */
+  @include e(body-title) {
+    font-size: var(--font-size);
+    line-height: $-tabbar-item-title-line-height;
+  }
+
+  /* 图标样式 - edeep → e */
+  @include e(body-icon) {
+    font-size: var(--icon-size)!important;
+  }
+}
+</style>

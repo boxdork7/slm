@@ -1,0 +1,236 @@
+<template>
+	<view class="home-container">
+		<wd-navbar title="首页" />
+
+		<!-- 轮播图 -->
+		<wd-swiper :list="swiperList" custom-class="swiper-area" />
+
+		<!-- 金刚区 -->
+		<wd-row custom-class="menu-grid" :gutter="16">
+			<wd-col v-for="(item, index) in menuList" :key="index" :span="6">
+				<view class="menu-item" @click="handleMenuClick(item)">
+					<wd-icon :name="`${item['icon'] ?? ''}`" size="60" :color="`${item['color'] ?? ''}`" custom-style="align-self: center;" />
+					<wd-text custom-class="menu-item-text" :text="`${item['title'] ?? ''}`" custom-style="align-self: center;" />
+				</view>
+			</wd-col>
+		</wd-row>
+
+		<!-- 商品列表 - 使用 wd-paging 组件 -->
+		<wd-paging
+			ref="paging"
+			:fetch="pageGoods"
+			:params="queryParams"
+			:tabs="tabsConfig"
+			:scroll-top="scrollTop"
+			@scroll-to-top="handleScrollToTop"
+		>
+			<!-- 商品列表项 -->
+			<template #item="{ item, currentTabData }">
+				<wd-card custom-class="goods-card">
+					<template #title>
+						<view class="goods-title-row">
+							<wd-img :src="`${(item as UTSJSONObject)['img'] ?? ''}`" width="120" height="120" radius="8" />
+							<view class="goods-title-info">
+								<wd-tag
+									v-if="currentTabData != null && (currentTabData as UTSJSONObject)['name'] == 'hot'"
+									type="danger"
+									size="small"
+								>
+									热销
+								</wd-tag>
+								<wd-tag
+									v-else-if="currentTabData != null && (currentTabData as UTSJSONObject)['name'] == 'new'"
+									type="success"
+									size="small"
+								>
+									新品
+								</wd-tag>
+								<wd-text custom-class="goods-name-text" :text="`${(item as UTSJSONObject)['name'] ?? ''}`" />
+							</view>
+						</view>
+					</template>
+
+					<template #footer>
+						<view class="goods-footer-row">
+							<wd-text :text="`¥${(item as UTSJSONObject)['price'] ?? 0}`" size="32" type="error" bold />
+							<wd-button type="primary" size="small" @click="handleGoodsPay(item as UTSJSONObject)">
+								立即购买
+							</wd-button>
+						</view>
+					</template>
+				</wd-card>
+			</template>
+		</wd-paging>
+	</view>
+</template>
+
+<script setup lang="uts">
+import { ref, onMounted } from 'vue'
+import { AsyncResult } from '@/utils/to'
+import { listAds, pageGoods as pageGoodsApi } from '@/api/app/home/homeApi'
+import { PAYMENT_WECHAT } from '@/api/common/mall/order/orderTypes'
+import { useToast } from '@/wd'
+import { useScroll } from '@/composables/useScroll'
+
+const toast = useToast()
+
+/* 使用 useScroll 获取全局滚动状态 */
+const scrollResult = useScroll()
+const scrollTop = scrollResult.scrollTop
+const scrollToTop = scrollResult.scrollToTop
+
+/* 处理滚动到顶部事件 */
+const handleScrollToTop = () => {
+	scrollToTop(300)
+}
+
+/* Tabs 配置 */
+const tabsConfig = ref<UTSJSONObject[]>([
+	{ name: 'hot', title: '热销', data: { category: 'hot' } as UTSJSONObject } as UTSJSONObject,
+	{ name: 'new', title: '新品', data: { category: 'new' } as UTSJSONObject } as UTSJSONObject,
+])
+
+/* 轮播图数据 */
+const swiperList = ref<string[]>([])
+
+/* 金刚区数据 */
+const menuList = ref<UTSJSONObject[]>([
+	{ title: '外卖', icon: 'goods', color: '#ff6b6b' } as UTSJSONObject,
+	{ title: '超市', icon: 'cart', color: '#4ecdc4' } as UTSJSONObject,
+	{ title: '水果', icon: 'apple', color: '#45b7d1' } as UTSJSONObject,
+	{ title: '药店', icon: 'bag-fill', color: '#96ceb4' } as UTSJSONObject,
+	{ title: '鲜花', icon: 'gift', color: '#feca57' } as UTSJSONObject,
+	{ title: '蛋糕', icon: 'layers', color: '#ff9ff3' } as UTSJSONObject,
+	{ title: '酒店', icon: 'company', color: '#54a0ff' } as UTSJSONObject,
+	{ title: '更多', icon: 'more', color: '#5f27cd' } as UTSJSONObject,
+])
+
+/**
+ * 适配 pageGoods API 到 wd-paging 的 fetch 格式
+ * pageGoodsApi 返回 AsyncResult { err, data }
+ * wd-paging 期望 [Error | null, PageResult | null] 数组元组
+ */
+const pageGoods = (query : any) : Promise<any[]> => {
+	return pageGoodsApi(query as UTSJSONObject).then((result : AsyncResult) : any[] => {
+		if (result.err != null) {
+			return [result.err, null]
+		}
+		return [null, result.data]
+	})
+}
+
+/* 查询参数 */
+const queryParams = ref<UTSJSONObject>({
+	pageNum: 1,
+	pageSize: 10,
+	orderByColumn: 'createTime',
+	isAsc: 'desc',
+} as UTSJSONObject)
+
+/* 事件处理函数 */
+const handleMenuClick = (item : UTSJSONObject) => {
+	console.log('点击金刚区:', `${item['title'] ?? ''}`)
+	const path = item['path'] != null ? `${item['path']}` : null
+	if (path != null && path!.length > 0) {
+		uni.navigateTo({ url: path! })
+	}
+}
+
+/**
+ * 处理商品购买
+ * TODO: usePayment 迁移后替换为实际支付逻辑
+ */
+const handleGoodsPay = (goods : UTSJSONObject) => {
+	const goodsName = `${goods['name'] ?? ''}`
+	console.log('购买商品:', goodsName)
+
+	/* TODO: 支付功能待 usePayment composable 迁移后实现 */
+	toast.info(`购买功能开发中: ${goodsName}`)
+}
+
+/**
+ * 初始化首页广告
+ */
+const initAds = () => {
+	listAds().then((result : AsyncResult) => {
+		if (result.err == null && result.data != null) {
+			const dataArr = result.data as any[]
+			const images : string[] = []
+			for (let i = 0; i < dataArr.length; i++) {
+				const ad = dataArr[i] as UTSJSONObject
+				const img = ad['img'] != null ? `${ad['img']}` : null
+				if (img != null && img!.length > 0) {
+					images.push(img!)
+				}
+			}
+			swiperList.value = images
+		}
+	})
+}
+
+/* 页面生命周期 */
+onMounted(() => {
+	initAds()
+})
+</script>
+
+<style lang="scss" scoped>
+.home-container {
+	min-height: 100vh;
+}
+
+.swiper-area {
+	margin: 16rpx;
+}
+
+.menu-grid {
+	padding: 16rpx;
+	background-color: #ffffff;
+	margin-left: 32rpx;
+	margin-right: 32rpx;
+	border-radius: 24rpx;
+}
+
+.menu-item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding-top: 16rpx;
+	padding-bottom: 16rpx;
+}
+
+.menu-item-text {
+	margin-top: 16rpx;
+}
+
+.goods-card {
+	width: 702rpx;
+	margin-top: 16rpx;
+	margin-left: 24rpx;
+	margin-right: 24rpx;
+}
+
+.goods-title-row {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+}
+
+.goods-title-info {
+	margin-left: 16rpx;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+}
+
+.goods-name-text {
+	margin-left: 8rpx;
+}
+
+.goods-footer-row {
+	display: flex;
+	flex-direction: row;
+	justify-content: space-between;
+	align-items: center;
+}
+</style>

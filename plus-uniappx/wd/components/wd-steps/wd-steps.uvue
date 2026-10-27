@@ -1,0 +1,66 @@
+<!--
+Steps 步骤条 用于引导用户按照流程完成任务或向用户展示当前状态。
+
+UniApp X 版本改动说明：
+- 移除 defineOptions（UTS 不支持）
+- 移除手动组件导入（easycom 自动注册）
+- WdStepsProps 类型定义移到 wd-steps-key.uts
+- useChildren(STEPS_KEY) → createChildManager() + provide 模式
+- 所有 props 参数默认值显式设置
+-->
+<template>
+  <view
+    :class="`wd-steps ${customClass} ${vertical ? 'is-vertical' : ''}`"
+    :style="customStyle"
+  >
+    <slot />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { provide } from 'vue'
+import { createChildManager } from '../../composables/useChildren'
+import { STEPS_KEY, type StepsProvide, type WdStepsProps } from './wd-steps-key'
+
+/**
+ * 步骤条组件属性接口
+ */
+const props = withDefaults(defineProps<WdStepsProps>(), {
+  customStyle: '',
+  customClass: '',
+  active: 0,
+  vertical: false,
+  dot: false,
+  space: '',
+  alignCenter: false,
+})
+
+/* 子组件管理器 */
+const manager = createChildManager()
+
+/* Provide 数据给子组件 */
+const stepsProvide : StepsProvide = {
+  childUids: manager.childUids,
+  addChild: manager.addChild,
+  removeChild: manager.removeChild,
+  props: props,
+}
+
+provide(STEPS_KEY, stepsProvide)
+</script>
+
+<style lang="scss">
+/* 引入外部样式文件 */
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 步骤条组件样式 */
+@include b(steps) {
+  font-size: 0;
+
+  /* 垂直方向样式 */
+  @include when(vertical) {
+    display: block;
+  }
+}
+</style>

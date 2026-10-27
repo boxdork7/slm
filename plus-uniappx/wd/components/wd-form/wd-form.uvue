@@ -1,0 +1,240 @@
+<!--
+Form 表单 用于数据录入、校验。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- FormRules/FormItemRule 类型移到 wd-form-key.uts
+- InjectionKey<FormProvide> → 字符串 key + provide
+- useChildren → createChildManager + provide 模式
+- Record<string, any> → UTSJSONObject
+- 'toast' | 'message' | 'none' → string
+- export interface/type → 移到 wd-form-key.uts
+- isPromise 不使用（UTS 异步处理简化）
+-->
+<template>
+  <view :class="`wd-form ${customClass}`" :style="customStyle">
+    <slot />
+    <wd-toast v-if="errorType == 'toast'" selector="wd-form-toast" />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { reactive, provide } from 'vue'
+import { deepClone, getPropByPath, isDef, isArray } from '../common/util'
+import { createChildManager } from '../../composables/useChildren'
+import { useToast } from '../wd-toast/useToast'
+import { FORM_KEY, type FormProvide, type FormRules, type FormItemRule, type ErrorMessage } from './wd-form-key'
+
+/**
+ * Form 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 表单数据对象 */
+  model ?: UTSJSONObject
+  /** 是否在输入时重置表单校验信息 */
+  resetOnChange ?: boolean
+  /** 错误提示类型 */
+  errorType ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  model: () : UTSJSONObject => ({} as UTSJSONObject),
+  resetOnChange: true,
+  errorType: 'message',
+})
+
+/* Toast 实例 */
+const toastObj = useToast('wd-form-toast')
+
+/* 子组件管理器 */
+const manager = createChildManager()
+
+/* 错误信息 Map */
+const errorMessages = reactive<Map<string, string>>(new Map<string, string>())
+
+/* 表单验证规则（通过外部设置） */
+const formRules = reactive<FormRules>(new Map<string, FormItemRule[]>())
+
+/**
+ * 设置表单验证规则
+ */
+const setRules = (rules : FormRules) => {
+  formRules.clear()
+  rules.forEach((value : FormItemRule[], key : string) => {
+    formRules.set(key, value)
+  })
+}
+
+/**
+ * 清除错误信息
+ */
+const clearMessage = (prop ?: string) => {
+  if (prop != null && prop != '') {
+    errorMessages.delete(prop!)
+  } else {
+    errorMessages.clear()
+  }
+}
+
+/**
+ * 清除指定字段的错误信息
+ */
+const clearFieldMessage = (prop : string) => {
+  if (prop != '' && errorMessages.has(prop)) {
+    errorMessages.delete(prop)
+  }
+}
+
+/**
+ * 显示错误信息
+ */
+const showErrorMessage = (errors : ErrorMessage[]) => {
+  if (errors.length == 0) return
+
+  if (props.errorType == 'toast') {
+    toastObj.show(errors[0].message)
+  } else if (props.errorType == 'message') {
+    for (let i = 0; i < errors.length; i++) {
+      const err = errors[i]
+      errorMessages.set(err.prop, err.message)
+    }
+  }
+}
+
+/**
+ * 表单校验
+ */
+const validate = (propNames ?: string[]) : ErrorMessage[] => {
+  const errors : ErrorMessage[] = []
+
+  /* 确定要校验的规则 */
+  const rulesToValidate = new Map<string, FormItemRule[]>()
+  if (propNames != null && propNames!.length > 0) {
+    for (let i = 0; i < propNames!.length; i++) {
+      const p = propNames![i]
+      if (formRules.has(p)) {
+        rulesToValidate.set(p, formRules.get(p)!)
+      }
+    }
+  } else {
+    formRules.forEach((value : FormItemRule[], key : string) => {
+      rulesToValidate.set(key, value)
+    })
+  }
+
+  /* 遍历规则校验 */
+  rulesToValidate.forEach((rules : FormItemRule[], propName : string) => {
+    if (rules.length == 0) return
+
+    const value = getPropByPath(props.model, propName)
+
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i]
+
+      /* 必填校验 */
+      if (rule.required == true) {
+        if (!isDef(value) || `${value}` == '') {
+          errors.push({ prop: propName, message: rule.message } as ErrorMessage)
+          return
+        }
+      }
+
+      /* 空值跳过后续校验 */
+      if (!isDef(value) || `${value}` == '') continue
+
+      const strValue = `${value}`
+
+      /* 正则校验 */
+      if (rule.pattern != null) {
+        if (!rule.pattern!.test(strValue)) {
+          errors.push({ prop: propName, message: rule.message } as ErrorMessage)
+          return
+        }
+      }
+
+      /* min 校验 */
+      if (rule.min != null) {
+        /* Math.floor 替代 .toInt()（UTS 独有方法，Web 运行时不存在） */
+        if (strValue.length < Math.floor(rule.min!)) {
+          errors.push({ prop: propName, message: rule.message } as ErrorMessage)
+          return
+        }
+      }
+
+      /* max 校验 */
+      if (rule.max != null) {
+        /* Math.floor 替代 .toInt()（UTS 独有方法，Web 运行时不存在） */
+        if (strValue.length > Math.floor(rule.max!)) {
+          errors.push({ prop: propName, message: rule.message } as ErrorMessage)
+          return
+        }
+      }
+    }
+  })
+
+  showErrorMessage(errors)
+
+  if (errors.length == 0) {
+    if (propNames != null && propNames!.length > 0) {
+      for (let i = 0; i < propNames!.length; i++) {
+        clearMessage(propNames![i])
+      }
+    } else {
+      clearMessage()
+    }
+  }
+
+  return errors
+}
+
+/**
+ * 重置表单项的验证提示
+ */
+const reset = () => {
+  clearMessage()
+}
+
+/**
+ * Provide 数据给子组件
+ */
+const formProvide : FormProvide = {
+  childUids: manager.childUids,
+  addChild: manager.addChild,
+  removeChild: manager.removeChild,
+  model: props.model,
+  rules: formRules,
+  resetOnChange: props.resetOnChange,
+  errorType: props.errorType,
+  errorMessages: errorMessages,
+  clearFieldMessage: clearFieldMessage,
+}
+
+provide(FORM_KEY, formProvide)
+
+/* 暴露给父组件的方法 */
+defineExpose({
+  validate,
+  reset,
+  setRules,
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 暗色主题样式 */
+.wot-theme-dark {
+  @include b(form) {
+  }
+}
+
+/* 表单容器样式 */
+@include b(form) {
+}
+</style>

@@ -1,0 +1,233 @@
+<!--
+SwiperNav - 轮播导航组件，提供点状、条状、分式等多种指示器样式和左右控制按钮功能 供wd-swiper使用的。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export interface（WdSwiperNavProps）
+- DirectionType/IndicatorPositionType/SwiperIndicatorType 联合类型改为 string
+- ::after 伪元素保留（用于箭头）
+- :deep() 移除，直接使用类选择器
+-->
+<template>
+  <view v-if="showControls" class="wd-swiper-nav__btn">
+    <view class="wd-swiper-nav__btn--prev" @click="handleNav('prev')" />
+    <view class="wd-swiper-nav__btn--next" @click="handleNav('next')" />
+  </view>
+  <view
+    v-if="total >= minShowNum"
+    :style="customStyle"
+    :class="`wd-swiper-nav wd-swiper-nav--${direction} wd-swiper-nav--${type} wd-swiper-nav--${indicatorPosition} ${customClass}`"
+  >
+    <block v-if="type === 'dots' || type === 'dots-bar'">
+      <view
+        v-for="(_, index) in total"
+        :key="index"
+        :class="`wd-swiper-nav__item--${type} ${current === index ? 'is-active' : ''} is-${direction}`"
+      />
+    </block>
+    <block v-if="type === 'fraction'">{{ current + 1 }}/{{ total }}</block>
+  </view>
+</template>
+
+<script lang="uts" setup>
+/**
+ * 轮播导航组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 当前轮播在哪一项（下标） */
+  current ?: number
+  /** 轮播滑动方向，包括横向滑动和纵向滑动两个方向 */
+  direction ?: string
+  /** 小于这个数字不会显示导航器 */
+  minShowNum ?: number
+  /** 指示器位置 */
+  indicatorPosition ?: string
+  /** 是否显示两侧的控制按钮 */
+  showControls ?: boolean
+  /** 总共的项数 */
+  total ?: number
+  /** 指示器类型，点状(dots)、点条状(dots-bar)、分式(fraction)等 */
+  type ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  current: 0,
+  direction: 'horizontal',
+  minShowNum: 2,
+  indicatorPosition: 'bottom',
+  showControls: false,
+  total: 0,
+  type: 'dots',
+})
+
+/** 组件事件 */
+const emit = defineEmits(['change'])
+
+/**
+ * 处理导航点击事件
+ */
+const handleNav = (dir : string) => {
+  const source : string = 'nav'
+  emit('change', { dir, source })
+}
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+@include b(swiper-nav) {
+  @include e(btn) {
+    @include m(prev, next) {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: $-swiper-nav-btn-size;
+      height: $-swiper-nav-btn-size;
+      border-radius: 50%;
+      background: $-swiper-nav-btn-bg-color;
+
+      &::after {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        display: block;
+        content: '';
+        width: 12rpx;
+        height: 12rpx;
+        border-color: $-swiper-nav-btn-color;
+        border-style: solid;
+      }
+    }
+
+    @include m(prev) {
+      left: 30rpx;
+
+      &::after {
+        margin-left: 4rpx;
+        border-width: 2rpx 0 0 2rpx;
+        transform: translate(-50%, -50%) rotateZ(-45deg);
+      }
+    }
+
+    @include m(next) {
+      right: 30rpx;
+
+      &::after {
+        margin-left: -4rpx;
+        border-width: 2rpx 2rpx 0 0;
+        transform: translate(-50%, -50%) rotateZ(45deg);
+      }
+    }
+  }
+
+  @include m(dots, dots-bar) {
+    display: flex;
+    flex-direction: row;
+  }
+
+  @include m(fraction) {
+    padding: 0 16rpx;
+    height: $-swiper-nav-fraction-height;
+    line-height: $-swiper-nav-fraction-height;
+    border-radius: calc($-swiper-nav-fraction-height / 2);
+    background: $-swiper-nav-fraction-bg-color;
+    color: $-swiper-nav-fraction-color;
+    font-size: $-swiper-nav-fraction-font-size;
+  }
+
+  @include e(item) {
+    @include m(dots, dots-bar) {
+      width: $-swiper-nav-dot-size;
+      height: $-swiper-nav-dot-size;
+      background: $-swiper-nav-dot-color;
+      border-radius: 50%;
+      margin: 0 10rpx;
+      transition: all 0.4s ease-in;
+
+      @include when(vertical) {
+        margin: 10rpx 0;
+      }
+
+      @include when(active) {
+        background-color: $-swiper-nav-dot-active-color;
+      }
+    }
+
+    @include m(dots-bar) {
+      @include when(vertical) {
+        @include when(active) {
+          width: $-swiper-nav-dot-size;
+          height: $-swiper-nav-dots-bar-active-width;
+        }
+      }
+
+      @include when(active) {
+        width: $-swiper-nav-dots-bar-active-width;
+        border-radius: calc($-swiper-nav-dot-size / 2);
+        background-color: $-swiper-nav-dot-active-color;
+      }
+    }
+  }
+
+  @include m(left) {
+    position: absolute;
+    left: 24rpx;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  @include m(right) {
+    position: absolute;
+    right: 24rpx;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  @include m(top-left) {
+    position: absolute;
+    top: 24rpx;
+    left: 24rpx;
+  }
+
+  @include m(top) {
+    position: absolute;
+    left: 50%;
+    top: 24rpx;
+    transform: translateX(-50%);
+  }
+
+  @include m(top-right) {
+    position: absolute;
+    top: 24rpx;
+    right: 24rpx;
+  }
+
+  @include m(bottom-left) {
+    position: absolute;
+    left: 24rpx;
+    bottom: 24rpx;
+  }
+
+  @include m(bottom) {
+    position: absolute;
+    left: 50%;
+    bottom: 24rpx;
+    transform: translateX(-50%);
+  }
+
+  @include m(bottom-right) {
+    position: absolute;
+    right: 24rpx;
+    bottom: 24rpx;
+  }
+
+  @include m(vertical) {
+    flex-direction: column;
+  }
+}
+</style>

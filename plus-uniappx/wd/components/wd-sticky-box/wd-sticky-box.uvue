@@ -1,0 +1,164 @@
+<!--
+StickyBox - �����������,Ϊ�ڲ���Sticky������ṩ��Զ�λ�ı߽������ͽ���۲��������
+
+UniApp X �汾
+- �Ƴ� defineOptions
+- �Ƴ� export interface/type
+- any ��Ϊ��������
+- Record<string, any> ��Ϊ UTSJSONObject
+- Map ʹ��ԭ�� Map
+- IntersectionObserver ʹ�� UniApp X API
+-->
+<template>
+  <view style="position: relative">
+    <view
+      :id="styckyBoxId"
+      :class="`wd-sticky-box ${customClass}`"
+      :style="customStyle"
+    >
+      <slot />
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { getCurrentInstance, onBeforeMount, reactive, ref } from 'vue'
+import { getRect, uuid } from '../common/util'
+
+/**
+ * ���������������
+ */
+const props = withDefaults(defineProps<{
+  /** �Զ�����ڵ���ʽ */
+  customStyle ?: string
+  /** �Զ�����ڵ���ʽ�� */
+  customClass ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+})
+
+/** ��Ӧʽ���� */
+const styckyBoxId = ref<string>(`wd-sticky-box${uuid()}`)
+const observerMap = ref<Map<number, any>>(new Map())
+
+const boxStyle = reactive({
+  height: 0,
+  width: 0,
+})
+
+const { proxy } = getCurrentInstance()!
+
+/**
+ * ɾ����ָ��sticky�ļ���
+ */
+const deleteObserver = (uid : number) => {
+  const observer = observerMap.value.get(uid)
+  if (observer != null) {
+    observer!.disconnect()
+    observerMap.value.delete(uid)
+  }
+}
+
+/**
+ * ���ָ��sticky���Ӽ���
+ */
+const createObserver = (uid : number) : any => {
+  const observer = uni.createIntersectionObserver(proxy, { thresholds: [0, 0.5] })
+  observerMap.value.set(uid, observer)
+  return observer
+}
+
+/**
+ * �����������
+ */
+const handleRelativeTo = (exposed : any, result : any) => {
+  const boundingClientRect = result.boundingClientRect
+  let childOffsetTop = exposed.offsetTop as number
+
+  // #ifdef H5
+  childOffsetTop = childOffsetTop + 44
+  // #endif
+
+  const offset = exposed.stickyState.height + childOffsetTop
+  let isAbsolute = boundingClientRect.bottom <= offset
+
+  // #ifdef H5 || APP-PLUS
+  isAbsolute = boundingClientRect.bottom < offset
+  // #endif
+
+  if (isAbsolute) {
+    exposed.setPosition(true, 'absolute', boundingClientRect.height - exposed.stickyState.height)
+  } else if (boundingClientRect.top <= offset && !isAbsolute) {
+    if (exposed.stickyState.state === 'normal') return
+    exposed.setPosition(false, 'fixed', childOffsetTop)
+  }
+}
+
+/**
+ * ���������
+ */
+const observerForChild = (child : any) => {
+  const uid = child.$.uid as number
+  deleteObserver(uid)
+  const observer = createObserver(uid)
+  const exposed = child.$.exposed
+  let offset = exposed.stickyState.height + exposed.offsetTop
+
+  // #ifdef H5
+  offset = offset + 44
+  // #endif
+
+  if (boxStyle.height <= exposed.stickyState.height) {
+    exposed.setPosition(false, 'absolute', 0)
+  }
+
+  observer.relativeToViewport({ top: -offset }).observe(`#${styckyBoxId.value}`, (result : any) => {
+    handleRelativeTo(exposed, result)
+  })
+
+  getRect(`#${styckyBoxId.value}`, false, proxy)
+    .then((res) => {
+      const rect = res as any
+      let bottom = Number(rect.bottom)
+      // #ifdef H5
+      bottom = bottom + 44
+      // #endif
+      if (bottom <= offset) {
+        handleRelativeTo(exposed, { boundingClientRect: rect })
+      }
+    })
+    .catch(() => {
+      // ���Դ���
+    })
+}
+
+/**
+ * ������С�仯�����¼���sticky�����box����Ľ���״̬
+ */
+const handleResize = (detail : any) => {
+  boxStyle.width = detail.width
+  boxStyle.height = detail.height
+  // ���¼�����������Ԫ�ص��߼�ʡ��(����� useChildren)
+}
+
+/** �������ǰ��ʼ�� */
+onBeforeMount(() => {
+  observerMap.value = new Map()
+})
+
+/** ��¶����������� */
+defineExpose({
+  boxStyle,
+  observerForChild,
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+@include b(sticky-box) {
+  position: relative;
+}
+</style>

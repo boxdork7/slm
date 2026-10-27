@@ -1,0 +1,121 @@
+/**
+ * 移动端应用配置
+ * @description 统一管理移动端应用的环境变量和配置信息
+ * @module @/systemConfig
+ */
+
+/**
+ * 系统支持的语言枚举
+ */
+export enum LanguageCode {
+	zh_CN = 'zh-CN',
+	en_US = 'en-US'
+}
+
+/**
+ * 应用配置总接口
+ */
+type SystemConfigType = {
+	app : AppConfig
+	api : ApiConfig
+	security : SecurityConfig
+	platforms : PlatformsConfig
+	features : FeaturesConfig
+}
+
+type AppConfig = {
+	id : string
+	title : string
+	env : string
+}
+
+export type ApiConfig = {
+	baseUrl : string
+}
+
+type SecurityConfig = {
+	apiEncrypt : boolean
+	rsaPublicKey : string
+	rsaPrivateKey : string
+}
+
+type PlatformsConfig = {
+	mapKey : string
+	serviceUrl : string
+	shareDomain : string
+	analyticsId : string
+}
+
+type FeaturesConfig = {
+	websocket : boolean
+}
+
+/**
+ * APP 应用配置
+ *
+ * 注意：UniApp X 中 import.meta.env 的可用性需要确认
+ * 如果不支持，需要改用 uni.getSystemInfoSync() 或硬编码 + 条件编译
+ */
+
+/* #ifdef APP-ANDROID || APP-HARMONY */
+/* Android/Harmony 环境直接使用硬编码配置 + 条件编译切换 */
+export const SystemConfig : SystemConfigType = {
+	app: {
+		id: 'ryplus_uni',
+		title: 'ryplus-uni',
+		env: 'development',
+	},
+	api: {
+		baseUrl: 'https://api.ruoyikj.top/frp/5500',
+	},
+	security: {
+		apiEncrypt: true,
+		rsaPublicKey: 'MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAK9s1Pbnn5W+l1hx3ukHLtevayF5nOFIb140zvIPksw8h7bZWY05zyWdsQ2I51ypiC53KnyfhibPk3AJ2yr+qnkCAwEAAQ==',
+		rsaPrivateKey: 'MIIBOwIBAAJBAIrZxEhzVAHKJm7BJpXIHWGU3sHJYgRiOOTw3Auj/iNDTL+RExEW2Y0dg/IC71DKxcjvVEA9GdDp0/5nph+4dIMCAwEAAQJAIyPdwyA84H8SnvEPHNUaannMrmqS/d0F3Rr/9Yo5ZR7htKMON9zDgixHOZb+MQmpXapvl8NgQazUsLtya/pX4QIhAMGq7rIFz2OXce1KsQ7nVj+6fAjguW4mDEcgXKUnQn9bAiEAt4o8KELUNEFNuVJs89QMrDiuyo1PQQc9pB5nUP4wz/kCIFJ/StCgsvg8kfY/4+5yUwYwnRd3CuZF5OMDgROFBsmTAiEAgycdq6ttldWgY7A5uNarI5nxlT37Bz3UV2V+cIrjeIkCIQCAJS0PinuXxvX9Sqr+1+n0gMB+nU0frif1icnKWGQzRw==',
+	},
+	platforms: {
+		mapKey: '',
+		serviceUrl: '',
+		shareDomain: '',
+		analyticsId: '',
+	},
+	features: {
+		websocket: false,
+	},
+}
+/* #endif */
+
+/* #ifdef H5 */
+/*
+ * H5 环境配置
+ *
+ * 注意：UniApp X 项目的 H5 构建由 HBuilderX 内部 Vite 处理，
+ * 不会自动加载 env/ 子目录的 .env 文件（缺少 envDir 配置）。
+ * 因此 import.meta.env.VITE_APP_BASE_API 可能为 undefined。
+ * fallback 值必须与 env/.env.development 中的配置保持一致。
+ */
+export const SystemConfig : SystemConfigType = {
+	app: {
+		id: import.meta.env.VITE_APP_ID ?? 'ryplus_uni',
+		title: import.meta.env.VITE_APP_TITLE ?? 'ryplus-uni',
+		env: import.meta.env.VITE_APP_ENV ?? 'development',
+	},
+	api: {
+		baseUrl: import.meta.env.VITE_APP_BASE_API ?? 'https://api.ruoyikj.top/frp/5500',
+	},
+	security: {
+		apiEncrypt: import.meta.env.VITE_APP_API_ENCRYPT == 'true',
+		rsaPublicKey: import.meta.env.VITE_APP_RSA_PUBLIC_KEY ?? 'MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAK9s1Pbnn5W+l1hx3ukHLtevayF5nOFIb140zvIPksw8h7bZWY05zyWdsQ2I51ypiC53KnyfhibPk3AJ2yr+qnkCAwEAAQ==',
+		rsaPrivateKey: import.meta.env.VITE_APP_RSA_PRIVATE_KEY ?? 'MIIBOwIBAAJBAIrZxEhzVAHKJm7BJpXIHWGU3sHJYgRiOOTw3Auj/iNDTL+RExEW2Y0dg/IC71DKxcjvVEA9GdDp0/5nph+4dIMCAwEAAQJAIyPdwyA84H8SnvEPHNUaannMrmqS/d0F3Rr/9Yo5ZR7htKMON9zDgixHOZb+MQmpXapvl8NgQazUsLtya/pX4QIhAMGq7rIFz2OXce1KsQ7nVj+6fAjguW4mDEcgXKUnQn9bAiEAt4o8KELUNEFNuVJs89QMrDiuyo1PQQc9pB5nUP4wz/kCIFJ/StCgsvg8kfY/4+5yUwYwnRd3CuZF5OMDgROFBsmTAiEAgycdq6ttldWgY7A5uNarI5nxlT37Bz3UV2V+cIrjeIkCIQCAJS0PinuXxvX9Sqr+1+n0gMB+nU0frif1icnKWGQzRw==',
+	},
+	platforms: {
+		mapKey: import.meta.env.VITE_MAP_KEY ?? '',
+		serviceUrl: import.meta.env.VITE_SERVICE_URL ?? '',
+		shareDomain: import.meta.env.VITE_SHARE_DOMAIN ?? '',
+		analyticsId: import.meta.env.VITE_ANALYTICS_ID ?? '',
+	},
+	features: {
+		websocket: import.meta.env.VITE_APP_WEBSOCKET != 'false',
+	},
+}
+/* #endif */

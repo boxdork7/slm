@@ -1,0 +1,125 @@
+/**
+ * 角色信息类型定义 (UTS 格式)
+ * 源文件: plus-app/api/system/core/role/roleTypes.ts
+ * 说明: 从 TypeScript 迁移到 UniApp X (UTS) 格式，扁平化 PageQuery 基类字段
+ */
+
+/**
+ * 角色信息查询类型
+ * extends PageQuery -> 扁平化字段: pageNum?, pageSize?, orderByColumn?, isAsc?, searchValue?, params?
+ */
+export type SysRoleQuery = {
+  /* PageQuery 扁平化字段 */
+  /** 当前页码，从1开始 */
+  pageNum?: number
+  /** 每页显示记录数 */
+  pageSize?: number
+  /** 排序字段 */
+  orderByColumn?: string
+  /** 排序方向 asc/desc */
+  isAsc?: string
+  /** 模糊搜索关键词 */
+  searchValue?: string
+  /** 扩展查询参数 */
+  params?: UTSJSONObject
+
+  /* 业务字段 */
+  /** 角色名称 */
+  roleName?: string
+  /** 角色权限字符串 */
+  roleKey?: string
+  /** 角色状态 */
+  status?: string
+  /** 角色ID */
+  roleId?: string | number
+}
+
+/**
+ * 角色信息表单类型
+ */
+export type SysRoleBo = {
+  /** 角色ID */
+  roleId?: string | number
+  /** 角色名称 */
+  roleName?: string
+  /** 角色权限字符串 */
+  roleKey?: string
+  /** 显示顺序 */
+  roleSort?: number
+  /** 数据范围（1：全部数据权限 2：自定数据权限 3：本部门数据权限 4：本部门及以下数据权限） */
+  dataScope?: string
+  /** 菜单树选择项是否关联显示 */
+  menuCheckStrictly?: boolean
+  /** 部门树选择项是否关联显示 */
+  deptCheckStrictly?: boolean
+  /** 备注 */
+  remark?: string
+  /** 角色状态 */
+  status?: string
+  /** 菜单id数组 */
+  menuIds?: number[]
+  /** 部门id数组 */
+  deptIds?: number[]
+}
+
+/**
+ * 角色信息视图类型
+ */
+export type SysRoleVo = {
+  /** 角色ID */
+  roleId: string | number
+  /** 角色名称 */
+  roleName: string
+  /** 角色权限字符串 */
+  roleKey: string
+  /** 显示顺序 */
+  roleSort: number
+  /** 数据范围（1：全部数据权限 2：自定数据权限 3：本部门数据权限 4：本部门及以下数据权限） */
+  dataScope: string
+  /** 菜单树选择项是否关联显示 */
+  menuCheckStrictly: boolean
+  /** 部门树选择项是否关联显示 */
+  deptCheckStrictly: boolean
+  /** 角色状态 */
+  status: string
+  /** 备注 */
+  remark: string
+  /** 标记 */
+  flag: boolean
+  /** 菜单id数组 */
+  menuIds: Array<string | number>
+  /** 部门id数组 */
+  deptIds: Array<string | number>
+  /** 是否管理员 */
+  admin: boolean
+  /** 创建时间 */
+  createTime: string
+  /** 是否超级管理员 */
+  superAdmin?: boolean
+}
+
+/**
+ * 菜单树形结构类型
+ */
+export type SysDeptTreeOption = {
+  /** id */
+  id: number
+  /** 标签 */
+  label: string
+  /** 父id */
+  parentId?: number
+  /** 权重 */
+  weight?: number
+  /** 子节点 */
+  children?: SysDeptTreeOption[]
+}
+
+/**
+ * 角色部门树形结构
+ */
+export type SysRoleDeptTree = {
+  /** 选中的id列表 */
+  checkedKeys: number[]
+  /** 部门树选项 */
+  depts: SysDeptTreeOption[]
+}

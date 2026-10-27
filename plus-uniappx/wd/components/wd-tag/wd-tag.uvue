@@ -1,0 +1,319 @@
+<!--
+Tag 标签 用于标记和选择。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除 export type/interface
+- DictItem 类型改为本地定义（仅保留 label/value/tagType）
+- .includes() → .indexOf() !== -1
+- 字符串字面量联合类型改为 string
+- 可选链 ?. → 显式 null 检查
+-->
+<template>
+  <view
+    v-if="!closed"
+    :class="rootClass"
+    :style="rootStyle"
+    @click="handleClick"
+  >
+    <!-- 图标 -->
+    <wd-icon
+      v-if="icon != ''"
+      :name="icon"
+      custom-class="wd-tag__icon"
+      :size="iconSize"
+    />
+
+    <!-- 内容 -->
+    <view class="wd-tag__text">
+      <slot>{{ displayText }}</slot>
+    </view>
+
+    <!-- 关闭按钮 -->
+    <wd-icon
+      v-if="closable && !disabled"
+      name="close"
+      custom-class="wd-tag__close"
+      @click.stop="handleClose"
+    />
+
+    <!-- mark 标记 -->
+    <view v-if="mark" class="wd-tag__mark" />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, ref } from 'vue'
+
+/**
+ * 标签组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 标签类型，可选值：primary / success / warning / danger / default */
+  type ?: string
+  /** 是否为幽灵标签 */
+  plain ?: boolean
+  /** 是否为圆角标签 */
+  round ?: boolean
+  /** 是否为标记标签 */
+  mark ?: boolean
+  /** 是否可关闭 */
+  closable ?: boolean
+  /** 是否禁用 */
+  disabled ?: boolean
+  /** 标签大小，可选值：small / medium / large */
+  size ?: string
+  /** 图标名称 */
+  icon ?: string
+  /** 图标大小 */
+  iconSize ?: string
+  /** 自定义颜色 */
+  color ?: string
+  /** 自定义背景颜色 */
+  bgColor ?: string
+  /** 是否动态添加标签（带+号） */
+  dynamicAdd ?: boolean
+  /** 显示文本 */
+  text ?: string
+  /** 绑定值（用于字典映射） */
+  modelValue ?: string | number
+  /** 字典数据列表 */
+  dictItems ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  type: 'default',
+  plain: false,
+  round: false,
+  mark: false,
+  closable: false,
+  disabled: false,
+  size: '',
+  icon: '',
+  iconSize: '',
+  color: '',
+  bgColor: '',
+  dynamicAdd: false,
+  text: '',
+  modelValue: '',
+  dictItems: '',
+})
+
+/** 组件事件 */
+const emit = defineEmits(['click', 'close'])
+
+/** 关闭状态 */
+const closed = ref<boolean>(false)
+
+/** 显示文本（支持字典映射） */
+const displayText = computed(() : string => {
+  if (props.text != '') return props.text
+  return props.modelValue != null ? `${props.modelValue}` : ''
+})
+
+/** 根节点类名 */
+const rootClass = computed(() : string => {
+  const classes : string[] = ['wd-tag']
+  if (props.type != '' && props.type != 'default') {
+    classes.push(`wd-tag--${props.type}`)
+  }
+  if (props.plain) {
+    classes.push('is-plain')
+  }
+  if (props.round) {
+    classes.push('is-round')
+  }
+  if (props.mark) {
+    classes.push('is-mark')
+  }
+  if (props.disabled) {
+    classes.push('is-disabled')
+  }
+  if (props.size != '') {
+    classes.push(`wd-tag--${props.size}`)
+  }
+  if (props.dynamicAdd) {
+    classes.push('is-dynamic')
+  }
+  if (props.closable) {
+    classes.push('is-closable')
+  }
+  if (props.customClass != '') {
+    classes.push(props.customClass)
+  }
+  return classes.join(' ')
+})
+
+/** 根节点样式 */
+const rootStyle = computed(() : string => {
+  let style = ''
+  if (props.color != '') {
+    style += `color: ${props.color};`
+  }
+  if (props.bgColor != '') {
+    style += `background-color: ${props.bgColor};`
+  }
+  if (props.customStyle != '') {
+    style += props.customStyle
+  }
+  return style
+})
+
+/** 处理点击 */
+const handleClick = () => {
+  if (!props.disabled) {
+    emit('click')
+  }
+}
+
+/** 处理关闭 */
+const handleClose = () => {
+  if (!props.disabled) {
+    closed.value = true
+    emit('close')
+  }
+}
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+.wot-theme-dark {
+  @include b(tag) {
+    background-color: $-dark-background4;
+    color: $-dark-color;
+
+    @include when(plain) {
+      background-color: transparent;
+    }
+
+    @each $type in (primary, success, warning, danger) {
+      @include m($type) {
+        @include when(plain) {
+          background-color: transparent;
+        }
+      }
+    }
+  }
+}
+
+@include b(tag) {
+  /* UniApp X: inline-flex 不支持，使用默认 flex + row + align-self 模拟 inline 收缩 */
+  flex-direction: row;
+  align-items: center;
+  align-self: flex-start;
+  padding: $-tag-padding;
+  font-size: $-tag-fs;
+  border-radius: $-tag-radius;
+  background-color: $-tag-bg;
+  color: $-tag-color;
+  line-height: 1.2;
+  box-sizing: border-box;
+  border: 1rpx solid transparent;
+
+  /* 图标样式 */
+  @include e(icon) {
+    margin-right: 4rpx;
+  }
+
+  /* 文字样式 - UniApp X: view 不继承 font-size，需显式 inherit */
+  @include e(text) {
+    white-space: nowrap;
+    font-size: inherit;
+  }
+
+  /* 关闭按钮样式 */
+  @include e(close) {
+    margin-left: 4rpx;
+  }
+
+  /* 类型颜色 - 非 plain 模式只设背景色，文字保持白色($-tag-color)；plain 模式透明背景+彩色文字 */
+  @include m(primary) {
+    background-color: $-tag-primary-bg;
+
+    @include when(plain) {
+      background-color: transparent;
+      color: $-tag-primary-color;
+      border-color: $-tag-primary-color;
+    }
+  }
+
+  @include m(success) {
+    background-color: $-tag-success-bg;
+
+    @include when(plain) {
+      background-color: transparent;
+      color: $-tag-success-color;
+      border-color: $-tag-success-color;
+    }
+  }
+
+  @include m(warning) {
+    background-color: $-tag-warning-bg;
+
+    @include when(plain) {
+      background-color: transparent;
+      color: $-tag-warning-color;
+      border-color: $-tag-warning-color;
+    }
+  }
+
+  @include m(danger) {
+    background-color: $-tag-danger-bg;
+
+    @include when(plain) {
+      background-color: transparent;
+      color: $-tag-danger-color;
+      border-color: $-tag-danger-color;
+    }
+  }
+
+  /* 朴素样式 */
+  @include when(plain) {
+    background-color: transparent;
+    border-color: currentColor;
+  }
+
+  /* 圆角样式 */
+  @include when(round) {
+    border-radius: 999rpx;
+  }
+
+  /* 标记样式 */
+  @include when(mark) {
+    border-radius: 0 999rpx 999rpx 0;
+  }
+
+  /* 禁用样式 */
+  @include when(disabled) {
+    opacity: 0.5;
+  }
+
+  /* 尺寸 */
+  @include m(small) {
+    padding: $-tag-small-padding;
+    font-size: $-tag-small-fs;
+  }
+
+  @include m(large) {
+    padding: $-tag-large-padding;
+    font-size: $-tag-large-fs;
+  }
+
+  /* 动态添加样式 */
+  @include when(dynamic) {
+    border-style: dashed;
+    border-color: $-tag-color;
+  }
+
+  /* 可关闭标签 */
+  @include when(closable) {
+    padding-right: 4rpx;
+  }
+}
+</style>

@@ -1,0 +1,492 @@
+<!--
+NoticeBar 通知栏 通知栏组件,用于在页面顶部展示通知提醒。
+
+UniApp X 版本
+- 移除 defineOptions
+- CSSProperties → 手动拼接 style 字符串
+- ComponentPublicInstance → 移除
+- useTranslate → 直接使用中文字面量
+- type NoticeBarType = 'warning' | 'info' | 'danger' | '' → string
+- type NoticeBarScrollDirection = 'horizontal' | 'vertical' → string
+- ReturnType<typeof setTimeout> → number
+- edeep → e
+- APP-PLUS 条件编译移除(UniApp X 不支持 $getAppWebview)
+- Record<string, any> → UTSJSONObject
+-->
+<template>
+  <view
+    v-if="show"
+    :class="`wd-notice-bar ${customClass} ${type != '' ? `is-${type}` : ''} ${isHorizontal ? (!wrapable && !scrollable ? 'wd-notice-bar--ellipse' : '') : 'wd-notice-bar--ellipse'} ${wrapable && !scrollable ? 'wd-notice-bar--wrap' : ''}`"
+    :style="`${color != '' ? `color: ${color};` : ''}${backgroundColor != '' ? `background: ${backgroundColor};` : ''}${customStyle}`"
+  >
+    <wd-icon v-if="prefix != ''" custom-class="wd-notice-bar__prefix" :name="prefix" />
+    <slot v-else name="prefix" />
+    <view class="wd-notice-bar__wrap">
+      <view
+        class="wd-notice-bar__content"
+        :style="animation"
+        @transitionend="animationEnd"
+        @click="handleClick"
+      >
+        <template v-if="isVertical">
+          <view v-for="(item, idx) in textArray" :key="idx">
+            {{ item }}
+          </view>
+          <view v-if="textArray.length > 1">
+            {{ textArray[0] }}
+          </view>
+        </template>
+        <slot v-else>{{ currentText }}</slot>
+      </view>
+    </view>
+    <wd-icon
+      v-if="closable"
+      custom-class="wd-notice-bar__suffix"
+      name="close"
+      @click="handleClose"
+    />
+    <slot v-else name="suffix" />
+  </view>
+</template>
+
+<script lang="uts" setup>
+import {
+  computed,
+  getCurrentInstance,
+  nextTick,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue'
+import { addUnit, getRect, pxToRpx, isDef } from '../common/util'
+
+/**
+ * 通知栏组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 设置通知栏文案,支持字符串或字符串数组 传入数组则自动轮播 */
+  text ?: string | string[]
+  /** 设置通知栏类型,可选值:'warning' | 'info' | 'danger' */
+  type ?: string
+  /** 是否可滚动 */
+  scrollable ?: boolean
+  /** 滚动延迟时间(秒) */
+  delay ?: number
+  /** 滚动速度(rpx/s) */
+  speed ?: number
+  /** 是否可关闭 */
+  closable ?: boolean
+  /** 是否换行显示 */
+  wrapable ?: boolean
+  /** 设置左侧图标,使用 icon 章节中的图标名 */
+  prefix ?: string
+  /** 文字、图标颜色 */
+  color ?: string
+  /** 背景颜色 */
+  backgroundColor ?: string
+  /** 滚动方向,可选值:'horizontal' | 'vertical' */
+  direction ?: string
+}>(), {
+  customStyle: '',
+  customClass: '',
+  text: '',
+  type: 'warning',
+  scrollable: true,
+  delay: 1,
+  speed: 100,
+  closable: false,
+  wrapable: false,
+  direction: 'horizontal',
+  prefix: '',
+  color: '',
+  backgroundColor: '',
+})
+
+/** 组件事件 */
+const emit = defineEmits<{
+  /** 关闭通知栏时触发 */
+  close: []
+  /** 切换到下一条文本时触发 */
+  next: [index: number]
+  /** 点击通知栏时触发 */
+  click: [result: { index: number; text: string }]
+}>()
+
+/** 选择器常量 */
+const $wrap = '.wd-notice-bar__wrap'
+const $content = '.wd-notice-bar__content'
+
+/** 响应式数据 */
+const wrapWidth = ref<number>(0)
+const show = ref<boolean>(true)
+const currentIndex = ref<number>(0)
+const verticalIndex = ref<number>(0)
+
+/** 过渡状态 */
+const transitionState = reactive<UTSJSONObject>({
+  transitionProperty: 'unset',
+  transitionDelay: 'unset',
+  transitionDuration: 'unset',
+  transform: 'none',
+  transitionTimingFunction: 'linear',
+})
+
+/** 获取当前组件实例 */
+const { proxy } = getCurrentInstance()!
+
+/**
+ * 计算文本数组
+ */
+const textArray = computed(() : string[] => {
+  if (Array.isArray(props.text)) {
+    return props.text as string[]
+  } else {
+    return [props.text as string]
+  }
+})
+
+/**
+ * 计算当前显示的文本
+ */
+const currentText = computed(() : string => textArray.value[currentIndex.value])
+
+/**
+ * 判断是否为横向滚动
+ */
+const isHorizontal = computed(() : boolean => props.direction === 'horizontal')
+
+/**
+ * 判断是否为纵向滚动
+ */
+const isVertical = computed(() : boolean => props.direction === 'vertical')
+
+/**
+ * 计算动画样式
+ */
+const animation = computed(() : string => {
+  const parts : string[] = []
+  const keys = Object.keys(transitionState)
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]
+    const value = transitionState[key]
+    if (value != null && value !== '') {
+      const kebabKey = key.replace(/[A-Z]/g, (match : string) : string => {
+        return `-${match.toLowerCase()}`
+      })
+      parts.push(`${kebabKey}:${value}`)
+    }
+  }
+  return parts.join(';')
+})
+
+/**
+ * 查询元素尺寸信息
+ */
+const queryRect = () : Promise<any[]> => {
+  return Promise.all([getRect($wrap, false, proxy), getRect($content, false, proxy)])
+}
+
+/**
+ * 设置过渡动画参数
+ */
+const setTransition = (params : {
+  duration: number
+  delay: number
+  translate: number
+}) : void => {
+  transitionState['transitionProperty'] = 'all'
+  transitionState['transitionDelay'] = `${params.delay}s`
+  transitionState['transitionDuration'] = `${params.duration}s`
+  transitionState['transform'] = `${props.direction === 'vertical' ? 'translateY' : 'translateX'}(${addUnit(params.translate)})`
+  transitionState['transitionTimingFunction'] = 'linear'
+}
+
+/**
+ * 纵向滚动动画处理
+ */
+const verticalAnimate = async (height : number) : Promise<void> => {
+  const heightRpx = pxToRpx(height)
+  const translate = -(heightRpx / (textArray.value.length + 1)) * (currentIndex.value + 1)
+  setTransition({
+    duration: heightRpx / (textArray.value.length + 1) / props.speed,
+    delay: props.delay,
+    translate,
+  })
+}
+
+/**
+ * 执行滚动动画
+ */
+const scroll = async () : Promise<void> => {
+  try {
+    const rects = await queryRect()
+    const wRect = rects[0]
+    const cRect = rects[1]
+
+    if (wRect == null || cRect == null) return
+    if (wRect['width'] == null || cRect['width'] == null || cRect['height'] == null) return
+
+    const wRectWidth = wRect['width'] as number
+    const cRectWidth = cRect['width'] as number
+    const cRectHeight = cRect['height'] as number
+
+    wrapWidth.value = pxToRpx(wRectWidth)
+
+    if (isHorizontal.value) {
+      if (props.scrollable) {
+        const contentWidthRpx = pxToRpx(cRectWidth)
+        setTransition({
+          duration: contentWidthRpx / props.speed,
+          delay: props.delay,
+          translate: -contentWidthRpx,
+        })
+      }
+    } else {
+      if (textArray.value.length > 1) {
+        await verticalAnimate(cRectHeight)
+      }
+    }
+  } catch (_e) {
+    // 查询失败,静默处理
+  }
+}
+
+/**
+ * 启动过渡动画
+ */
+const startTransition = () : void => {
+  nextTick(() => {
+    scroll()
+  })
+}
+
+/**
+ * 停止过渡动画
+ */
+const stopTransition = () : void => {
+  transitionState['transitionProperty'] = 'unset'
+  transitionState['transitionDelay'] = 'unset'
+  transitionState['transitionDuration'] = 'unset'
+  transitionState['transform'] = 'none'
+  transitionState['transitionTimingFunction'] = 'linear'
+  currentIndex.value = 0
+  verticalIndex.value = 0
+}
+
+/**
+ * 重置动画状态
+ */
+const reset = () : void => {
+  stopTransition()
+  startTransition()
+}
+
+/** 监听文本变化 */
+watch(() => props.text, () => {
+  reset()
+}, { deep: true })
+
+/** 页面激活时启动动画 */
+onActivated(() => {
+  startTransition()
+})
+
+/** 页面失活时停止动画 */
+onDeactivated(() => {
+  stopTransition()
+})
+
+/**
+ * 处理关闭按钮点击事件
+ */
+const handleClose = () : void => {
+  show.value = false
+  emit('close')
+}
+
+/**
+ * 切换到下一条文本
+ */
+const next = () : void => {
+  if (currentIndex.value >= textArray.value.length - 1) {
+    currentIndex.value = 0
+  } else {
+    currentIndex.value++
+  }
+  emit('next', currentIndex.value)
+}
+
+/**
+ * 动画结束回调
+ */
+const animationEnd = () : void => {
+  if (isHorizontal.value) {
+    setTransition({
+      duration: 0,
+      delay: 0,
+      translate: wrapWidth.value + 2,
+    })
+  } else {
+    if (++verticalIndex.value >= textArray.value.length) {
+      verticalIndex.value = 0
+      setTransition({
+        duration: 0,
+        delay: 0,
+        translate: 0,
+      })
+    }
+  }
+
+  const timer = setTimeout(() => {
+    next()
+
+    nextTick(async () => {
+      try {
+        const rects = await queryRect()
+        const wRect = rects[0]
+        const cRect = rects[1]
+
+        if (wRect != null && wRect['width'] != null) {
+          wrapWidth.value = pxToRpx(wRect['width'] as number)
+        }
+
+        if (cRect == null || cRect['width'] == null || cRect['height'] == null) return
+
+        const cRectWidth = cRect['width'] as number
+        const cRectHeight = cRect['height'] as number
+
+        if (isHorizontal.value) {
+          const contentWidthRpx = pxToRpx(cRectWidth)
+          setTransition({
+            duration: (wrapWidth.value + contentWidthRpx) / props.speed,
+            delay: props.delay,
+            translate: -contentWidthRpx,
+          })
+        } else {
+          await verticalAnimate(cRectHeight)
+        }
+      } catch (_e) {
+        // 查询失败,静默处理
+      }
+    })
+
+    clearTimeout(timer)
+  }, 20)
+}
+
+/**
+ * 处理点击事件
+ */
+const handleClick = () : void => {
+  let resultIndex = 0
+  let resultText = ''
+
+  if (Array.isArray(props.text)) {
+    const textArr = props.text as string[]
+    resultIndex = currentIndex.value
+    resultText = textArr[currentIndex.value]
+  } else {
+    resultIndex = 0
+    resultText = props.text as string
+  }
+
+  emit('click', { index: resultIndex, text: resultText })
+}
+
+/** 组件挂载后的处理 */
+onMounted(() => {
+  startTransition()
+})
+
+/** 暴露组件方法 */
+defineExpose({
+  reset,
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+@include b(notice-bar) {
+  display: flex;
+  /* UniApp X 的 view 默认 flex-direction: column，需显式覆盖为行布局 */
+  flex-direction: row;
+  padding: $-notice-bar-padding;
+  align-items: center;
+  font-size: $-notice-bar-fs;
+  border-radius: $-notice-bar-border-radius;
+  position: relative;
+  box-sizing: border-box;
+
+  @include when(warning) {
+    background: $-notice-bar-warning-bg;
+    color: $-notice-bar-warning-color;
+  }
+
+  @include when(info) {
+    background: $-notice-bar-info-bg;
+    color: $-notice-bar-info-color;
+  }
+
+  @include when(danger) {
+    background: $-notice-bar-danger-bg;
+    color: $-notice-bar-danger-color;
+  }
+
+  @include e(prefix) {
+    padding-right: 8rpx;
+    font-size: $-notice-bar-prefix-size;
+  }
+
+  @include e(suffix) {
+    text-align: center;
+    font-size: $-notice-bar-close-size;
+    display: flex;
+    background-color: $-notice-bar-close-bg;
+    color: $-notice-bar-close-color;
+    padding: 0;
+    border-radius: 0rpx 16rpx 0rpx 8rpx;
+    position: absolute;
+    right: 0;
+    top: 0;
+  }
+
+  @include e(wrap) {
+    position: relative;
+    flex: 1;
+    height: $-notice-bar-line-height;
+    overflow: hidden;
+    line-height: $-notice-bar-line-height;
+  }
+
+  @include e(content) {
+    position: absolute;
+    white-space: nowrap;
+  }
+
+  @include m(ellipse) {
+    .wd-notice-bar__content {
+      position: static;
+      @include lineEllipsis;
+    }
+  }
+
+  @include m(wrap) {
+    .wd-notice-bar__wrap {
+      height: auto;
+    }
+    .wd-notice-bar__content {
+      position: static;
+      white-space: normal;
+    }
+  }
+}
+</style>

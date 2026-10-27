@@ -1,0 +1,225 @@
+<!--
+Switch 开关 用来打开或关闭选项。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- boolean | string | number 联合类型 → 分开处理
+- SwitchBeforeChangeOption interface → type
+- display: inline-block → display: flex
+- ::after 伪元素 → 使用 view 替代
+- transition → 不支持，移除
+- import { addUnit } → 从 ../common/util 导入
+-->
+<template>
+  <view
+    :class="`wd-switch ${customClass} ${disabled ? 'is-disabled' : ''} ${isChecked ? 'is-checked' : ''}`"
+    :style="rootStyle"
+    @click="switchValue"
+  >
+    <view
+      class="wd-switch__circle"
+      :style="circleStyle"
+    >
+      <!-- 替代 ::after 伪元素的边框视图 -->
+      <view
+        v-if="!isChecked || (!activeColor && !inactiveColor)"
+        class="wd-switch__circle-border"
+      />
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { ref, computed, onBeforeMount } from 'vue'
+import { addUnit } from '../common/util'
+
+/**
+ * 切换前回调选项类型
+ */
+type SwitchBeforeChangeOption = {
+  /** 新的值（字符串表示） */
+  value : string
+  /** 确认回调函数 */
+  resolve : (pass : boolean) => void
+}
+
+/**
+ * Switch 组件属性
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 绑定值（使用 string 传递） */
+  modelValue ?: string
+  /** 是否禁用 */
+  disabled ?: boolean
+  /** 激活值 */
+  activeValue ?: string
+  /** 非激活值 */
+  inactiveValue ?: string
+  /** 激活颜色 */
+  activeColor ?: string
+  /** 非激活颜色 */
+  inactiveColor ?: string
+  /** 开关大小 */
+  size ?: string
+  /** 在改变前执行的函数 */
+  beforeChange ?: ((option : SwitchBeforeChangeOption) => void) | null
+}>(), {
+  customStyle: '',
+  customClass: '',
+  modelValue: 'false',
+  disabled: false,
+  activeValue: 'true',
+  inactiveValue: 'false',
+  activeColor: '',
+  inactiveColor: '',
+  size: '',
+  beforeChange: null,
+})
+
+const emit = defineEmits<{
+  (e : 'update:modelValue', value : string) : void
+  (e : 'change', data : UTSJSONObject) : void
+}>()
+
+/**
+ * 是否为选中状态
+ */
+const isChecked = computed(() : boolean => {
+  return props.modelValue == props.activeValue
+})
+
+/**
+ * 根节点样式
+ */
+const rootStyle = computed(() : string => {
+  let style = ''
+  const checked = isChecked.value
+  if (checked && props.activeColor != '') {
+    style += `background-color: ${props.activeColor}; border-color: ${props.activeColor};`
+  } else if (!checked && props.inactiveColor != '') {
+    style += `background-color: ${props.inactiveColor}; border-color: ${props.inactiveColor};`
+  }
+  if (props.size != '') {
+    style += ` font-size: ${addUnit(props.size)};`
+  }
+  if (props.customStyle != '') {
+    style += ' ' + props.customStyle
+  }
+  return style
+})
+
+/**
+ * 圆形按钮样式
+ */
+const circleStyle = computed(() : string => {
+  const checked = isChecked.value
+  if ((checked && props.activeColor != '') || (!checked && props.inactiveColor != '')) {
+    return 'box-shadow: none;'
+  }
+  return ''
+})
+
+/**
+ * 更新组件值
+ */
+const updateValue = (value : string) => {
+  emit('update:modelValue', value)
+  const data : UTSJSONObject = { 'value': value }
+  emit('change', data)
+}
+
+/**
+ * 切换开关状态
+ */
+const switchValue = () => {
+  if (props.disabled) return
+
+  const newValue = isChecked.value ? props.inactiveValue : props.activeValue
+
+  if (props.beforeChange != null) {
+    const option : SwitchBeforeChangeOption = {
+      value: newValue,
+      resolve: (pass : boolean) => {
+        if (pass) {
+          updateValue(newValue)
+        }
+      },
+    }
+    props.beforeChange!(option)
+  } else {
+    updateValue(newValue)
+  }
+}
+
+/**
+ * 组件挂载前验证初始值
+ */
+onBeforeMount(() => {
+  if (props.modelValue != props.activeValue && props.modelValue != props.inactiveValue) {
+    updateValue(props.inactiveValue)
+  }
+})
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+/* 开关组件样式 */
+@include b(switch) {
+  display: flex;
+  position: relative;
+  width: $-switch-width;
+  height: $-switch-height;
+  border-radius: $-switch-circle-size;
+  background-color: $-switch-inactive-color;
+  font-size: $-switch-size;
+
+  /* 圆形按钮样式 */
+  @include e(circle) {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: $-switch-circle-size;
+    height: $-switch-circle-size;
+    top: 4rpx;
+    left: 4rpx;
+    background-color: #fff;
+    border-radius: 100px;
+    box-shadow: 0 4rpx 8rpx 0 $-switch-inactive-shadow-color;
+  }
+
+  /* 圆形按钮边框（替代 ::after） */
+  .wd-switch__circle-border {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    border: 1rpx solid $-switch-border-color;
+    border-radius: 100px;
+  }
+
+  /* 选中状态样式 */
+  @include when(checked) {
+    background-color: $-switch-active-color;
+    border-color: $-switch-active-color;
+
+    .wd-switch__circle {
+      left: calc($-switch-width - $-switch-circle-size - 4rpx);
+      box-shadow: 0 4rpx 8rpx 0 $-switch-active-shadow-color;
+    }
+  }
+
+  /* 禁用状态样式 */
+  @include when(disabled) {
+    opacity: 0.5;
+  }
+}
+</style>

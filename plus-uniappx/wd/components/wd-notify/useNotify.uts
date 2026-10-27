@@ -1,0 +1,227 @@
+/**
+ * Notify 消息通知 Composable
+ *
+ * UniApp X 版本
+ * - 移除 export type
+ * - .substr(2, 9) → .substring(2, 11)
+ * - ReturnType<typeof setTimeout> → number
+ * - 移除 as NotifyOptions 类型断言
+ * - 联合类型 → string
+ * - NotifyOptions / NotifyType 从 wd-notify.vue 移到此处
+ */
+import { type Ref, ref } from 'vue'
+import { deepMerge } from '../common/util'
+
+/**
+ * Notify 类型
+ * 可选值：'primary' | 'success' | 'danger' | 'warning'
+ */
+/* export type NotifyType = string */
+
+/**
+ * Notify 配置项
+ */
+export type NotifyOptions = {
+  /** 通知类型 */
+  type ?: string
+  /** 提示信息 */
+  message ?: string
+  /** 持续时间（毫秒） */
+  duration ?: number
+  /** 文字颜色 */
+  color ?: string
+  /** 背景颜色 */
+  background ?: string
+  /** 层级 */
+  zIndex ?: number
+  /** 是否显示 */
+  show ?: boolean
+  /** 顶部安全距离 */
+  safeHeight ?: number
+  /** 关闭回调 */
+  onClose ?: (() => void) | null
+  /** 点击回调 */
+  onClick ?: ((event : any) => void) | null
+  /** 选择器 */
+  selector ?: string
+}
+
+/** 全局 Notify 选项缓存 */
+const notifyOptionsCache = new Map<string, Ref<NotifyOptions>>()
+
+/** 活动 Notify 定时器缓存 */
+const notifyTimerCache = new Map<string, number>()
+
+/** 当前最大层级 */
+let currentMaxZIndex = 1010
+
+/** 默认配置 */
+const defaultOptions : NotifyOptions = {
+  type: 'danger',
+  message: '',
+  duration: 3000,
+  color: '#fff',
+  background: '',
+  zIndex: 1010,
+  show: false,
+  safeHeight: 0,
+  onClose: null,
+  onClick: null,
+  selector: '',
+}
+
+/**
+ * 生成 Notify ID
+ */
+const generateNotifyId = () : string => {
+  return 'notify_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now().toString(36)
+}
+
+/**
+ * 获取 Notify 选项（带缓存）
+ */
+export const getNotifyOption = (selector : string) : Ref<NotifyOptions> => {
+  const key = selector != '' ? selector : 'default'
+
+  if (!notifyOptionsCache.has(key)) {
+    const opts : NotifyOptions = {
+      type: 'danger',
+      message: '',
+      duration: 3000,
+      color: '#fff',
+      background: '',
+      zIndex: 1010,
+      show: false,
+      safeHeight: 0,
+      onClose: null,
+      onClick: null,
+      selector: '',
+    }
+    notifyOptionsCache.set(key, ref(opts))
+  }
+
+  return notifyOptionsCache.get(key)!
+}
+
+/**
+ * useNotify 组合式函数
+ */
+export const useNotify = (selector : string = '') : {
+  show : (option : NotifyOptions | string) => void
+  primary : (option ?: NotifyOptions | string) => void
+  success : (option ?: NotifyOptions | string) => void
+  danger : (option ?: NotifyOptions | string) => void
+  warning : (option ?: NotifyOptions | string) => void
+  close : () => void
+} => {
+  const notifyOption = getNotifyOption(selector)
+  const instanceKey = selector != '' ? selector : 'default'
+
+  /**
+   * 显示通知
+   */
+  const show = (option : NotifyOptions | string) => {
+    let opts : NotifyOptions
+    if (typeof option == 'string') {
+      const merged = deepMerge(deepMerge({} as UTSJSONObject, defaultOptions as UTSJSONObject), { message: option } as UTSJSONObject)
+      opts = merged as NotifyOptions
+    } else {
+      const merged = deepMerge(deepMerge({} as UTSJSONObject, defaultOptions as UTSJSONObject), option as UTSJSONObject)
+      opts = merged as NotifyOptions
+    }
+
+    /* 清除之前的定时器 */
+    if (notifyTimerCache.has(instanceKey)) {
+      const prevTimer = notifyTimerCache.get(instanceKey)!
+      if (prevTimer > 0) {
+        clearTimeout(prevTimer)
+      }
+      notifyTimerCache.delete(instanceKey)
+    }
+
+    /* 设置层级 */
+    currentMaxZIndex++
+    opts.show = true
+    opts.zIndex = currentMaxZIndex
+
+    notifyOption.value = opts
+
+    /* 自动关闭 */
+    const duration = opts.duration ?? 3000
+    if (duration > 0) {
+      const timer = setTimeout(() => {
+        close()
+      }, duration) as number
+      notifyTimerCache.set(instanceKey, timer)
+    }
+  }
+
+  /**
+   * 关闭通知
+   */
+  const close = () => {
+    /* 清除定时器 */
+    if (notifyTimerCache.has(instanceKey)) {
+      const timer = notifyTimerCache.get(instanceKey)!
+      if (timer > 0) {
+        clearTimeout(timer)
+      }
+      notifyTimerCache.delete(instanceKey)
+    }
+
+    const current = notifyOption.value
+    const onCloseCallback = current.onClose
+
+    /* 重置选项 */
+    const resetOpts : NotifyOptions = {
+      type: 'danger',
+      message: '',
+      duration: 3000,
+      color: '#fff',
+      background: '',
+      zIndex: 1010,
+      show: false,
+      safeHeight: 0,
+      onClose: null,
+      onClick: null,
+      selector: '',
+    }
+    notifyOption.value = resetOpts
+
+    if (onCloseCallback != null) {
+      onCloseCallback!()
+    }
+  }
+
+  /**
+   * 创建预设方法
+   */
+  const createMethod = (notifyType : string) : ((option ?: NotifyOptions | string) => void) => {
+    return (option ?: NotifyOptions | string) => {
+      if (option == null) {
+        show({ type: notifyType })
+      } else if (typeof option == 'string') {
+        const merged = deepMerge({ type: notifyType } as UTSJSONObject, { message: option } as UTSJSONObject)
+        show(merged as NotifyOptions)
+      } else {
+        const o = option as NotifyOptions
+        const merged = deepMerge({ type: notifyType } as UTSJSONObject, o as UTSJSONObject)
+        show(merged as NotifyOptions)
+      }
+    }
+  }
+
+  const primary = createMethod('primary')
+  const success = createMethod('success')
+  const danger = createMethod('danger')
+  const warning = createMethod('warning')
+
+  return {
+    show,
+    primary,
+    success,
+    danger,
+    warning,
+    close,
+  }
+}

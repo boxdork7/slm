@@ -1,0 +1,147 @@
+/**
+ * English - UniApp X Version
+ */
+export const enUS : UTSJSONObject = {
+  calendar: {
+    placeholder: 'Select',
+    title: 'Select Date',
+    day: 'Date',
+    week: 'Week',
+    month: 'Month',
+    confirm: 'OK',
+    startTime: 'Start Date',
+    endTime: 'End Date',
+    to: 'To',
+    timeFormat: 'YY-MM-DD HH:mm:ss',
+    dateFormat: 'YYYY-MM-DD',
+    weekFormat: '{0} W{1}',
+    startWeek: 'Start Week',
+    endWeek: 'End Week',
+    startMonth: 'Start Month',
+    endMonth: 'End Month',
+    monthFormat: 'YYYY-MM',
+  },
+  calendarView: {
+    startTime: 'Start Time',
+    endTime: 'End Time',
+    weeks: {
+      sun: 'Sun',
+      mon: 'Mon',
+      tue: 'Tue',
+      wed: 'Wed',
+      thu: 'Thu',
+      fri: 'Fri',
+      sat: 'Sat',
+    },
+    rangePrompt: 'The number of selected days cannot exceed {0} days',
+    rangePromptWeek: 'The number of weeks selected cannot exceed {0} weeks',
+    rangePromptMonth: 'The selected month cannot exceed {0} months',
+    monthTitle: 'YYYY-MM',
+    yearTitle: 'YYYY',
+    month: 'MM',
+    hour: '{0}',
+    minute: '{0}',
+    second: '{0}',
+  },
+  datetimePicker: {
+    start: 'From',
+    end: 'To',
+    to: 'To',
+    placeholder: 'Select',
+    confirm: 'OK',
+    cancel: 'Cancel',
+  },
+  collapse: {
+    expand: 'Expand',
+    retract: 'Fold',
+  },
+  colPicker: {
+    title: 'Select',
+    placeholder: 'Select',
+    select: 'Select',
+  },
+  loadmore: {
+    loading: 'Loading...',
+    finished: 'Finished loading',
+    error: 'Failed to load...',
+    retry: 'Refresh',
+  },
+  imgCropper: {
+    confirm: 'OK',
+    cancel: 'Cancel',
+  },
+  messageBox: {
+    inputPlaceholder: 'Please input information',
+    confirm: 'OK',
+    cancel: 'Cancel',
+    inputNoValidate: 'Please ensure you input correct information',
+  },
+  numberKeyboard: {
+    confirm: 'done',
+  },
+  pagination: {
+    prev: 'Previous',
+    next: 'Next',
+    page: 'Page: {0}',
+    total: 'Total: {0}',
+    size: '{0}/page',
+  },
+  picker: {
+    cancel: 'Cancel',
+    done: 'Done',
+    placeholder: 'Select',
+  },
+  search: {
+    search: 'Search',
+    cancel: 'Cancel',
+  },
+  steps: {
+    wait: 'Not Started',
+    finished: 'Expired',
+    process: 'In Progress',
+    failed: 'Failed',
+  },
+  tabs: {
+    all: 'All',
+  },
+  upload: {
+    error: 'Failed to upload',
+  },
+  input: {
+    placeholder: 'Please input information...',
+  },
+  selectPicker: {
+    title: 'Select',
+    placeholder: 'Select',
+    select: 'Select',
+    confirm: 'Ok',
+    filterPlaceholder: 'Search',
+  },
+  tag: {
+    placeholder: 'Enter',
+    add: 'Add Tag',
+  },
+  textarea: {
+    placeholder: 'Please input information...',
+  },
+  tableCol: {
+    indexLabel: 'index',
+  },
+  signature: {
+    confirmText: 'OK',
+    clearText: 'Clear',
+    revokeText: 'Undo',
+    restoreText: 'Restore',
+  },
+  navbar: {
+    back: 'Back',
+    home: 'Home',
+    backHome: 'Home',
+  },
+  languageSelector: {
+    title: 'Select Language',
+    cancel: 'Cancel',
+    changeSuccess: 'Language changed successfully',
+    changeFailed: 'Language change failed',
+  },
+}

@@ -1,0 +1,147 @@
+/**
+ * 德语 - UniApp X Version
+ */
+export const deDE : UTSJSONObject = {
+  calendar: {
+    placeholder: 'Wählen Sie',
+    title: 'Datum auswählen',
+    day: 'Tag',
+    week: 'Woche',
+    month: 'Monat',
+    confirm: 'Bestätigen',
+    startTime: 'Startdatum',
+    endTime: 'Enddatum',
+    to: 'bis',
+    timeFormat: 'YY-MM-DD HH:mm:ss',
+    dateFormat: 'YYYY-MM-DD',
+    weekFormat: 'Woche {1} {0}',
+    startWeek: 'Startwoche',
+    endWeek: 'Endwoche',
+    startMonth: 'Startmonat',
+    endMonth: 'Endmonat',
+    monthFormat: 'YYYY-MM',
+  },
+  calendarView: {
+    startTime: 'Startzeit',
+    endTime: 'Endzeit',
+    weeks: {
+      sun: 'So',
+      mon: 'Mo',
+      tue: 'Di',
+      wed: 'Mi',
+      thu: 'Do',
+      fri: 'Fr',
+      sat: 'Sa',
+    },
+    rangePrompt: 'Die Anzahl der ausgewählte Tage darf {0} Tage nicht überschreiten',
+    rangePromptWeek: 'Die Anzahl der ausgewählte Wochen darf {0} Wochen nicht überschreiten',
+    rangePromptMonth: 'Die Anzahl der ausgewählte Monate darf {0} Monate nicht überschreiten',
+    monthTitle: 'YYYY-MM',
+    yearTitle: 'YYYY',
+    month: 'MM',
+    hour: '{0} Stunde',
+    minute: '{0} Minute',
+    second: '{0} Sekunde',
+  },
+  datetimePicker: {
+    start: 'Von',
+    end: 'Bis',
+    to: 'bis',
+    placeholder: 'Wählen Sie',
+    confirm: 'Bestätigen',
+    cancel: 'Abbrechen',
+  },
+  collapse: {
+    expand: 'Expandieren',
+    retract: 'Falten',
+  },
+  colPicker: {
+    title: 'Wählen',
+    placeholder: 'Wählen',
+    select: 'Wählen',
+  },
+  loadmore: {
+    loading: 'Laden...',
+    finished: 'Das Laden ist abgeschlossen',
+    error: 'Laden fehlgeschlagen...',
+    retry: 'Aktualisieren',
+  },
+  imgCropper: {
+    confirm: 'OK',
+    cancel: 'Stornieren',
+  },
+  messageBox: {
+    inputPlaceholder: 'Bitte geben Sie Informationen ein',
+    confirm: 'OK',
+    cancel: 'Stornieren',
+    inputNoValidate: 'Bitte geben Sie gültige Informationen ein',
+  },
+  numberKeyboard: {
+    confirm: 'OK',
+  },
+  pagination: {
+    prev: 'Vorherige',
+    next: 'Nächste',
+    page: 'Seite: {0}',
+    total: 'Gesamt: {0}',
+    size: '{0}/Seite',
+  },
+  picker: {
+    cancel: 'Stornieren',
+    done: 'OK',
+    placeholder: 'Wählen',
+  },
+  search: {
+    search: 'Suchen',
+    cancel: 'Stornieren',
+  },
+  steps: {
+    wait: 'Nicht gestartet',
+    finished: 'Abgelaufen',
+    process: 'Im Gange',
+    failed: 'Fehlgeschlagen',
+  },
+  tabs: {
+    all: 'Alle',
+  },
+  upload: {
+    error: 'Hochladen fehlgeschlagen',
+  },
+  input: {
+    placeholder: 'Bitte geben Sie Informationen ein...',
+  },
+  selectPicker: {
+    title: 'Auswählen',
+    placeholder: 'Wählen Sie',
+    select: 'Auswählen',
+    confirm: 'Bestätigen',
+    filterPlaceholder: 'Suchen',
+  },
+  tag: {
+    placeholder: 'Eingeben',
+    add: 'Tag hinzufügen',
+  },
+  textarea: {
+    placeholder: 'Bitte geben Sie Informationen ein...',
+  },
+  tableCol: {
+    indexLabel: 'Index',
+  },
+  signature: {
+    confirmText: 'Bestätigen',
+    clearText: 'Löschen',
+    revokeText: 'Rückgängig machen',
+    restoreText: 'Wiederherstellen',
+  },
+  navbar: {
+    back: 'Zurück',
+    home: 'Startseite',
+    backHome: 'Startseite',
+  },
+  languageSelector: {
+    title: 'Sprache auswählen',
+    cancel: 'Abbrechen',
+    changeSuccess: 'Sprache erfolgreich geändert',
+    changeFailed: 'Sprachänderung fehlgeschlagen',
+  }
+}

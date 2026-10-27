@@ -1,0 +1,318 @@
+<!--
+SwipeAction �������� �����ڵ�Ԫ�����һ�ɾ�������Ʋ���
+
+UniApp X �汾
+- �Ƴ� defineOptions
+- �Ƴ� export interface/type��UTS ��֧�� script setup �� export��
+- SwipeActionStatus/SwipeActionReason/SwipeActionPosition �������͸�Ϊ string
+- any ��Ϊ�������ͻ� UTSJSONObject
+- Record<string, any> ��Ϊ UTSJSONObject
+- :deep() ��Ϊֱ����ѡ����
+- display: inline-block ��Ϊ display: flex
+- TouchEvent ��Ϊ UniTouchEvent
+- ComponentPublicInstance ��Ϊ any��ʵ�����ͣ�
+- inject/provide ���й�����
+-->
+<template>
+  <view
+    :class="`wd-swipe-action ${customClass}`"
+    :style="customStyle"
+    @click.stop="onClick()"
+    @touchstart="startDrag"
+    @touchmove="onDrag"
+    @touchend="endDrag"
+    @touchcancel="endDrag"
+  >
+    <view class="wd-swipe-action__wrapper" :style="wrapperStyle">
+      <view class="wd-swipe-action__left" @click="onClick('left')">
+        <slot name="left" />
+      </view>
+      <slot />
+      <view class="wd-swipe-action__right" @click="onClick('right')">
+        <slot name="right" />
+      </view>
+    </view>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { getCurrentInstance, onBeforeMount, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { getRect } from '../common/util'
+import { useTouch } from '../composables/useTouch'
+
+/**
+ * ���������������
+ */
+const props = withDefaults(defineProps<{
+  /** �Զ�����ڵ���ʽ */
+  customStyle ?: string
+  /** �Զ�����ڵ���ʽ�� */
+  customClass ?: string
+  /** ������ť��״̬����ѡֵ��'left'��'close'��'right' */
+  modelValue ?: string
+  /** �Ƿ���û������� */
+  disabled ?: boolean
+}>(), {
+  customStyle: '',
+  customClass: '',
+  modelValue: 'close',
+  disabled: false,
+})
+
+/** ����¼� */
+const emit = defineEmits(['click', 'update:modelValue'])
+
+/** ��Ӧʽ���� */
+const wrapperStyle = ref<string>('')
+const originOffset = ref<number>(0)
+const wrapperOffset = ref<number>(0)
+const touching = ref<boolean>(false)
+
+/** �������� */
+const touch = useTouch()
+
+/** ��ȡ��ǰ���ʵ�� */
+const { proxy } = getCurrentInstance()!
+
+/**
+ * wrapper��������
+ */
+const swipeMove = (offset : number = 0) => {
+  const transform = `translate3d(${offset}px, 0, 0)`
+  const transition = touching.value ? 'none' : '.6s cubic-bezier(0.18, 0.89, 0.32, 1)'
+  wrapperStyle.value = `
+    -webkit-transform: ${transform};
+    -webkit-transition: ${transition};
+    transform: ${transform};
+    transition: ${transition};
+  `
+  wrapperOffset.value = offset
+}
+
+/**
+ * �رղ�����ť
+ */
+const close = (reason : string, position : string | null = null) => {
+  let finalPosition = position
+
+  if (reason === 'swipe' && originOffset.value === 0) {
+    return swipeMove(0)
+  } else if (reason === 'swipe' && originOffset.value > 0) {
+    finalPosition = 'left'
+  } else if (reason === 'swipe' && originOffset.value < 0) {
+    finalPosition = 'right'
+  }
+
+  swipeMove(0)
+  if (props.modelValue !== 'close') {
+    emit('update:modelValue', 'close')
+  }
+}
+
+/**
+ * ��ȡ���Ҳ�����ť�Ŀ���
+ */
+const getWidths = () : Promise<number[]> => {
+  return new Promise<number[]>((resolve) => {
+    Promise.all([
+      getRect('.wd-swipe-action__left', false, proxy).then((rect) : number => {
+        return (rect as any).width ? (rect as any).width : 0
+      }).catch(() : number => 0),
+      getRect('.wd-swipe-action__right', false, proxy).then((rect) : number => {
+        return (rect as any).width ? (rect as any).width : 0
+      }).catch(() : number => 0),
+    ]).then((widths) => {
+      resolve(widths)
+    })
+  })
+}
+
+/**
+ * �ı�״̬
+ */
+const changeState = (value : string, old : string | null = null) => {
+  if (props.disabled) {
+    return
+  }
+  getWidths().then((widths : number[]) => {
+    const leftWidth = widths[0]
+    const rightWidth = widths[1]
+
+    if (value === 'close') {
+      if (wrapperOffset.value === 0) return
+      close('value', old)
+    } else if (value === 'left') {
+      swipeMove(leftWidth)
+    } else if (value === 'right') {
+      swipeMove(-rightWidth)
+    }
+  })
+}
+
+/**
+ * ����modelValue�仯
+ */
+watch(
+  () => props.modelValue,
+  (value, old) => {
+    changeState(value, old as string | null)
+  },
+  { deep: true },
+)
+
+/**
+ * ����¼�����
+ */
+const onClick = (position : string | null = null) => {
+  if (props.disabled || wrapperOffset.value === 0) {
+    return
+  }
+
+  const finalPosition = position != null ? position : 'inside'
+  close('click', finalPosition)
+  emit('click', { value: finalPosition })
+}
+
+/**
+ * ��ʼ����
+ */
+const startDrag = (event : UniTouchEvent) => {
+  if (props.disabled) return
+
+  originOffset.value = wrapperOffset.value
+  touch.touchStart(event)
+}
+
+/**
+ * ����ʱ����չʾ��ť
+ */
+const onDrag = (event : UniTouchEvent) => {
+  if (props.disabled) return
+
+  touch.touchMove(event)
+  if (touch.direction.value === 'vertical') {
+    return
+  } else {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  touching.value = true
+
+  const offset = originOffset.value + touch.deltaX.value
+  getWidths().then((widths : number[]) => {
+    const leftWidth = widths[0]
+    const rightWidth = widths[1]
+
+    if ((leftWidth === 0 && offset > 0) || (rightWidth === 0 && offset < 0)) {
+      swipeMove(0)
+      return startDrag(event)
+    }
+
+    if (leftWidth !== 0 && offset >= leftWidth) {
+      swipeMove(leftWidth)
+      return startDrag(event)
+    } else if (rightWidth !== 0 && -offset >= rightWidth) {
+      swipeMove(-rightWidth)
+      return startDrag(event)
+    }
+    swipeMove(offset)
+  })
+}
+
+/**
+ * �����������Զ�����λ��
+ */
+const endDrag = () => {
+  if (props.disabled) return
+  const THRESHOLD = 0.3
+  touching.value = false
+
+  getWidths().then((widths : number[]) => {
+    const leftWidth = widths[0]
+    const rightWidth = widths[1]
+
+    if (
+      originOffset.value < 0 &&
+      wrapperOffset.value < 0 &&
+      wrapperOffset.value - originOffset.value < rightWidth * THRESHOLD
+    ) {
+      swipeMove(-rightWidth)
+      emit('update:modelValue', 'right')
+    } else if (
+      originOffset.value > 0 &&
+      wrapperOffset.value > 0 &&
+      originOffset.value - wrapperOffset.value < leftWidth * THRESHOLD
+    ) {
+      swipeMove(leftWidth)
+      emit('update:modelValue', 'left')
+    } else if (
+      rightWidth > 0 &&
+      originOffset.value >= 0 &&
+      wrapperOffset.value < 0 &&
+      Math.abs(wrapperOffset.value) > rightWidth * THRESHOLD
+    ) {
+      swipeMove(-rightWidth)
+      emit('update:modelValue', 'right')
+    } else if (
+      leftWidth > 0 &&
+      originOffset.value <= 0 &&
+      wrapperOffset.value > 0 &&
+      Math.abs(wrapperOffset.value) > leftWidth * THRESHOLD
+    ) {
+      swipeMove(leftWidth)
+      emit('update:modelValue', 'left')
+    } else {
+      close('swipe')
+    }
+  })
+}
+
+/**
+ * �������ǰ����
+ */
+onBeforeMount(() => {
+  originOffset.value = 0
+  wrapperOffset.value = 0
+  touching.value = false
+})
+
+/**
+ * ������غ���
+ */
+onMounted(() => {
+  touching.value = true
+  changeState(props.modelValue)
+  touching.value = false
+})
+
+/** ��¶�رշ��� */
+defineExpose({ close })
+</script>
+
+<style lang="scss">
+@import '../common/abstracts/variable';
+@import '../common/abstracts/mixin';
+
+@include b(swipe-action) {
+  position: relative;
+  overflow: hidden;
+
+  @include e(left) {
+    left: 0;
+    transform: translate3d(-100%, 0, 0);
+  }
+
+  @include e(right) {
+    right: 0;
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
+.wd-swipe-action__left,
+.wd-swipe-action__right {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+</style>

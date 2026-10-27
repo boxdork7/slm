@@ -1,0 +1,47 @@
+/**
+ * 步骤条 Provide/Inject 键和类型定义 - UniApp X 版本
+ *
+ * 与 plus-app 版本差异：
+ * - 移除 InjectionKey 泛型（UTS 不支持 Symbol/InjectionKey）
+ * - 改用字符串 key + type 定义
+ * - WdStepsProps 类型直接内联定义
+ */
+
+/**
+ * 步骤条组件属性接口
+ */
+export type WdStepsProps = {
+	/** 自定义根节点样式 */
+	customStyle ?: string
+	/** 自定义根节点样式类 */
+	customClass ?: string
+	/** 当前激活的步骤进度，以数字表示 */
+	active ?: number
+	/** 是否为垂直方向的步骤条 */
+	vertical ?: boolean
+	/** 是否为点状步骤条样式 */
+	dot ?: boolean
+	/** 步骤条之间的间距，默认为自动计算 */
+	space ?: string
+	/** 是否将步骤条水平居中显示，只对横向步骤条有效 */
+	alignCenter ?: boolean
+}
+
+/**
+ * 步骤条容器 Provide 接口
+ */
+export type StepsProvide = {
+	/** 已注册子组件的 UID 列表 */
+	childUids : number[]
+	/** 注册子组件 */
+	addChild : (uid : number) => void
+	/** 注销子组件 */
+	removeChild : (uid : number) => void
+	/** 步骤条属性 */
+	props : WdStepsProps
+}
+
+/**
+ * 步骤条容器注入键（字符串 key）
+ */
+export const STEPS_KEY = 'wd-steps'

@@ -1,0 +1,136 @@
+<!--
+IndexAnchor - 索引导航的锚点组件，支持吸顶效果和与IndexBar父组件联动显示当前激活状态。
+
+UniApp X 版本
+- 移除 defineOptions
+- 移除手动组件导入（easycom 自动注册）
+- 使用 inject + genChildUid 替代 useParent
+- getCurrentInstance().proxy → 移除，getRect 不传 scope
+- ComputedRef<boolean> → computed 返回类型显式标注为 boolean
+- ComponentPublicInstance → 不需要导出（UTS 不支持）
+- watch immediate: true → 在 onMounted 中执行初始化逻辑
+- 移除 defineExpose（UTS 中不需要，子组件通过 provide/inject 通信）
+-->
+<template>
+  <view
+    :id="indexAnchorId"
+    :class="`wd-index-anchor ${isSticky ? 'is-sticky' : ''} ${customClass}`"
+    :style="customStyle"
+  >
+    <slot>
+      {{ index }}
+    </slot>
+  </view>
+</template>
+
+<script lang="uts" setup>
+import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
+import { getRect, isDef, uuid } from '../common/util'
+import { genChildUid } from '../../composables/useChildren'
+import { INDEX_BAR_KEY, type AnchorIndex, type IndexBarProvide } from '../wd-index-bar/wd-index-bar-key'
+
+/**
+ * 索引锚点组件属性接口
+ */
+const props = withDefaults(defineProps<{
+  /** 自定义根节点样式 */
+  customStyle ?: string
+  /** 自定义根节点样式类 */
+  customClass ?: string
+  /** 索引值 */
+  index : AnchorIndex
+}>(), {
+  customStyle: '',
+  customClass: '',
+})
+
+/** 获取父组件（IndexBar）实例 */
+const indexBar = inject<IndexBarProvide | null>(INDEX_BAR_KEY, null)
+
+/** 当前组件的唯一 ID */
+const myUid = ref<number>(0)
+
+/** 锚点唯一ID */
+const indexAnchorId = ref<string>(`indexAnchor${uuid()}`)
+
+/** 锚点距离顶部的位置 */
+const top = ref<number>(0)
+
+/**
+ * 是否处于吸顶状态
+ */
+const isSticky = computed(() : boolean => {
+  return indexBar != null && indexBar.props.sticky && indexBar.anchorState.activeIndex === props.index
+})
+
+/**
+ * 获取锚点位置信息
+ * 计算锚点距离页面顶部的距离
+ */
+const getInfo = () => {
+  getRect(`#${indexAnchorId.value}`, false).then((res : any) => {
+    if (res != null && res['top'] != null) {
+      top.value = Math.floor(res['top'] as number)
+      // 更新父组件中的 top 值
+      if (indexBar != null) {
+        indexBar.updateChildTop(myUid.value, top.value)
+      }
+    }
+  }).catch((_err : Error) => {
+    // 忽略错误
+  })
+}
+
+/**
+ * 组件挂载时注册到父组件
+ */
+onMounted(() => {
+  myUid.value = genChildUid()
+  if (indexBar != null) {
+    indexBar.addChild(myUid.value)
+    // 初始注册数据（top 为 0，稍后通过 getInfo 更新）
+    indexBar.registerChildData(myUid.value, props.index, 0)
+  }
+
+  // 获取位置信息
+  getInfo()
+})
+
+/**
+ * 组件卸载时从父组件注销
+ */
+onUnmounted(() => {
+  if (indexBar != null) {
+    indexBar.removeChild(myUid.value)
+  }
+})
+</script>
+
+<style lang="scss">
+// 引入外部样式文件
+@import '../common/abstracts/_mixin.scss';
+@import '../common/abstracts/variable.scss';
+
+// 暗色主题样式
+.wot-theme-dark {
+  @include b(index-anchor) {
+    background-color: $-color-gray-8;
+    color: $-color-white;
+  }
+}
+
+// 索引锚点样式
+@include b(index-anchor) {
+  background-color: $-color-gray-2;
+  padding: 20rpx;
+  font-size: 28rpx;
+  color: $-color-title;
+
+  @include when(sticky) {
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 1;
+  }
+}
+</style>

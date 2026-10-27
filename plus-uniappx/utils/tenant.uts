@@ -1,0 +1,120 @@
+/**
+ * 租户管理工具 (UniApp X 版本)
+ *
+ * 保持与 plus-app/utils/tenant.ts 完全相同的导出接口
+ *
+ * 提供租户 ID 的获取、设置和管理功能
+ *
+ * UTS 适配说明：
+ * - Record<string, string> → UTSJSONObject
+ * - H5 条件编译使用 WEB 标识
+ * - APP 条件编译使用 APP-ANDROID || APP-HARMONY
+ */
+import { cache } from '@/utils/cache'
+
+export const TENANT_STORAGE_KEY = 'tenantId'
+export const DEFAULT_TENANT_ID = '000000'
+
+/**
+ * 设置租户ID
+ */
+export const setTenantId = (tenantId : string) => {
+	const trimmed = tenantId.trim()
+	if (trimmed.length > 0) {
+		cache.set(TENANT_STORAGE_KEY, trimmed, 0)
+	}
+}
+
+/**
+ * 清除租户ID
+ */
+export const clearTenantId = () => {
+	cache.remove(TENANT_STORAGE_KEY)
+}
+
+/**
+ * 从URL获取租户ID (H5环境)
+ */
+/* #ifdef WEB */
+const getTenantIdFromUrl = () : string | null => {
+	try {
+		const urlParams = new URLSearchParams(window.location.search)
+
+		let tenantId = urlParams.get('tenantId')
+		if (tenantId != null && tenantId!.length > 0) {
+			return tenantId
+		}
+
+		const redirect = urlParams.get('redirect')
+		if (redirect != null && redirect!.length > 0) {
+			const decodedRedirect : string = decodeURIComponent(redirect!) ?? redirect!
+			const questionIndex = decodedRedirect.indexOf('?')
+			if (questionIndex > -1) {
+				const query : string = decodedRedirect.substring(questionIndex + 1)
+				const redirectParams = new URLSearchParams(query)
+				tenantId = redirectParams.get('tenantId')
+				if (tenantId != null && tenantId!.length > 0) {
+					return tenantId
+				}
+			}
+		}
+
+		return null
+	} catch (error) {
+		console.warn('从URL获取租户ID失败:', error)
+		return null
+	}
+}
+/* #endif */
+
+/**
+ * 获取当前租户ID
+ */
+export const getTenantId = () : string => {
+	/* 1. 优先从本地存储获取 */
+	const cached = cache.getString(TENANT_STORAGE_KEY)
+	if (cached != null && cached!.length > 0) {
+		return cached!
+	}
+
+	/* 2. H5环境下从URL参数获取 */
+	/* #ifdef WEB */
+	const urlTenantId = getTenantIdFromUrl()
+	if (urlTenantId != null) {
+		setTenantId(urlTenantId!)
+		return urlTenantId!
+	}
+	/* #endif */
+
+	/* 3. 返回默认租户ID */
+	return DEFAULT_TENANT_ID
+}
+
+/**
+ * 检查是否是有效的租户ID
+ */
+export const isValidTenantId = (tenantId ?: string) : boolean => {
+	const id = tenantId != null ? tenantId! : getTenantId()
+	return id.trim().length > 0 && id != DEFAULT_TENANT_ID
+}
+
+/**
+ * 获取租户相关的请求头
+ */
+export const getTenantHeaders = () : UTSJSONObject => {
+	const tenantId = getTenantId()
+	if (isValidTenantId(tenantId)) {
+		const headers = {} as UTSJSONObject
+		headers['X-Tenant-Id'] = tenantId
+		return headers
+	}
+	return {} as UTSJSONObject
+}
+
+/**
+ * 租户常量
+ */
+export const TENANT_CONFIG = {
+	STORAGE_KEY: TENANT_STORAGE_KEY,
+	DEFAULT_ID: DEFAULT_TENANT_ID,
+}

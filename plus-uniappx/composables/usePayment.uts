@@ -1,0 +1,404 @@
+/**
+ * 支付组合函数 (UniApp X 版本)
+ *
+ * 从 plus-app/composables/usePayment.ts 迁移的 UTS 版本
+ *
+ * 包含以下功能：
+ * - 创建订单并支付 (createOrderAndPay)
+ * - 支付已有订单 (payOrder)
+ * - 轮询订单状态 (pollOrderStatus)
+ * - 获取支付方式 (fetchAvailableMethods)
+ * - 平台信息 (getPlatformInfo)
+ *
+ * UTS 适配说明：
+ * - enum PaymentMethod / TradeType → const 字符串常量
+ * - 泛型 Promise<[Error | null, T]> → AsyncResult
+ * - readonly() → 直接返回 ref
+ * - 联合类型 → string
+ * - 解构赋值 → 显式访问属性
+ * - toWithRetry → 手动循环实现轮询
+ */
+import { ref } from 'vue'
+import { AsyncResult } from '@/utils/to'
+import {
+	createOrder,
+	createPayment,
+	queryOrderStatus,
+	getSupportedPaymentMethods,
+} from '@/api/common/mall/order/orderApi'
+
+// ================================
+// 支付方式和交易类型常量
+// ================================
+
+/** 微信支付 */
+export const PAYMENT_WECHAT = 'WECHAT'
+/** 支付宝支付 */
+export const PAYMENT_ALIPAY = 'ALIPAY'
+/** 余额支付 */
+export const PAYMENT_BALANCE = 'BALANCE'
+
+/** 交易类型 - APP */
+export const TRADE_TYPE_APP = 'APP'
+/** 交易类型 - JSAPI */
+export const TRADE_TYPE_JSAPI = 'JSAPI'
+/** 交易类型 - H5 */
+export const TRADE_TYPE_H5 = 'H5'
+/** 交易类型 - NATIVE */
+export const TRADE_TYPE_NATIVE = 'NATIVE'
+/** 交易类型 - WAP */
+export const TRADE_TYPE_WAP = 'WAP'
+
+// ================================
+// 内部支付调用
+// ================================
+
+/**
+ * 微信APP支付
+ */
+const callWechatAppPay = (payInfo : UTSJSONObject) : Promise<boolean> => {
+	return new Promise<boolean>((resolve) => {
+		console.log('开始微信APP支付')
+
+		if (payInfo == null) {
+			resolve(false)
+			return
+		}
+
+		uni.requestPayment({
+			provider: 'wxpay',
+			orderInfo: {
+				'appid': payInfo['appId'] as string,
+				'noncestr': payInfo['nonceStr'] as string,
+				'package': payInfo['package'] as string,
+				'partnerid': payInfo['partnerid'] as string,
+				'prepayid': payInfo['prepayid'] as string,
+				'timestamp': payInfo['timeStamp'] as string,
+				'sign': payInfo['paySign'] as string,
+			} as UTSJSONObject,
+			success: (_res : any) => {
+				console.log('微信APP支付成功')
+				resolve(true)
+			},
+			fail: (err : any) => {
+				console.error('微信APP支付失败:', err)
+				resolve(false)
+			},
+		})
+	})
+}
+
+/**
+ * 支付宝APP支付
+ */
+const callAlipayAppPay = (paymentResult : UTSJSONObject) : Promise<boolean> => {
+	return new Promise<boolean>((resolve) => {
+		const payForm = paymentResult['payForm'] as string | null
+		const payUrl = paymentResult['payUrl'] as string | null
+		const orderInfo = payForm != null ? payForm! : (payUrl != null ? payUrl! : '')
+
+		if (orderInfo.length == 0) {
+			console.error('支付宝支付信息为空')
+			resolve(false)
+			return
+		}
+
+		uni.requestPayment({
+			provider: 'alipay',
+			orderInfo: orderInfo,
+			success: (_res : any) => {
+				console.log('支付宝APP支付成功')
+				resolve(true)
+			},
+			fail: (err : any) => {
+				console.error('支付宝APP支付失败:', err)
+				resolve(false)
+			},
+		})
+	})
+}
+
+// ================================
+// 支付组合函数
+// ================================
+
+/**
+ * 支付组合函数
+ */
+export const usePayment = () => {
+	const loading = ref<boolean>(false)
+	const availableMethods = ref<string[]>([] as string[])
+
+	/**
+	 * 检查平台支付能力
+	 */
+	const isWechatPaySupported = () : boolean => {
+		return true
+	}
+
+	const isAlipayPaySupported = () : boolean => {
+		return true
+	}
+
+	const isBalancePaySupported = () : boolean => {
+		return true
+	}
+
+	/**
+	 * 根据支付方式获取交易类型
+	 */
+	const getTradeType = (paymentMethod : string) : string => {
+		if (paymentMethod == PAYMENT_WECHAT) {
+			return TRADE_TYPE_APP
+		} else if (paymentMethod == PAYMENT_ALIPAY) {
+			return TRADE_TYPE_APP
+		}
+		return TRADE_TYPE_APP
+	}
+
+	/**
+	 * 获取可用的支付方式
+	 */
+	const fetchAvailableMethods = () : Promise<AsyncResult> => {
+		return getSupportedPaymentMethods().then((result : AsyncResult) : AsyncResult => {
+			if (result.err == null && result.data != null) {
+				const methods = result.data as string[]
+				const filtered : string[] = []
+				for (let i = 0; i < methods.length; i++) {
+					const method = methods[i]
+					if (method == PAYMENT_WECHAT && isWechatPaySupported()) {
+						filtered.push(method)
+					} else if (method == PAYMENT_ALIPAY && isAlipayPaySupported()) {
+						filtered.push(method)
+					} else if (method == PAYMENT_BALANCE && isBalancePaySupported()) {
+						filtered.push(method)
+					}
+				}
+				availableMethods.value = filtered
+			} else {
+				console.error('获取支付方式失败:', result.err)
+			}
+			return result
+		})
+	}
+
+	/**
+	 * 执行支付调用
+	 */
+	const executePayment = (paymentMethod : string, paymentResult : UTSJSONObject) : Promise<boolean> => {
+		if (paymentMethod == PAYMENT_WECHAT) {
+			const payInfo = paymentResult['payInfo'] as UTSJSONObject | null
+			if (payInfo == null) {
+				return Promise.resolve(false)
+			}
+			return callWechatAppPay(payInfo!)
+		} else if (paymentMethod == PAYMENT_ALIPAY) {
+			return callAlipayAppPay(paymentResult)
+		} else if (paymentMethod == PAYMENT_BALANCE) {
+			return Promise.resolve(true)
+		}
+		return Promise.resolve(false)
+	}
+
+	/**
+	 * 创建订单并支付
+	 * @param orderData 订单数据（UTSJSONObject 格式）
+	 * @param paymentMethod 支付方式（PAYMENT_WECHAT / PAYMENT_ALIPAY / PAYMENT_BALANCE）
+	 * @param tradeType 交易类型（可选，不传则自动选择）
+	 * @param appId 应用ID（可选）
+	 * @param openId 用户openId（可选）
+	 * @param payPassword 支付密码（余额支付时使用）
+	 * @param returnUrl 回调URL（可选）
+	 */
+	const createOrderAndPay = (
+		orderData : UTSJSONObject,
+		paymentMethod : string,
+		tradeType ?: string,
+		appId ?: string,
+		openId ?: string,
+		payPassword ?: string,
+		returnUrl ?: string,
+	) : Promise<AsyncResult> => {
+		loading.value = true
+
+		/* 1. 创建订单 */
+		return createOrder(orderData).then((createResult : AsyncResult) : Promise<AsyncResult> => {
+			if (createResult.err != null || createResult.data == null) {
+				loading.value = false
+				const errMsg = createResult.err != null ? createResult.err!.message : '创建订单失败'
+				return Promise.resolve({ err: new Error(errMsg), data: null } as AsyncResult)
+			}
+
+			const orderResult = createResult.data as UTSJSONObject
+			console.log('订单创建成功:', orderResult)
+
+			/* 2. 发起支付 */
+			const finalTradeType = tradeType != null ? tradeType! : getTradeType(paymentMethod)
+			const paymentRequest = {
+				'orderNo': orderResult['orderNo'],
+				'paymentMethod': paymentMethod,
+				'tradeType': finalTradeType,
+				'appId': appId,
+				'openId': openId,
+				'payPassword': payPassword,
+				'returnUrl': returnUrl,
+			} as UTSJSONObject
+
+			return createPayment(paymentRequest).then((payResult : AsyncResult) : Promise<AsyncResult> => {
+				if (payResult.err != null || payResult.data == null) {
+					loading.value = false
+					const errMsg = payResult.err != null ? payResult.err!.message : '发起支付失败'
+					return Promise.resolve({ err: new Error(errMsg), data: null } as AsyncResult)
+				}
+
+				const paymentResultData = payResult.data as UTSJSONObject
+				console.log('支付请求成功:', paymentResultData)
+
+				const success = paymentResultData['success'] as boolean | null
+				if (success != true) {
+					loading.value = false
+					const msg = (paymentResultData['message'] as string | null) ?? '支付失败'
+					return Promise.resolve({ err: new Error(msg), data: null } as AsyncResult)
+				}
+
+				/* 3. 执行支付调用 */
+				return executePayment(paymentMethod, paymentResultData).then((paymentSuccess : boolean) : AsyncResult => {
+					loading.value = false
+					if (paymentSuccess) {
+						const resultData = {
+							'orderData': orderResult,
+							'paymentData': paymentResultData,
+						} as UTSJSONObject
+						return { err: null, data: resultData } as AsyncResult
+					} else {
+						return { err: new Error('支付调用失败'), data: null } as AsyncResult
+					}
+				})
+			})
+		})
+	}
+
+	/**
+	 * 支付已有订单
+	 * @param orderNo 订单号
+	 * @param paymentMethod 支付方式
+	 * @param tradeType 交易类型（可选）
+	 * @param appId 应用ID（可选）
+	 * @param openId 用户openId（可选）
+	 * @param payPassword 支付密码（可选）
+	 * @param returnUrl 回调URL（可选）
+	 */
+	const payOrder = (
+		orderNo : string,
+		paymentMethod : string,
+		tradeType ?: string,
+		appId ?: string,
+		openId ?: string,
+		payPassword ?: string,
+		returnUrl ?: string,
+	) : Promise<AsyncResult> => {
+		loading.value = true
+
+		const finalTradeType = tradeType != null ? tradeType! : getTradeType(paymentMethod)
+		const paymentRequest = {
+			'orderNo': orderNo,
+			'paymentMethod': paymentMethod,
+			'tradeType': finalTradeType,
+			'appId': appId,
+			'openId': openId,
+			'payPassword': payPassword,
+			'returnUrl': returnUrl,
+		} as UTSJSONObject
+
+		return createPayment(paymentRequest).then((payResult : AsyncResult) : Promise<AsyncResult> => {
+			if (payResult.err != null || payResult.data == null) {
+				loading.value = false
+				const errMsg = payResult.err != null ? payResult.err!.message : '发起支付失败'
+				return Promise.resolve({ err: new Error(errMsg), data: null } as AsyncResult)
+			}
+
+			const paymentResultData = payResult.data as UTSJSONObject
+			console.log('支付请求成功:', paymentResultData)
+
+			const success = paymentResultData['success'] as boolean | null
+			if (success != true) {
+				loading.value = false
+				const msg = (paymentResultData['message'] as string | null) ?? '支付失败'
+				return Promise.resolve({ err: new Error(msg), data: null } as AsyncResult)
+			}
+
+			return executePayment(paymentMethod, paymentResultData).then((paymentSuccess : boolean) : AsyncResult => {
+				loading.value = false
+				if (paymentSuccess) {
+					return { err: null, data: paymentResultData } as AsyncResult
+				} else {
+					return { err: new Error('支付调用失败'), data: null } as AsyncResult
+				}
+			})
+		})
+	}
+
+	/**
+	 * 轮询查询订单状态
+	 * @param orderNo 订单号
+	 * @param maxRetries 最大重试次数（默认2次）
+	 * @param intervalMs 轮询间隔毫秒数（默认2000ms）
+	 */
+	const pollOrderStatus = (
+		orderNo : string,
+		maxRetries : number = 2,
+		intervalMs : number = 2000,
+	) : Promise<AsyncResult> => {
+		console.log(`开始轮询订单状态: ${orderNo}，最多重试 ${maxRetries} 次`)
+
+		const doRetry = (attempt : number) : Promise<AsyncResult> => {
+			return queryOrderStatus(orderNo).then((result : AsyncResult) : Promise<AsyncResult> => {
+				if (result.err == null) {
+					return Promise.resolve(result)
+				}
+				if (attempt >= maxRetries) {
+					return Promise.resolve(result)
+				}
+				/* 等待后重试 */
+				return new Promise<AsyncResult>((resolve) => {
+					setTimeout(() => {
+						doRetry(attempt + 1).then((r : AsyncResult) => {
+							resolve(r)
+						})
+					}, intervalMs)
+				})
+			})
+		}
+
+		return doRetry(0)
+	}
+
+	/**
+	 * 获取当前平台信息
+	 */
+	const getPlatformInfo = () : UTSJSONObject => {
+		const info = {} as UTSJSONObject
+		info['platform'] = 'app'
+		info['supportsWechatPay'] = isWechatPaySupported()
+		info['supportsAlipayPay'] = isAlipayPaySupported()
+		info['supportsBalancePay'] = isBalancePaySupported()
+		return info
+	}
+
+	/* 初始化时获取可用的支付方式 */
+	fetchAvailableMethods()
+
+	return {
+		loading,
+		availableMethods,
+		createOrderAndPay,
+		payOrder,
+		pollOrderStatus,
+		getTradeType,
+		fetchAvailableMethods,
+		getPlatformInfo,
+		isWechatPaySupported,
+		isAlipayPaySupported,
+		isBalancePaySupported,
+	}
+}
